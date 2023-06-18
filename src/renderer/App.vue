@@ -54,8 +54,6 @@ export default {
       this.addTab({ sessionIndex: this.currentSessionIndex })
     })
 
-    console.log(localStorage.getItem('info-modal-shown'))
-
     if (!localStorage.getItem('info-modal-shown')) {
       this.showModal = true
       localStorage.setItem('info-modal-shown', 'true')

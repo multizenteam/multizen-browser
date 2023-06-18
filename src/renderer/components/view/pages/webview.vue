@@ -143,7 +143,7 @@ export default {
     },
 
     didFailLoad (e) {
-      console.info('Load failed with error code: ', e.errorCode, e.message)
+      console.info('Load failed with error code: ', e.errorCode)
     },
 
     initView () {

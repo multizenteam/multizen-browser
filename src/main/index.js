@@ -17,6 +17,7 @@ const titleVersion = devMode ? 'DEVELOPMENT' : `${appVersion}`.trim()
 const windowTitle = `MultiZen Browser ${titleVersion}`
 const pathApp = path.join('file://', __dirname, '/index.html')
 const electronWindowLocation = devMode ? 'http://127.0.0.1:9080' : pathApp
+const isMacOS = process.platform === 'darwin'
 
 app.name = appName
 app.setPath('userData', path.join(appDataPath, appName))
@@ -225,9 +226,17 @@ ipcMain.on('minimize-window', (event) => {
 ipcMain.on('maximize-window', (event) => {
   if (electronWindow && !electronWindow.isDestroyed()) {
     if (electronWindow.isMaximized()) {
-      electronWindow.unmaximize()
+      if (isMacOS) {
+        electronWindow.setFullScreen(false)
+      } else {
+        electronWindow.unmaximize()
+      }
     } else {
-      electronWindow.maximize()
+      if (isMacOS) {
+        electronWindow.setFullScreen(true)
+      } else {
+        electronWindow.maximize()
+      }
     }
   }
 })

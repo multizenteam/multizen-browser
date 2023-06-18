@@ -1,29 +1,54 @@
 <template>
-  <div class="top-bar">
+  <div
+    class="top-bar"
+    :class="{ 'macos': isMacOS }"
+  >
     <tabs />
 
     <div
       class="top-bar-actions"
-      :class="{ 'macos': isMacOS }"
     >
-      <button
-        class="top-bar-minimize"
-        @click="minimizeWindow"
-      >
-        <i class="fa fa-window-minimize" />
-      </button>
-      <button
-        class="top-bar-maximize"
-        @click="maximizeWindow"
-      >
-        <i class="fa fa-window-maximize" />
-      </button>
-      <button
-        class="top-bar-close"
-        @click="closeWindow"
-      >
-        <i class="fa fa-times" />
-      </button>
+      <template v-if="isMacOS">
+        <button
+          class="top-bar-close"
+          @click="closeWindow"
+        >
+          <i class="fa fa-times" />
+        </button>
+        <button
+          class="top-bar-minimize"
+          @click="minimizeWindow"
+        >
+          <i class="fa fa-window-minimize" />
+        </button>
+        <button
+          class="top-bar-maximize"
+          @click="maximizeWindow"
+        >
+          <i class="fa fa-window-maximize" />
+        </button>
+      </template>
+
+      <template v-else>
+        <button
+          class="top-bar-minimize"
+          @click="minimizeWindow"
+        >
+          <i class="fa fa-window-minimize" />
+        </button>
+        <button
+          class="top-bar-maximize"
+          @click="maximizeWindow"
+        >
+          <i class="fa fa-window-maximize" />
+        </button>
+        <button
+          class="top-bar-close"
+          @click="closeWindow"
+        >
+          <i class="fa fa-times" />
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -65,6 +90,63 @@ export default {
     align-items: center;
     height: 38px;
     background-color: #342b69;
+    flex-direction: row-reverse;
+
+    &.macos {
+        flex-direction: row-reverse;
+
+        .top-bar-actions {
+            margin-left: 0;
+
+            button {
+                position: relative;
+                width: 14px;
+                height: 14px;
+                outline: none;
+                margin: 0 3px;
+                border: 0;
+                background: rgba(137, 150, 193, 0.22);
+                border-radius: 50%;
+                text-align: center;
+                cursor: default;
+                transition: 0.2s ease;
+                color: rgb(0 0 0 / 31%);
+                font-size: 8px;
+
+                &:hover {
+                    i {
+                        opacity: 1;
+                    }
+                }
+
+                &.top-bar-close {
+                    background-color: #ff5f56;
+                }
+
+                &.top-bar-minimize {
+                    background-color: #ffbd2e;
+                }
+
+                &.top-bar-maximize {
+                    background-color: #27c93f;
+                }
+
+                i {
+                    display: flex;
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    opacity: 0;
+                }
+            }
+        }
+
+        .tabs-container {
+            padding-left: 12px;
+            margin-right: auto;
+        }
+    }
 }
 
 .top-bar-actions {
@@ -74,12 +156,6 @@ export default {
     padding: 0 5px;
     cursor: default;
     -webkit-app-region: no-drag;
-
-    &.macos {
-        // todo: adopt it for mac os
-        justify-content: flex-start;
-        flex-direction: row-reverse;
-    }
 
     button {
         width: 24px;
