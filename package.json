@@ -1,0 +1,136 @@
+{
+    "name": "multizen-browser",
+    "productName": "MultiZen Browser",
+    "version": "0.1.1",
+    "homepage": "https://GetMultizen.com",
+    "author": "MultiZen Team <oboshto@gmail.com>",
+    "description": "MultiZen Browser: The New Dimension of Web Browsing. Experience simultaneous, seamless multi-session browsing that puts you in control. Navigate the web in tranquility with the privacy and anonymity you desire. Welcome to MultiZen - Your personal space for calm, clutter-free web exploration.",
+    "private": true,
+    "main": "./dist/electron/main.js",
+    "scripts": {
+        "build": "node .electron-vue/build.js && electron-builder -mwl",
+        "build:dir": "node .electron-vue/build.js && electron-builder --dir",
+        "build:dir:win": "node .electron-vue/build.js && electron-builder --dir --win",
+        "build:dir:linux": "node .electron-vue/build.js && electron-builder --dir --linux",
+        "build:win:linux": "node .electron-vue/build.js && electron-builder -wl",
+        "build:win": "node .electron-vue/build.js && electron-builder --win nsis:x64",
+        "build:linux": "node .electron-vue/build.js && electron-builder --linux deb",
+        "build:mac": "node .electron-vue/build.js && electron-builder --mac dmg",
+        "build:clean": "cross-env BUILD_TARGET=clean node .electron-vue/build.js",
+        "build:web": "cross-env BUILD_TARGET=web node .electron-vue/build.js",
+        "dev": "node .electron-vue/dev-runner.js",
+        "pack": "npm run pack:main && npm run pack:renderer",
+        "pack:main": "cross-env NODE_ENV=production webpack --progress --colors --config .electron-vue/webpack.main.config.js",
+        "pack:renderer": "cross-env NODE_ENV=production webpack --progress --colors --config .electron-vue/webpack.renderer.config.js"
+    },
+    "build": {
+        "productName": "MultiZen Browser",
+        "appId": "com.imbacorp.multizen",
+        "directories": {
+            "output": "build"
+        },
+        "files": [
+            "dist/electron/**/*"
+        ],
+        "dmg": {
+            "contents": [
+                {
+                    "x": 410,
+                    "y": 150,
+                    "type": "link",
+                    "path": "/Applications"
+                },
+                {
+                    "x": 130,
+                    "y": 150,
+                    "type": "file"
+                }
+            ]
+        },
+        "mac": {
+            "icon": "build/icons/icon.icns"
+        },
+        "win": {
+            "icon": "build/icons/icon.png",
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ]
+        },
+        "linux": {
+            "icon": "build/icons",
+            "category": "Network;WebBrowser;",
+            "target": [
+                {
+                    "target": "deb",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ]
+        }
+    },
+    "dependencies": {
+        "@electron/remote": "^2.0.10",
+        "electron-context-menu": "^0.10.0",
+        "electron-debug": "3.2.0",
+        "electron-log": "^4.4.8",
+        "font-awesome": "4.7.0",
+        "lodash": "^4.17.10",
+        "urijs": "^1.19.1",
+        "vue": "2.6.14",
+        "vuex": "3.6.2",
+        "vuex-persistedstate": "^2.5.4"
+    },
+    "devDependencies": {
+        "babel-core": "6.26.3",
+        "babel-eslint": "10.1.0",
+        "babel-loader": "7.1.5",
+        "babel-plugin-transform-runtime": "6.23.0",
+        "babel-plugin-wildcard": "5.0.0",
+        "babel-preset-env": "1.7.0",
+        "babel-preset-stage-0": "6.24.1",
+        "babel-register": "6.26.0",
+        "cfonts": "^3.2.0",
+        "chalk": "^2.4.1",
+        "copy-webpack-plugin": "^4.5.1",
+        "cross-env": "^5.1.6",
+        "css-loader": "^0.28.11",
+        "del": "^3.0.0",
+        "electron": "21.4.0",
+        "electron-builder": "23.3.3",
+        "electron-devtools-installer": "3.2.0",
+        "eslint": "7.32.0",
+        "eslint-config-standard": "16.0.3",
+        "eslint-friendly-formatter": "4.0.1",
+        "eslint-loader": "4.0.2",
+        "eslint-plugin-html": "6.2.0",
+        "eslint-plugin-import": "2.24.2",
+        "eslint-plugin-node": "11.1.0",
+        "eslint-plugin-promise": "5.1.0",
+        "eslint-plugin-standard": "5.0.0",
+        "eslint-plugin-vue": "7.18.0",
+        "file-loader": "^1.1.11",
+        "html-webpack-plugin": "^3.2.0",
+        "mini-css-extract-plugin": "0.4.0",
+        "multispinner": "^0.2.1",
+        "node-loader": "0.6.0",
+        "sass": "1.42.1",
+        "sass-loader": "10.1.0",
+        "style-loader": "^0.21.0",
+        "url-loader": "1.1.2",
+        "vue-html-loader": "^1.2.4",
+        "vue-loader": "15.9.8",
+        "vue-style-loader": "4.1.3",
+        "vue-template-compiler": "2.6.14",
+        "webpack": "4.44.2",
+        "webpack-cli": "4.8.0",
+        "webpack-dev-server": "3.1.14",
+        "webpack-hot-middleware": "2.25.1",
+        "webpack-merge": "5.8.0"
+    }
+}

@@ -1,0 +1,29 @@
+*::-webkit-scrollbar {
+    position: absolute;
+    background-color: transparent;
+    width: 4px;
+    height: 4px;
+}
+
+*::-webkit-scrollbar-track {
+    position: absolute;
+    background-color: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 16px;
+    border: 1px solid #11101f;
+}
+
+*::-webkit-scrollbar-button {
+    display: none;
+}
+
+.d-block {
+    display: block;
+}
+
+.d-flex {
+    display: flex;
+}
