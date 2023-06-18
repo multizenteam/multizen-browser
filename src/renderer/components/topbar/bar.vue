@@ -90,7 +90,6 @@ export default {
     align-items: center;
     height: 38px;
     background-color: #342b69;
-    flex-direction: row-reverse;
 
     &.macos {
         flex-direction: row-reverse;
