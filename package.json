@@ -3,6 +3,13 @@
     "productName": "MultiZen Browser",
     "version": "0.1.1",
     "homepage": "https://GetMultizen.com",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/oboshto/multizen-browser.git"
+    },
+    "bugs": {
+        "url": "https://github.com/oboshto/multizen-browser/issues"
+    },
     "author": "MultiZen Team <oboshto@gmail.com>",
     "description": "MultiZen Browser: The New Dimension of Web Browsing. Experience simultaneous, seamless multi-session browsing that puts you in control. Navigate the web in tranquility with the privacy and anonymity you desire. Welcome to MultiZen - Your personal space for calm, clutter-free web exploration.",
     "private": true,
@@ -15,7 +22,7 @@
         "build:win:linux": "node .electron-vue/build.js && electron-builder -wl",
         "build:win": "node .electron-vue/build.js && electron-builder --win nsis:x64",
         "build:linux": "node .electron-vue/build.js && electron-builder --linux deb",
-        "build:mac": "node .electron-vue/build.js && electron-builder --mac dmg",
+        "build:mac": "node .electron-vue/build.js && electron-builder --mac",
         "build:clean": "cross-env BUILD_TARGET=clean node .electron-vue/build.js",
         "build:web": "cross-env BUILD_TARGET=web node .electron-vue/build.js",
         "dev": "node .electron-vue/dev-runner.js",
