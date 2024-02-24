@@ -1,174 +1,175 @@
 <template>
-  <div class="view-settings">
-    <div
-      class="settings-wrap"
-      v-if="currentSession"
-    >
-      <h1>Session Settings</h1>
-      <div class="session-info">
-        <p>Session ID: {{ currentSession.id }}</p>
-        <p>These settings apply to the current session only.</p>
-        <button
-          @click="closeSession"
-          class="close-session-btn"
-        >
-          Close session
-        </button>
-      </div>
-      <hr>
-      <div>
-        <div class="settings-block">
-          <h4>Home page</h4>
-          <div class="input-block">
-            <input
-              class="d-block"
-              type="url"
-              required
-              @blur="saveHomePage"
-              @change="saveHomePage"
-              v-model="homePage"
-            >
-          </div>
-        </div>
-        <hr>
-        <div class="settings-block">
-          <h4>User Agent</h4>
-          <div class="input-block">
-            <div class="d-flex">
-              <input
-                class="d-block"
-                type="text"
-                @blur="saveUserAgent"
-                @change="saveUserAgent"
-                v-model="userAgent"
-              >
-              <button
-                class="set-ua-btn"
-                @click="setDefaultUserAgent"
-              >
-                <i class="fa fa-globe" /> Set default
-              </button>
-
-              <button
-                class="set-ua-btn"
-                @click="setRandomUserAgent"
-              >
-                <i class="fa fa-refresh" /> Get random
-              </button>
+    <div class="view-settings">
+        <div v-if="currentSession" class="settings-wrap">
+            <h1>Session Settings</h1>
+            <div class="session-info">
+                <p>Session ID: {{ currentSession.id }}</p>
+                <p>These settings apply to the current session only.</p>
+                <button class="close-session-btn" @click="closeSession">
+                    Close session
+                </button>
             </div>
-          </div>
-        </div>
-        <hr>
+            <hr />
+            <div>
+                <div class="settings-block">
+                    <h4>Home page</h4>
+                    <div class="input-block">
+                        <input
+                            v-model="homePage"
+                            class="d-block"
+                            type="url"
+                            required
+                            @blur="saveHomePage"
+                            @change="saveHomePage"
+                        />
+                    </div>
+                </div>
+                <hr />
+                <div class="settings-block">
+                    <h4>User Agent</h4>
+                    <div class="input-block">
+                        <div class="d-flex">
+                            <input
+                                v-model="userAgent"
+                                class="d-block"
+                                type="text"
+                                @blur="saveUserAgent"
+                                @change="saveUserAgent"
+                            />
+                            <button
+                                class="set-ua-btn"
+                                @click="setDefaultUserAgent"
+                            >
+                                <i class="fa fa-globe" /> Set default
+                            </button>
 
-        <div class="settings-block">
-          <div class="input-block">
-            <label class="checkbox-block disabled">
-              <input
-                type="checkbox"
-                disabled
-              >
-              <span>Disable Ads <span style="font-style: italic">(COMING SOON!)</span></span>
-            </label>
-          </div>
-        </div>
-        <hr>
+                            <button
+                                class="set-ua-btn"
+                                @click="setRandomUserAgent"
+                            >
+                                <i class="fa fa-refresh" /> Get random
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <hr />
 
-        <div class="settings-block">
-          <div class="input-block">
-            <label class="checkbox-block disabled">
-              <input
-                type="checkbox"
-                disabled
-              >
-              <span>Enable Proxy <span style="font-style: italic">(COMING SOON!)</span></span>
-            </label>
-          </div>
-        </div>
-        <hr>
+                <div class="settings-block">
+                    <div class="input-block">
+                        <label class="checkbox-block disabled">
+                            <input type="checkbox" disabled />
+                            <span
+                                >Disable Ads
+                                <span style="font-style: italic"
+                                    >(COMING SOON!)</span
+                                ></span
+                            >
+                        </label>
+                    </div>
+                </div>
+                <hr />
 
-        <div class="settings-block">
-          <div class="input-block">
-            <label class="checkbox-block disabled">
-              <input
-                type="checkbox"
-                disabled
-              >
-              <span>Default Search Engine <span style="font-style: italic">(COMING SOON!)</span></span>
-            </label>
-          </div>
+                <div class="settings-block">
+                    <div class="input-block">
+                        <label class="checkbox-block disabled">
+                            <input type="checkbox" disabled />
+                            <span
+                                >Enable Proxy
+                                <span style="font-style: italic"
+                                    >(COMING SOON!)</span
+                                ></span
+                            >
+                        </label>
+                    </div>
+                </div>
+                <hr />
+
+                <div class="settings-block">
+                    <div class="input-block">
+                        <label class="checkbox-block disabled">
+                            <input type="checkbox" disabled />
+                            <span
+                                >Default Search Engine
+                                <span style="font-style: italic"
+                                    >(COMING SOON!)</span
+                                ></span
+                            >
+                        </label>
+                    </div>
+                </div>
+                <hr />
+            </div>
         </div>
-        <hr>
-      </div>
     </div>
-  </div>
 </template>
 
-<script>
-import { mapGetters, mapMutations } from 'vuex'
-import userAgents from '../../../user-agents/useragents.json'
-const defaultUserAgent = window.navigator.userAgent
+<script lang="ts">
+import { mapGetters, mapMutations } from "vuex";
+import userAgents from "@renderer/user-agents/useragents.json";
+
+const defaultUserAgent = window.navigator.userAgent;
 
 export default {
-  data () {
-    return {
-      userAgent: '',
-      homePage: '',
-      defaultUserAgent
-    }
-  },
-
-  computed: {
-    ...mapGetters('sessions', ['currentSession', 'currentSessionIndex'])
-  },
-
-  created () {
-    this.userAgent = this.currentSession.settings.userAgent
-    this.homePage = this.currentSession.settings.homePage
-  },
-
-  methods: {
-    ...mapMutations('sessions', ['updateSessionSetting', 'removeSession']),
-
-    saveHomePage () {
-      this.homePage = this.urlify(this.homePage.trim())
-      this.updateSessionSetting({
-        sessionIndex: this.currentSessionIndex,
-        k: 'homePage',
-        v: this.homePage
-      })
+    data() {
+        return {
+            userAgent: "",
+            homePage: "",
+            defaultUserAgent,
+        };
     },
 
-    setDefaultUserAgent () {
-      this.userAgent = defaultUserAgent
-      this.saveUserAgent()
+    computed: {
+        ...mapGetters("sessions", ["currentSession", "currentSessionIndex"]),
     },
 
-    setRandomUserAgent () {
-      this.userAgent = this.getRandomUserAgent()
-      this.saveUserAgent()
+    created() {
+        this.userAgent = this.currentSession.settings.userAgent;
+        this.homePage = this.currentSession.settings.homePage;
     },
 
-    saveUserAgent () {
-      this.updateSessionSetting({
-        sessionIndex: this.currentSessionIndex,
-        k: 'userAgent',
-        v: this.userAgent
-      })
-    },
+    methods: {
+        ...mapMutations("sessions", ["updateSessionSetting", "removeSession"]),
 
-    closeSession () {
-      this.removeSession({ sessionIndex: this.currentSessionIndex })
-    },
+        saveHomePage() {
+            this.homePage = this.urlify(this.homePage.trim());
+            this.updateSessionSetting({
+                sessionIndex: this.currentSessionIndex,
+                k: "homePage",
+                v: this.homePage,
+            });
+        },
 
-    urlify (url) {
-      return (url.indexOf('://') === -1) ? 'https://' + url : url
-    },
+        setDefaultUserAgent() {
+            this.userAgent = defaultUserAgent;
+            this.saveUserAgent();
+        },
 
-    getRandomUserAgent () {
-      return userAgents[Math.floor((Math.random() * userAgents.length))]
-    }
-  }
-}
+        setRandomUserAgent() {
+            this.userAgent = this.getRandomUserAgent();
+            this.saveUserAgent();
+        },
+
+        saveUserAgent() {
+            this.updateSessionSetting({
+                sessionIndex: this.currentSessionIndex,
+                k: "userAgent",
+                v: this.userAgent,
+            });
+        },
+
+        closeSession() {
+            this.removeSession({ sessionIndex: this.currentSessionIndex });
+        },
+
+        urlify(url) {
+            return url.indexOf("://") === -1 ? "https://" + url : url;
+        },
+
+        getRandomUserAgent() {
+            return userAgents[Math.floor(Math.random() * userAgents.length)];
+        },
+    },
+};
 </script>
 
 <style scoped lang="scss">
@@ -235,12 +236,13 @@ hr {
 }
 
 .input-block {
-    label{
+    label {
         color: #27262e;
         font-size: 14px;
     }
 
-    input[type="text"], input[type="url"] {
+    input[type="text"],
+    input[type="url"] {
         width: 100%;
         padding: 6px;
         outline: 0;

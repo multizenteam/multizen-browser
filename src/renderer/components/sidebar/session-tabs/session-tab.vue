@@ -1,29 +1,25 @@
 <template>
-  <div
-    class="session-tab"
-    :class="{active}"
-  >
-    <slot>
-      <img
-        src="static/icons/icon.png"
-        class="session-tab-icon"
-      >
-    </slot>
-  </div>
+    <div class="session-tab" :class="{ active }">
+        <slot>
+            <img
+                src="@renderer/assets/icons/icon.png"
+                class="session-tab-icon"
+            />
+        </slot>
+    </div>
 </template>
 
-<script>
-
+<script lang="ts">
 const props = {
-  active: {
-    type: Boolean,
-    default: false
-  }
-}
+    active: {
+        type: Boolean,
+        default: false,
+    },
+};
 
 export default {
-  props
-}
+    props,
+};
 </script>
 
 <style scoped lang="scss">
@@ -62,7 +58,7 @@ export default {
         border-radius: 12px;
         color: #f1f1f1;
         font-size: 18px;
-        transition: .5s ease;
+        transition: 0.5s ease;
         background-color: rgba(82, 104, 162, 0.2);
 
         &:hover {

@@ -1,33 +1,29 @@
 <template>
-  <div class="side-footer">
-    <button
-      @click="openInfoModal"
-      class="open-info-modal-btn"
-    >
-      <i class="fa fa-question" />
-    </button>
-    <span>{{ version }}</span>
-  </div>
+    <div class="side-footer">
+        <button class="open-info-modal-btn" @click="openInfoModal">
+            <i class="fa fa-question" />
+        </button>
+        <span>{{ version }}</span>
+    </div>
 </template>
 
-<script>
-import { EventBus } from '../../utils/event-bus'
-import { version } from './../../../../package'
+<script lang="ts">
+import { EventBus } from "@renderer/utils/event-bus";
+// import { version } from "./../../../../package.json";
 
 export default {
-  computed: {
-    version () {
-      return version
-    }
-  },
+    computed: {
+        version() {
+            return "1";
+        },
+    },
 
-  methods: {
-    openInfoModal () {
-      EventBus.$emit('open-info-modal')
-    }
-  }
-}
-
+    methods: {
+        openInfoModal() {
+            EventBus.emit("open-info-modal");
+        },
+    },
+};
 </script>
 
 <style scoped lang="scss">
@@ -47,7 +43,7 @@ export default {
         color: inherit;
         text-decoration: none;
         cursor: pointer;
-        transition: .2s ease;
+        transition: 0.2s ease;
 
         &:hover {
             color: white;

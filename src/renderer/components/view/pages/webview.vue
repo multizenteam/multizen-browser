@@ -1,182 +1,176 @@
 <template>
-  <div class="view-container">
-    <div
-      class="controls-bar"
-      v-if="view"
-    >
-      <button
-        class="controls-button"
-        @click="view.canGoBack() ? view.goBack() : null"
-      >
-        <i
-          class="fa fa-arrow-left"
-        />
-      </button>
+    <div class="view-container">
+        <div v-if="view" class="controls-bar">
+            <button
+                class="controls-button"
+                @click="view.canGoBack() ? view.goBack() : null"
+            >
+                <i class="fa fa-arrow-left" />
+            </button>
 
-      <button
-        class="controls-button"
-        @click="view.canGoForward() ? view.goForward() : null"
-      >
-        <i
-          class="fa fa-arrow-right"
-        />
-      </button>
+            <button
+                class="controls-button"
+                @click="view.canGoForward() ? view.goForward() : null"
+            >
+                <i class="fa fa-arrow-right" />
+            </button>
 
-      <button
-        class="controls-button"
-        @click="loading ? view.stop() : view.reload()"
-      >
-        <i
-          :class="!loading ? 'fa fa-refresh' : 'fa fa-times'"
-        />
-      </button>
+            <button
+                class="controls-button"
+                @click="loading ? view.stop() : view.reload()"
+            >
+                <i :class="!loading ? 'fa fa-refresh' : 'fa fa-times'" />
+            </button>
 
-      <url
-        @navigate="navigate($event)"
-        :value="currentTab.url"
-      />
+            <url :value="currentTab.url" @navigate="navigate($event)" />
+        </div>
+
+        <div class="view-container-content">
+            <webview
+                v-show="currentTab"
+                ref="view"
+                :key="currentTab.session"
+                autosize
+                class="webview"
+                :src="currentTab.url"
+                :partition="`persist:${currentTab.session}`"
+                :useragent="currentSession.settings.userAgent"
+                @dom-ready="loaded"
+            />
+        </div>
     </div>
-
-    <div class="view-container-content">
-      <webview
-        v-show="currentTab"
-        autosize
-        class="webview"
-        ref="view"
-        :key="currentTab.session"
-        :src="currentTab.url"
-        :partition="`persist:${currentTab.session}`"
-        :useragent="currentSession.settings.userAgent"
-        @dom-ready="loaded"
-      />
-    </div>
-  </div>
 </template>
 
-<script>
-import Url from './../controls/url'
-
-import get from 'lodash/get'
-import { mapGetters, mapMutations } from 'vuex'
+<script lang="ts">
+import Url from "./../controls/url.vue";
+import { WebviewTag } from "electron";
+import get from "lodash/get";
+import { mapGetters, mapMutations } from "vuex";
 
 const events = {
-  'did-finish-load': 'didFinishLoad',
-  'page-favicon-updated': 'pageFaviconUpdated',
-  'did-start-loading': 'didStartLoading',
-  'did-stop-loading': 'didStopLoading',
-  'did-navigate': 'didNavigate',
-  'did-fail-load': 'didFailLoad'
-}
+    "did-finish-load": "didFinishLoad",
+    "page-favicon-updated": "pageFaviconUpdated",
+    "did-start-loading": "didStartLoading",
+    "did-stop-loading": "didStopLoading",
+    "did-navigate": "didNavigate",
+    "did-fail-load": "didFailLoad",
+};
 
 export default {
-  data () {
-    return {
-      view: null,
-      loading: false
-    }
-  },
-
-  components: {
-    Url
-  },
-
-  computed: {
-    ...mapGetters('sessions', [
-      'currentSession',
-      'currentTab',
-      'currentSessionIndex'
-    ])
-  },
-
-  methods: {
-    ...mapMutations('sessions', [
-      'updateTab'
-    ]),
-
-    navigate (url) {
-      if (url !== this.view.getURL()) {
-        this.view.loadURL(url)
-      }
+    components: {
+        Url,
+    },
+    data() {
+        return {
+            view: null as WebviewTag | null,
+            loading: false,
+        };
     },
 
-    didFinishLoad () {
-      this.view.removeEventListener('did-finish-load', this.didFinishLoad)
-      this.navigate(this.currentTab.url)
+    computed: {
+        ...mapGetters("sessions", [
+            "currentSession",
+            "currentTab",
+            "currentSessionIndex",
+        ]),
     },
 
-    didNavigate (e) {
-      this.updateTab({
-        sessionIndex: this.currentSessionIndex,
-        tabIndex: this.currentSession.currentTabIndex,
-        k: 'url',
-        v: e.url
-      })
+    watch: {
+        url: {
+            handler(url) {
+                this.updateTab({
+                    sessionIndex: this.currentSessionIndex,
+                    tabIndex: this.currentSession.currentTabIndex,
+                    k: "url",
+                    v: url,
+                });
+            },
+        },
     },
 
-    pageFaviconUpdated (r) {
-      this.updateTab({
-        sessionIndex: this.currentSessionIndex,
-        tabIndex: this.currentSession.currentTabIndex,
-        k: 'favicon',
-        v: get(r, 'favicons.0', null)
-      })
+    mounted() {
+        this.$nextTick(() => this.initView());
     },
 
-    didStartLoading () {
-      this.loading = true
+    beforeUnmount() {
+        this.removeEventListeners();
     },
 
-    loaded () {
-      this.view = this.$refs.view
-      Object.keys(events).forEach(event => this.view.addEventListener(event, this[events[event]]))
+    methods: {
+        ...mapMutations("sessions", ["updateTab"]),
+
+        navigate(url: string) {
+            if (url !== this.view?.getURL()) {
+                this.view?.loadURL(url);
+            }
+        },
+
+        didFinishLoad() {
+            this.view?.removeEventListener(
+                "did-finish-load",
+                this.didFinishLoad,
+            );
+            this.navigate(this.currentTab.url);
+        },
+
+        didNavigate(e) {
+            this.updateTab({
+                sessionIndex: this.currentSessionIndex,
+                tabIndex: this.currentSession.currentTabIndex,
+                k: "url",
+                v: e.url,
+            });
+        },
+
+        pageFaviconUpdated(r) {
+            this.updateTab({
+                sessionIndex: this.currentSessionIndex,
+                tabIndex: this.currentSession.currentTabIndex,
+                k: "favicon",
+                v: get(r, "favicons.0", null),
+            });
+        },
+
+        didStartLoading() {
+            this.loading = true;
+        },
+
+        loaded() {
+            this.view = this.$refs.view as WebviewTag;
+            Object.keys(events).forEach((event) =>
+                this.view?.addEventListener(event, this[events[event]]),
+            );
+        },
+
+        didStopLoading() {
+            this.loading = false;
+
+            this.updateTab({
+                sessionIndex: this.currentSessionIndex,
+                tabIndex: this.currentSession.currentTabIndex,
+                k: "title",
+                v: this.view?.getTitle(),
+            });
+        },
+
+        didFailLoad(e) {
+            console.info("Load failed with error code: ", e.errorCode);
+        },
+
+        initView() {
+            this.view = this.$refs.view as WebviewTag;
+            Object.keys(events).forEach((event) =>
+                this.view?.addEventListener(event, this[events[event]]),
+            );
+        },
+
+        removeEventListeners() {
+            Object.keys(events).forEach((event) =>
+                this.view?.removeEventListener(event, this[events[event]]),
+            );
+        },
     },
-
-    didStopLoading () {
-      this.loading = false
-
-      this.updateTab({
-        sessionIndex: this.currentSessionIndex,
-        tabIndex: this.currentSession.currentTabIndex,
-        k: 'title',
-        v: this.view.getTitle()
-      })
-    },
-
-    didFailLoad (e) {
-      console.info('Load failed with error code: ', e.errorCode)
-    },
-
-    initView () {
-      this.view = this.$refs.view
-      Object.keys(events).forEach(event => this.view.addEventListener(event, this[events[event]]))
-    },
-
-    removeEventListeners () {
-      Object.keys(events).forEach(event => this.view.removeEventListener(event, this[events[event]]))
-    }
-  },
-
-  mounted () {
-    this.$nextTick(() => this.initView())
-  },
-
-  beforeDestroy () {
-    this.removeEventListeners()
-  },
-
-  watch: {
-    url: {
-      handler (url) {
-        this.updateTab({
-          sessionIndex: this.currentSessionIndex,
-          tabIndex: this.currentSession.currentTabIndex,
-          k: 'url',
-          v: url
-        })
-      }
-    }
-  }
-}
+};
 </script>
 
 <style scoped lang="scss">
@@ -212,7 +206,7 @@ export default {
     align-items: center;
     justify-content: center;
     margin: 0 5px;
-    transition: .2s ease;
+    transition: 0.2s ease;
     cursor: pointer;
 }
 

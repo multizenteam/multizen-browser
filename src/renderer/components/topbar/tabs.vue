@@ -1,95 +1,84 @@
 <template>
-  <div
-    class="tabs-container"
-    v-if="currentSession"
-  >
-    <div
-      class="tab"
-      :class="{'active' : currentSession.currentTabIndex === index}"
-      :key="tab.id"
-      v-for="(tab, index) in tabs"
-      @click.stop="setActiveTab({sessionIndex: currentSessionIndex, tabIndex: index})"
-    >
-      <div
-        class="tab-name"
-        v-if="tab.type === 'settings'"
-      >
-        <img
-          class="tab-favicon"
-          src="static/icons/icon.png"
+    <div v-if="currentSession" class="tabs-container">
+        <div
+            v-for="(tab, index) in tabs"
+            :key="tab.id"
+            class="tab"
+            :class="{ active: currentSession.currentTabIndex === index }"
+            @click.stop="
+                setActiveTab({
+                    sessionIndex: currentSessionIndex,
+                    tabIndex: index,
+                })
+            "
         >
-        <div>Session settings</div>
-      </div>
+            <div v-if="tab.type === 'settings'" class="tab-name">
+                <img class="tab-favicon" src="../../assets/icons/icon.png" />
+                <div>Session settings</div>
+            </div>
 
-      <div
-        class="tab-name"
-        v-if="tab.type !== 'settings'"
-      >
-        <img
-          v-if="tab.favicon"
-          class="tab-favicon"
-          :src="tab.favicon"
-        >
-        <img
-          v-else
-          class="tab-favicon"
-          src="static/icons/icon.png"
-        >
-        <div class="tab-title">
-          {{ tab.title || 'New Tab' }}
+            <div v-if="tab.type !== 'settings'" class="tab-name">
+                <img
+                    v-if="tab.favicon"
+                    class="tab-favicon"
+                    :src="tab.favicon"
+                />
+                <img
+                    v-else
+                    class="tab-favicon"
+                    src="../../assets/icons/icon.png"
+                />
+                <div class="tab-title">
+                    {{ tab.title || "New Tab" }}
+                </div>
+
+                <button
+                    class="tab-close-btn"
+                    @click.stop="removeTabWithIndex(index)"
+                >
+                    <i class="fa fa-times" />
+                </button>
+            </div>
         </div>
 
-        <button
-          class="tab-close-btn"
-          @click.stop="removeTabWithIndex(index)"
-        >
-          <i class="fa fa-times" />
+        <button class="new-tab-btn" @click="newTab">
+            <i class="fa fa-plus" />
         </button>
-      </div>
     </div>
-
-    <button
-      @click="newTab"
-      class="new-tab-btn"
-    >
-      <i class="fa fa-plus" />
-    </button>
-  </div>
 </template>
 
-<script>
-import { mapGetters, mapMutations } from 'vuex'
+<script lang="ts">
+import { mapGetters, mapMutations } from "vuex";
 
 export default {
-  computed: {
-    ...mapGetters('sessions', [
-      'currentSession',
-      'currentTab',
-      'sessions',
-      'currentSessionIndex'
-    ]),
+    computed: {
+        ...mapGetters("sessions", [
+            "currentSession",
+            "currentTab",
+            "sessions",
+            "currentSessionIndex",
+        ]),
 
-    tabs () {
-      return this.currentSession.tabs
-    }
-  },
-
-  methods: {
-    ...mapMutations('sessions', [
-      'addTab',
-      'removeTab',
-      'setActiveTab'
-    ]),
-
-    newTab () {
-      this.addTab({ sessionIndex: this.currentSessionIndex })
+        tabs() {
+            return this.currentSession.tabs;
+        },
     },
 
-    removeTabWithIndex (index) {
-      this.removeTab({ sessionIndex: this.currentSessionIndex, tabIndex: index })
-    }
-  }
-}
+    methods: {
+        ...mapMutations("sessions", ["addTab", "removeTab", "setActiveTab"]),
+
+        newTab() {
+            this.addTab({ sessionIndex: this.currentSessionIndex });
+        },
+
+        removeTabWithIndex(index: number) {
+            this.removeTab({
+                sessionIndex: this.currentSessionIndex,
+                tabIndex: index,
+            });
+        },
+    },
+};
 </script>
 
 <style scoped lang="scss">
@@ -99,7 +88,7 @@ export default {
     padding-right: 5px;
     padding-left: 56px;
     margin-top: auto;
-    overflow: overlay;
+    overflow: visible;
     -webkit-app-region: no-drag;
 }
 
