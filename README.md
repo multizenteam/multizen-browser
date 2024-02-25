@@ -6,7 +6,7 @@ Welcome to the MultiZen Browser project. This is an open-source multi-session br
 
 Check out the website: https://getmultizen.com/
 
-![MultiZen Overview](static/preview/0.1.1.gif)
+![MultiZen Overview](resources/preview/0.1.1.gif)
 
 ## Features
 
@@ -20,7 +20,7 @@ Check out the website: https://getmultizen.com/
 
 The project is built using Electron, Vue, and Vuex. To get started with development, follow these steps:
 
-1. Clone the repository: `git clone https://github.com/oboshto/multizen-browser.git`
+1. Clone the repository: `git clone https://github.com/multizenteam/multizen-browser.git`
 2. Navigate to the project directory: `cd multizen-browser`
 3. Install dependencies: `yarn install`
 4. Start the development server: `yarn dev`

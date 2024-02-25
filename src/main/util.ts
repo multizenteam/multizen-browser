@@ -6,7 +6,7 @@ export const getPath = (pathTo: string): string => {
     if (env.main.isDev) {
         return join(pathTo);
     } else {
-        return join(__dirname, pathTo);
+        return join(process.resourcesPath, "icons/icon.png");
     }
 };
 
@@ -14,4 +14,9 @@ export const appDataPath = env.main.isDev
     ? resolve(process.cwd())
     : resolve(app.getPath("appData"));
 
-export const logsPath = resolve(appDataPath, "Logs", "browser.log");
+export const logsPath = resolve(
+    appDataPath,
+    env.main.appName,
+    "Logs",
+    "browser.log",
+);
