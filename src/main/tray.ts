@@ -1,7 +1,6 @@
 import { BrowserWindow, Menu, Tray, shell, app } from "electron";
 import env from "./env";
 import { getPath, logsPath } from "./util";
-import logger from "electron-log";
 
 export default class TrayMenuBuilder {
     mainWindow: BrowserWindow;

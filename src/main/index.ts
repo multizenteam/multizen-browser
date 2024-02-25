@@ -52,7 +52,7 @@ function createWindow(): void {
             logger.error('"mainWindow" is not defined');
         }
 
-        mainWindow.show();
+        mainWindow?.show();
     });
 
     mainWindow.on("closed", () => {
