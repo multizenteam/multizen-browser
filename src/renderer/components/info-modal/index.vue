@@ -9,7 +9,7 @@
                 out:
             </p>
             <a
-                href="https://github.com/oboshto/multizen-browser"
+                href="https://github.com/multizenteam/multizen-browser.git"
                 target="_blank"
                 >Contribute on github</a
             >
