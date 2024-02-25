@@ -1,7 +1,6 @@
 import { BrowserWindow, Menu, Tray, shell, app } from "electron";
 import env from "./env";
-import { logsPath } from "./util";
-import icon from "../../resources/icons/icon.png";
+import { getPath, logsPath } from "./util";
 
 export default class TrayMenuBuilder {
     mainWindow: BrowserWindow;
@@ -17,7 +16,7 @@ export default class TrayMenuBuilder {
     }
 
     buildMenu() {
-        this.tray = new Tray(icon);
+        this.tray = new Tray(getPath("resources/icons/icon.png"));
 
         const contextMenu = this.buildTray();
 

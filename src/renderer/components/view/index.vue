@@ -1,12 +1,10 @@
 <template>
     <div class="app-views">
         <div v-if="currentTab" class="app-views-container">
-            <Kee>
-                <web-view-container
-                    v-if="currentTab.type !== 'settings'"
-                    :key="currentSession.currentTabIndex"
-                />
-            </Kee>
+            <web-view-container
+                v-if="currentTab.type !== 'settings'"
+                :key="currentSession.currentTabIndex"
+            />
 
             <settings-view
                 v-if="currentTab.type === 'settings'"

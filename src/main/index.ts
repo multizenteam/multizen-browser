@@ -1,12 +1,11 @@
-import { app, shell, BrowserWindow, screen } from "electron";
+import { app, shell, BrowserWindow, screen, globalShortcut } from "electron";
 import { join } from "path";
 import logger from "electron-log";
-import { logsPath, appDataPath } from "./util";
+import { logsPath, appDataPath, getPath } from "./util";
 import env from "./env";
 import TrayMenuBuilder from "./tray";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import ipcInit from "./ipc/init";
-import icon from "../../resources/icons/icon.png?asset";
 
 let mainWindow: BrowserWindow | null = null;
 let trayBuilder: TrayMenuBuilder | null = null;
@@ -14,7 +13,7 @@ let trayBuilder: TrayMenuBuilder | null = null;
 app.name = env.main.appName;
 app.setPath("userData", join(appDataPath, env.main.appName));
 logger.transports.file.resolvePathFn = () => logsPath;
-logger.catchErrors();
+logger.errorHandler.startCatching();
 
 const titleVersion = env.main.isDev
     ? "DEVELOPMENT"
@@ -36,7 +35,7 @@ function createWindow(): void {
         minHeight: 600,
         useContentSize: true,
         frame: false,
-        icon: icon,
+        icon: getPath("resources/icons/icon.png"),
         webPreferences: {
             preload: join(__dirname, "../preload/index.js"),
             nodeIntegration: true,
@@ -50,10 +49,10 @@ function createWindow(): void {
 
     mainWindow.on("ready-to-show", () => {
         if (!mainWindow) {
-            throw new Error('"mainWindow" is not defined');
+            logger.error('"mainWindow" is not defined');
         }
 
-        mainWindow.show();
+        mainWindow?.show();
     });
 
     mainWindow.on("closed", () => {
@@ -107,6 +106,19 @@ app.whenReady().then(() => {
         // On macOS it's common to re-create a window in the app when the
         // dock icon is clicked and there are no other windows open.
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+
+    app.on("browser-window-focus", () => {
+        globalShortcut.registerAll(["CommandOrControl+W"], () => {
+            mainWindow?.webContents.send("shortcut:ctrl+w");
+        });
+        globalShortcut.registerAll(["CommandOrControl+T"], () => {
+            mainWindow?.webContents.send("shortcut:ctrl+t");
+        });
+    });
+
+    app.on("browser-window-blur", () => {
+        globalShortcut.unregisterAll();
     });
 });
 
