@@ -13,7 +13,7 @@
                 target="_blank"
                 >Contribute on github</a
             >
-            <span>or</span>
+            <span> or </span>
             <a href="https://discord.gg/pd6MhzPbJ3" target="_blank"
                 >Join Discord community</a
             >
@@ -23,13 +23,13 @@
 
 <script lang="ts">
 import { EventBus } from "@renderer/utils/event-bus";
-// import { version } from "../../../../package.json";
+import { version } from "../../../../package.json";
 
 export default {
     data() {
         return {
             showModal: false,
-            version: "1",
+            version: version,
         };
     },
 

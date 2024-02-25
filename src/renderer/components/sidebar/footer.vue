@@ -9,12 +9,12 @@
 
 <script lang="ts">
 import { EventBus } from "@renderer/utils/event-bus";
-// import { version } from "./../../../../package.json";
+import { version } from "./../../../../package.json";
 
 export default {
     computed: {
         version() {
-            return "1";
+            return version;
         },
     },
 
