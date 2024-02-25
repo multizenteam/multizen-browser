@@ -1,85 +1,61 @@
 <template>
-  <div
-    class="top-bar"
-    :class="{ 'macos': isMacOS }"
-  >
-    <tabs />
+    <div class="top-bar" :class="{ macos: isMac }">
+        <tabs />
 
-    <div
-      class="top-bar-actions"
-    >
-      <template v-if="isMacOS">
-        <button
-          class="top-bar-close"
-          @click="closeWindow"
-        >
-          <i class="fa fa-times" />
-        </button>
-        <button
-          class="top-bar-minimize"
-          @click="minimizeWindow"
-        >
-          <i class="fa fa-window-minimize" />
-        </button>
-        <button
-          class="top-bar-maximize"
-          @click="maximizeWindow"
-        >
-          <i class="fa fa-window-maximize" />
-        </button>
-      </template>
+        <div class="top-bar-actions">
+            <template v-if="isMac">
+                <button class="top-bar-close" @click="closeWindow">
+                    <i class="fa fa-times" />
+                </button>
+                <button class="top-bar-minimize" @click="minimizeWindow">
+                    <i class="fa fa-window-minimize" />
+                </button>
+                <button class="top-bar-maximize" @click="maximizeWindow">
+                    <i class="fa fa-window-maximize" />
+                </button>
+            </template>
 
-      <template v-else>
-        <button
-          class="top-bar-minimize"
-          @click="minimizeWindow"
-        >
-          <i class="fa fa-window-minimize" />
-        </button>
-        <button
-          class="top-bar-maximize"
-          @click="maximizeWindow"
-        >
-          <i class="fa fa-window-maximize" />
-        </button>
-        <button
-          class="top-bar-close"
-          @click="closeWindow"
-        >
-          <i class="fa fa-times" />
-        </button>
-      </template>
+            <template v-else>
+                <button class="top-bar-minimize" @click="minimizeWindow">
+                    <i class="fa fa-window-minimize" />
+                </button>
+                <button class="top-bar-maximize" @click="maximizeWindow">
+                    <i class="fa fa-window-maximize" />
+                </button>
+                <button class="top-bar-close" @click="closeWindow">
+                    <i class="fa fa-times" />
+                </button>
+            </template>
+        </div>
     </div>
-  </div>
 </template>
 
-<script>
-import { ipcRenderer } from 'electron'
-import Tabs from './tabs'
+<script lang="ts">
+import Tabs from "./tabs.vue";
 
 export default {
-  components: {
-    Tabs
-  },
-  data () {
-    return {
-      isMacOS: process.platform === 'darwin'
-    }
-  },
-  methods: {
-    minimizeWindow () {
-      ipcRenderer.send('minimize-window')
+    components: {
+        Tabs,
     },
-
-    maximizeWindow () {
-      ipcRenderer.send('maximize-window')
+    data() {
+        return {
+            isMac: process.platform === "darwin",
+        };
     },
+    methods: {
+        minimizeWindow() {
+            window.electron.ipcRenderer.send("minimize-window");
+        },
 
-    closeWindow () {
-      ipcRenderer.send('close-window')
-    }
-  }
-}
+        maximizeWindow() {
+            window.electron.ipcRenderer.send("maximize-window");
+        },
+
+        closeWindow() {
+            window.electron.ipcRenderer.send("close-window");
+        },
+    },
+};
 </script>
 
 <style scoped lang="scss">

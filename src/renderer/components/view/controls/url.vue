@@ -1,49 +1,57 @@
 <template>
-  <input
-    type="text"
-    class="input-url"
-    placeholder="Type URL here"
-    spellcheck="false"
-    ref="urlInput"
-    @focus="$event.target.select()"
-    :value="value"
-    @keyup.enter="(e) => $emit('navigate', getWebUri(e.target.value))"
-  >
+    <input
+        ref="urlInput"
+        type="text"
+        class="input-url"
+        placeholder="Type URL here"
+        spellcheck="false"
+        :value="value"
+        @focus="onFocus($event)"
+        @keyup.enter="(e: any) => $emit('navigate', getWebUri(e.target?.value))"
+    />
 </template>
 
-<script>
-import URI from 'urijs'
-import { mapGetters } from 'vuex'
+<script lang="ts">
+import URI from "urijs";
+import { InputHTMLAttributes, ref } from "vue";
+import { mapGetters } from "vuex";
+
+const urlInput = ref<InputHTMLAttributes | null>(null);
 
 const props = {
-  value: {
-    type: String,
-    default: null
-  }
-}
+    value: {
+        type: String,
+        default: null,
+    },
+};
 
 export default {
-  props,
-  computed: {
-    ...mapGetters('sessions', [
-      'currentSession'
-    ])
-  },
+    props,
+    emits: ["navigate"],
+    computed: {
+        ...mapGetters("sessions", ["currentSession"]),
+    },
 
-  methods: {
-    getWebUri (value) {
-      return URI(value).protocol('http:').toString()
-    }
-  },
+    mounted() {
+        if (
+            urlInput.value &&
+            urlInput.value === this.currentSession.settings.homePage
+        ) {
+            urlInput.value.value.focus();
+            urlInput.value.value.select();
+        }
+    },
 
-  mounted () {
-    if (this.$refs.urlInput && this.$refs.urlInput.value === this.currentSession.settings.homePage) {
-      this.$refs.urlInput.focus()
-      this.$refs.urlInput.select()
-    }
-  }
-}
+    methods: {
+        getWebUri(value: string) {
+            return URI(value).protocol("http:").toString();
+        },
 
+        onFocus(event) {
+            event.target.focus();
+        },
+    },
+};
 </script>
 
 <style scoped lang="scss">

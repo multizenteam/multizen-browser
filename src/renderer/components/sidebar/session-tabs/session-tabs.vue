@@ -1,7 +1,7 @@
 <template>
-  <div class="session-tabs">
-    <slot />
-  </div>
+    <div class="session-tabs">
+        <slot />
+    </div>
 </template>
 
 <style scoped lang="scss">
@@ -12,6 +12,6 @@
     align-items: center;
     padding: 5px 0;
     height: 100%;
-    overflow: overlay;
+    overflow: visible;
 }
 </style>

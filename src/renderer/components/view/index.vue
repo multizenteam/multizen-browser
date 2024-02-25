@@ -1,43 +1,40 @@
 <template>
-  <div class="app-views">
-    <div
-      class="app-views-container"
-      v-if="currentTab"
-    >
-      <web-view-container
-        v-if="currentTab.type !== 'settings'"
-        :key="currentSession.currentTabIndex"
-      />
+    <div class="app-views">
+        <div v-if="currentTab" class="app-views-container">
+            <Kee>
+                <web-view-container
+                    v-if="currentTab.type !== 'settings'"
+                    :key="currentSession.currentTabIndex"
+                />
+            </Kee>
 
-      <settings-view
-        v-if="currentTab.type === 'settings'"
-        :key="currentSessionIndex"
-      />
+            <settings-view
+                v-if="currentTab.type === 'settings'"
+                :key="currentSessionIndex"
+            />
+        </div>
     </div>
-  </div>
 </template>
 
-<script>
-import SettingsView from './pages/settings'
-import WebViewContainer from './pages/webview'
-import { mapGetters } from 'vuex'
+<script lang="ts">
+import SettingsView from "./pages/settings.vue";
+import WebViewContainer from "./pages/webview.vue";
+import { mapGetters } from "vuex";
 
 export default {
-  components: {
-    SettingsView,
-    WebViewContainer
-  },
+    components: {
+        SettingsView,
+        WebViewContainer,
+    },
 
-  computed: {
-    ...mapGetters('sessions', [
-      'currentSession',
-      'currentSessionIndex',
-      'currentTab'
-    ])
-  }
-}
+    computed: {
+        ...mapGetters("sessions", [
+            "currentSession",
+            "currentSessionIndex",
+            "currentTab",
+        ]),
+    },
+};
 </script>
 
-<style scoped>
-
-</style>
+<style scoped></style>

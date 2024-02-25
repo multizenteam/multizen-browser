@@ -1,77 +1,77 @@
 <template>
-  <div
-    id="app"
-    class="app"
-  >
-    <top-bar />
+    <div id="app" class="app">
+        <top-bar />
 
-    <div class="sessions-and-view">
-      <side-bar />
-      <content-view v-if="currentSession" />
+        <div class="sessions-and-view">
+            <side-bar />
+            <content-view v-if="currentSession" />
+        </div>
+
+        <info-modal />
     </div>
-
-    <info-modal />
-  </div>
 </template>
 
-<script>
-import SideBar from './components/sidebar/bar'
-import TopBar from './components/topbar/bar'
-import ContentView from './components/view/index'
-import InfoModal from './components/info-modal/index'
-
-import { EventBus } from './utils/event-bus'
-
-import { ipcRenderer } from 'electron'
-import { mapGetters, mapMutations } from 'vuex'
+<script lang="ts">
+import SideBar from "./components/sidebar/bar.vue";
+import TopBar from "./components/topbar/bar.vue";
+import ContentView from "./components/view/index.vue";
+import InfoModal from "./components/info-modal/index.vue";
+import { EventBus } from "./utils/event-bus";
+import { mapGetters, mapMutations } from "vuex";
 
 export default {
-  components: {
-    SideBar,
-    ContentView,
-    TopBar,
-    InfoModal
-  },
-  computed: {
-    ...mapGetters('sessions', ['currentSession', 'currentSessionIndex'])
-  },
+    components: {
+        SideBar,
+        ContentView,
+        TopBar,
+        InfoModal,
+    },
 
-  methods: {
-    ...mapMutations('sessions', ['addTab', 'removeTab'])
-  },
+    computed: {
+        ...mapGetters("sessions", ["currentSession", "currentSessionIndex"]),
+    },
 
-  mounted () {
-    ipcRenderer.on('shortcut:ctrl+w', () => {
-      if (this.currentSession && this.currentSession.currentTabIndex > 0) {
-        this.removeTab({ sessionIndex: this.currentSessionIndex, tabIndex: this.currentSession.currentTabIndex })
-      }
-    })
+    mounted() {
+        window.electron.ipcRenderer.on("shortcut:ctrl+w", () => {
+            if (
+                this.currentSession &&
+                this.currentSession.currentTabIndex > 0
+            ) {
+                this.removeTab({
+                    sessionIndex: this.currentSessionIndex,
+                    tabIndex: this.currentSession.currentTabIndex,
+                });
+            }
+        });
 
-    ipcRenderer.on('shortcut:ctrl+t', () => {
-      if (!this.currentSession) {
-        return
-      }
-      this.addTab({ sessionIndex: this.currentSessionIndex })
-    })
+        window.electron.ipcRenderer.on("shortcut:ctrl+t", () => {
+            if (!this.currentSession) return;
 
-    if (!localStorage.getItem('info-modal-shown')) {
-      this.showModal = true
-      localStorage.setItem('info-modal-shown', 'true')
-      EventBus.$emit('open-info-modal')
-    }
-  },
+            this.addTab({ sessionIndex: this.currentSessionIndex });
+        });
 
-  beforeDestroy () {
-    ipcRenderer.removeAllListeners('shortcut:ctrl+w')
-    ipcRenderer.removeAllListeners('shortcut:ctrl+t')
-  }
-}
+        if (!localStorage.getItem("info-modal-shown")) {
+            localStorage.setItem("info-modal-shown", "true");
+            EventBus.emit("open-info-modal");
+        }
+    },
+
+    beforeUnmount() {
+        window.electron.ipcRenderer.removeAllListeners("shortcut:ctrl+w");
+        window.electron.ipcRenderer.removeAllListeners("shortcut:ctrl+t");
+    },
+
+    methods: {
+        ...mapMutations("sessions", ["addTab", "removeTab"]),
+    },
+};
 </script>
 
 <style lang="scss">
 @import "./assets/scss/style";
 
-html, body {
+html,
+body {
     padding: 0;
     margin: 0;
     height: 100%;
@@ -111,5 +111,4 @@ body {
     flex: 1;
     overflow: auto;
 }
-
 </style>
