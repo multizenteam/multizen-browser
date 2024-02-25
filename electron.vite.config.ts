@@ -19,8 +19,7 @@ export default defineConfig({
             vue({
                 template: {
                     compilerOptions: {
-                        isCustomElement: (tag) =>
-                            ["webview", "Kee"].includes(tag),
+                        isCustomElement: (tag) => ["webview"].includes(tag),
                     },
                 },
             }),
