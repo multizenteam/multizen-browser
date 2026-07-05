@@ -213,3 +213,22 @@ does remote DNS (ATYP=domain). Likely environment/engine-Windows-specific, not a
 regression (works on macOS incl. rus sites). Asked reporter for net-internals + repro
 details. Optional: spin up a Win10 LTSC VM to reproduce. Possible fixes if confirmed:
 clearer bridge error codes (0x04 host-unreachable vs 0x05), an option to use system DNS.
+
+## ✅ Shipped in v0.2.11 (2026-07-05)
+Profile card redesign + emoji avatars, per-profile start page (3a), terminating state,
+Activity→MCP section rename + connect card, **Streamable HTTP MCP transport** (`/mcp`, so Codex/
+Cursor connect by URL; legacy `/sse` kept), Copy-for-LLM button, companion i18n (Web Store button
+on non-English locales), dead-code removal, and the **extract AX-tree fix** (was returning only
+RootWebArea for pages whose `<body>` is an ignored AX node). Whole-branch independent review: no
+blockers. Also this session: replied to ahive on #10; both build-signing research reports done.
+
+## 10. Post-v0.2.11 follow-ups (from final review, LOW) · 🔵 queued
+**Slug:** `post-0211-followups`
+- **AX-tree robustness** (`CdpSession.ts` `trimAccessibilityTree`): add a `Set<visited>` guard +
+  a node cap. Not reachable via Chrome's real AX output (strict tree), but hardens against a future
+  malformed/cyclic CDP source and caps extract payload on huge pages.
+- **Codex config doc accuracy** (`McpPanel.tsx`): the `url = "…/mcp"` shape only works on Codex CLI
+  builds that support streamable-HTTP MCP; older Codex accepted only stdio `command`/`args`. Consider
+  a note for users on older Codex.
+- **MCP `instructions`**: set the MCP `initialize` `instructions` field so any connecting agent learns
+  the overall workflow (launch-first, headful, human-in-loop, no headless) — not just per-tool descs.
