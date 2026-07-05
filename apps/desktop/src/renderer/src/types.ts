@@ -56,6 +56,7 @@ export interface SystemInfo {
 
 export type RunningStateChange =
   | { kind: "launched"; profileId: ProfileId }
+  | { kind: "closing"; profileId: ProfileId }
   | { kind: "closed"; profileId: ProfileId; reason: "user-close" | "external-exit" };
 
 export interface MultizenApi {

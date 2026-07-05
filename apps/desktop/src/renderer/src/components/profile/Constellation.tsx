@@ -33,6 +33,8 @@ const DOT_COLOR: Record<TileState, string> = {
 interface Props {
   profiles: ProfileSummary[];
   recentEvents: ActivityEvent[];
+  /** Profiles in the terminating phase (winding down, not yet exited). */
+  closingIds?: Set<string>;
   onSelect: (id: string) => void;
   onCreate: () => void;
   onLaunch: (id: string) => void;
@@ -44,6 +46,7 @@ interface Props {
 export function Constellation({
   profiles,
   recentEvents,
+  closingIds,
   onSelect,
   onCreate,
   onLaunch,
@@ -236,6 +239,7 @@ export function Constellation({
               <ProfileTile
                 key={p.id}
                 profile={p}
+                terminating={closingIds?.has(p.id) ?? false}
                 onOpen={() => onSelect(p.id)}
                 onLaunch={() => onLaunch(p.id)}
                 onStop={() => onStop(p.id)}

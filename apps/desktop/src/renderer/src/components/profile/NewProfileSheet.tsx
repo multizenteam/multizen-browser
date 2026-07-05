@@ -4,6 +4,8 @@ import { Kbd } from "../atoms";
 import { FingerprintForm } from "./FingerprintForm";
 import { ProxyTester } from "./ProxyTester";
 import { ExtensionsSection } from "./ExtensionsSection";
+import { EmojiField } from "./EmojiField";
+import { BrowserSection, DEFAULT_START_URL } from "./BrowserSection";
 import type { FingerprintConfig, ProxyConfig } from "../../types";
 import { parseProxyString } from "../../lib/parseProxy";
 
@@ -43,11 +45,16 @@ const EMPTY_PROXY: DraftProxy = {
 export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): JSX.Element {
   const [name, setName] = useState("");
   const [tagsRaw, setTagsRaw] = useState("");
+  const [icon, setIcon] = useState<string | undefined>(undefined);
+  const [startUrl, setStartUrl] = useState(DEFAULT_START_URL);
   const [proxy, setProxy] = useState<DraftProxy>(EMPTY_PROXY);
   const [fingerprint, setFingerprint] = useState<FingerprintConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Parsed tags, used both for the create call and to feed the emoji classifier.
+  const tagList = tagsRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
   // Auto-generate a fingerprint preset on mount so the create call always
   // has one and the regen button has something to replace.
@@ -63,6 +70,8 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
     const dirty =
       name.trim() !== "" ||
       tagsRaw.trim() !== "" ||
+      icon !== undefined ||
+      startUrl.trim() !== DEFAULT_START_URL ||
       proxy.enabled ||
       proxy.host !== "" ||
       proxy.username !== "" ||
@@ -71,7 +80,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
       dirtyRef.current = dirty;
       onDirtyChange?.(dirty);
     }
-  }, [name, tagsRaw, proxy, onDirtyChange]);
+  }, [name, tagsRaw, icon, startUrl, proxy, onDirtyChange]);
 
   function buildProxy(): ProxyConfig | undefined {
     if (!proxy.enabled) return undefined;
@@ -111,6 +120,8 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
       const created = await window.multizen.profiles.create({
         name: name.trim(),
         tags,
+        icon,
+        startUrl: startUrl.trim() || undefined,
         proxy: built,
         fingerprint: fingerprint ?? undefined,
       });
@@ -125,23 +136,32 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
     <div className="px-5 pt-4 pb-0">
       {/* General */}
       <Group label="General">
-        <div className="grid grid-cols-2 gap-2.5">
-          <Field label="Name">
-            <Input
-              autoFocus
-              value={name}
-              onChange={setName}
-              placeholder="e.g. acme — sales · west"
-            />
+        <div className="flex gap-2.5 items-end">
+          <Field label="Icon">
+            <EmojiField value={icon} onChange={setIcon} name={name} tags={tagList} />
           </Field>
-          <Field label="Tags">
-            <Input
-              value={tagsRaw}
-              onChange={setTagsRaw}
-              placeholder="comma-separated (optional)"
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-2.5 flex-1 min-w-0">
+            <Field label="Name">
+              <Input
+                autoFocus
+                value={name}
+                onChange={setName}
+                placeholder="e.g. acme — sales · west"
+              />
+            </Field>
+            <Field label="Tags">
+              <Input
+                value={tagsRaw}
+                onChange={setTagsRaw}
+                placeholder="comma-separated (optional)"
+              />
+            </Field>
+          </div>
         </div>
+      </Group>
+
+      <Group label="Browser">
+        <BrowserSection startUrl={startUrl} onStartUrl={setStartUrl} />
       </Group>
 
       <button

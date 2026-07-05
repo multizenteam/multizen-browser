@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
-import { MoreHorizontal, Play, Square, Zap } from "lucide-react";
+import { Loader2, MoreHorizontal, Pencil, Play, RefreshCw, Square, Zap } from "lucide-react";
 import type { ProfileSummary } from "../../types";
 import {
   Avatar,
@@ -10,11 +10,13 @@ import {
   countryNameFromCc,
   platformFromDeviceFamily,
   platformLabel,
-  profileInitials,
 } from "../atoms";
 import { Button } from "../atoms/Button";
 import { relativeTime } from "../../lib/relativeTime";
 import { cn } from "../../lib/cn";
+import { profileEmoji } from "../../lib/profileEmoji";
+import { emojiTint } from "../../lib/emojiTint";
+import { useProxyHealth } from "../../lib/proxyHealth";
 import type { ActivityEvent } from "../../types";
 
 export type TileState = "idle" | "running" | "ai" | "error";
@@ -48,6 +50,9 @@ const GLOW_BY_STATE: Record<TileState, string> = {
 
 interface Props {
   profile: TileData;
+  /** Chromium is winding down (window closed / Stop pressed) but not yet
+   *  exited — show a "Terminating…" transitional state instead of "Stop". */
+  terminating?: boolean;
   onOpen: () => void;
   onLaunch: () => Promise<void> | void;
   onStop: () => Promise<void> | void;
@@ -57,26 +62,18 @@ interface Props {
 
 export function ProfileTile({
   profile,
+  terminating = false,
   onOpen,
   onLaunch,
   onStop,
   onExport,
   onDelete,
 }: Props): JSX.Element {
-  const initials = profileInitials(profile.name);
   const isRunning = profile.state !== "idle";
-  // Flag = proxy egress country only — that's what websites actually
-  // see. Direct profiles render no flag at all (the persona's timezone
-  // is irrelevant: with no proxy, the real egress is the user's host
-  // and there's no "country" to advertise).
-  const country = profile.proxy ? profile.proxyCountry : undefined;
-  // Show country name next to the flag (e.g. "Luxembourg") instead of the
-  // raw proxy host:port — the host string is opaque ("residential.byteful.com")
-  // and the country tells the user what websites actually see. Falls back
-  // to the host if the country hasn't resolved yet, then "direct" for none.
-  const proxyLabel = profile.proxy
-    ? (countryNameFromCc(country) ?? `${profile.proxy.host}:${profile.proxy.port}`)
-    : "direct";
+  // Emoji avatar: user's custom `icon` if set, else a classifier-derived
+  // default from name/tags/id, on a deterministic muted tile tint.
+  const emoji = profileEmoji(profile.icon, profile.name, profile.tags, profile.id);
+  const avatarTint = emojiTint(emoji);
 
   // Disable Launch/Stop during the actual transition so the user can't
   // double-click and spawn a second Chromium process.
@@ -115,7 +112,7 @@ export function ProfileTile({
 
   return (
     <div
-      className="flex flex-col gap-2.5 p-3.5 relative transition-all"
+      className="flex flex-col gap-2.5 p-3.5 relative transition-all h-full"
       style={{
         borderRadius: 18,
         background: "rgba(255,255,255,0.025)",
@@ -125,14 +122,26 @@ export function ProfileTile({
         transitionDuration: "180ms",
       }}
     >
-      {/* Header — clickable, opens the edit modal */}
+      {/* Header — clickable, opens the edit modal (where the emoji picker lives) */}
       <button
         type="button"
         onClick={onOpen}
-        className="flex justify-between items-start gap-2.5 cursor-pointer text-left bg-transparent border-0 p-0"
+        className="group flex justify-between items-start gap-2.5 cursor-pointer text-left bg-transparent border-0 p-0"
       >
         <div className="flex gap-2.5 items-center min-w-0">
-          <Avatar initials={initials} accent={profile.state === "ai"} />
+          <div className="relative flex-shrink-0" title="Click to set an emoji">
+            <Avatar emoji={emoji} tint={avatarTint} accent={profile.state === "ai"} size={40} />
+            <span
+              className="absolute -right-1 -bottom-1 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{
+                background: "#12141a",
+                color: "#8b93a3",
+                boxShadow: "0 0 0 2px #0b0c10, inset 0 0 0 1px rgba(255,255,255,0.08)",
+              }}
+            >
+              <Pencil size={8} strokeWidth={2} />
+            </span>
+          </div>
           <div className="min-w-0">
             <div className="font-semibold text-[13px] leading-tight text-slate-100 truncate hover:text-white transition-colors">
               {profile.name}
@@ -166,34 +175,42 @@ export function ProfileTile({
         </div>
       )}
 
+      {/* Foregrounded proxy row — flag + country + live health (auto-check) */}
+      <ProxyHealthRow profile={profile} />
+
       {/* Context line per state */}
       <ContextLine profile={profile} />
 
-      {/* Bottom meta — last opened + platform + proxy chip */}
-      <div className="flex justify-between items-center gap-2 mono text-[10px] text-slate-600 leading-tight">
-        <span className="inline-flex items-center gap-1.5 truncate">
-          <PlatformIcon
-            platform={platformFromDeviceFamily(profile.device)}
-            size={12}
-            className="text-slate-500"
-          />
-          <span className="text-slate-500">
-            {platformLabel(platformFromDeviceFamily(profile.device))}
-          </span>
-          <span className="text-slate-700">·</span>
-          <span className="truncate">
-            {profile.lastOpenedAt ? relativeTime(profile.lastOpenedAt) : "never opened"}
-          </span>
+      {/* Bottom meta — platform + last opened */}
+      <div className="flex items-center gap-1.5 mono text-[10px] text-slate-600 leading-tight">
+        <PlatformIcon
+          platform={platformFromDeviceFamily(profile.device)}
+          size={12}
+          className="text-slate-500"
+        />
+        <span className="text-slate-500">
+          {platformLabel(platformFromDeviceFamily(profile.device))}
         </span>
-        <span className="inline-flex items-center gap-1.5 truncate min-w-0">
-          <Flag cc={country} />
-          <span className="truncate">{proxyLabel}</span>
+        <span className="text-slate-700">·</span>
+        <span className="truncate">
+          {profile.lastOpenedAt ? relativeTime(profile.lastOpenedAt) : "never opened"}
         </span>
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-1.5 mt-1">
-        {!isRunning ? (
+      {/* Actions — pinned to the card bottom so Launch aligns across a row
+          regardless of how much content (tags / context line) sits above. */}
+      <div className="flex gap-1.5 mt-auto pt-1">
+        {terminating ? (
+          <Button
+            variant="secondary"
+            size="md"
+            fullWidth
+            disabled
+            leftIcon={<Loader2 size={11} className="animate-spin" />}
+          >
+            Terminating…
+          </Button>
+        ) : !isRunning ? (
           <Button
             variant="accent"
             size="md"
@@ -219,6 +236,100 @@ export function ProfileTile({
         <ActionMenu onEdit={onOpen} onExport={onExport} onDelete={onDelete} />
       </div>
     </div>
+  );
+}
+
+/**
+ * Foregrounded proxy row: country flag + name + live health. Auto-probes on
+ * mount (module-cached + concurrency-limited via useProxyHealth); click to
+ * re-check. Direct profiles show a muted "no proxy" line instead.
+ */
+function ProxyHealthRow({ profile }: { profile: TileData }): JSX.Element {
+  const { health, recheck } = useProxyHealth(profile.id, profile.proxy, profile.proxyCountry);
+
+  if (health.status === "direct") {
+    return (
+      <div
+        className="flex items-center gap-2 px-2.5 py-2 rounded-[11px]"
+        style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)" }}
+      >
+        <span className="text-[12px] font-semibold text-slate-400 truncate">Direct — no proxy</span>
+        <span className="ml-auto mono text-[10px] text-slate-600">host DNS</span>
+      </div>
+    );
+  }
+
+  const cc = health.cc;
+  const isError = health.status === "error";
+  const label =
+    health.status === "ok"
+      ? (health.country ?? countryNameFromCc(cc) ?? "Connected")
+      : isError
+        ? "Proxy unreachable"
+        : (countryNameFromCc(cc) ?? "Checking…");
+  const title = isError
+    ? `${health.error} — click to retry`
+    : health.status === "ok"
+      ? `${label}${cc ? ` · ${cc.toUpperCase()}` : ""} — click to re-check`
+      : "Checking proxy…";
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        recheck();
+      }}
+      title={title}
+      className="flex items-center gap-2 px-2.5 py-2 rounded-[11px] w-full text-left border-0 cursor-pointer transition-colors"
+      style={
+        isError
+          ? { background: "rgba(239,68,68,0.06)", boxShadow: "inset 0 0 0 1px rgba(239,68,68,0.22)" }
+          : { background: "rgba(255,255,255,0.028)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)" }
+      }
+    >
+      <span
+        className="inline-flex"
+        style={isError ? { filter: "grayscale(1)", opacity: 0.7 } : undefined}
+      >
+        <Flag cc={cc} large />
+      </span>
+      <span
+        className={cn(
+          "text-[12.5px] font-semibold truncate",
+          isError ? "text-red-300" : "text-slate-200",
+        )}
+      >
+        {label}
+      </span>
+
+      {health.status === "ok" && (
+        <span className="ml-auto inline-flex items-center gap-1.5">
+          {profile.proxy && (
+            <span className="mono text-[10px] text-slate-600">proxy</span>
+          )}
+          <span
+            className="w-[7px] h-[7px] rounded-full bg-emerald-500"
+            style={{ animation: "mz-dotpulse 1.6s ease-in-out infinite" }}
+          />
+        </span>
+      )}
+      {health.status === "checking" && (
+        <span
+          className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-semibold"
+          style={{ color: "#f5b34a" }}
+        >
+          <Loader2 size={12} className="animate-spin" />
+          Checking…
+        </span>
+      )}
+      {isError && (
+        <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-300">
+          <RefreshCw size={11} />
+          retry
+        </span>
+      )}
+    </button>
   );
 }
 

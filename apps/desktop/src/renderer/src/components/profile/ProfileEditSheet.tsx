@@ -3,6 +3,8 @@ import type { FingerprintConfig, Profile, ProxyConfig } from "../../types";
 import { FingerprintForm } from "./FingerprintForm";
 import { ProxyTester } from "./ProxyTester";
 import { ExtensionsSection } from "./ExtensionsSection";
+import { EmojiField } from "./EmojiField";
+import { BrowserSection } from "./BrowserSection";
 import { parseProxyString } from "../../lib/parseProxy";
 
 /**
@@ -16,6 +18,10 @@ interface FormState {
   name: string;
   notes: string;
   tagsRaw: string;
+  /** Custom emoji avatar; undefined = auto (classifier-derived default). */
+  icon: string | undefined;
+  /** Start page ("" = app default). */
+  startUrl: string;
   proxyEnabled: boolean;
   proxyType: "http" | "socks5";
   proxyHost: string;
@@ -30,6 +36,8 @@ function toForm(p: Profile): FormState {
     name: p.name,
     notes: p.notes ?? "",
     tagsRaw: p.tags.join(", "),
+    icon: p.icon,
+    startUrl: p.startUrl ?? "",
     proxyEnabled: !!p.proxy,
     proxyType: p.proxy?.type ?? "http",
     proxyHost: p.proxy?.host ?? "",
@@ -44,6 +52,8 @@ function isDirty(initial: FormState, current: FormState): boolean {
   if (initial.name !== current.name) return true;
   if (initial.notes !== current.notes) return true;
   if (initial.tagsRaw !== current.tagsRaw) return true;
+  if (initial.icon !== current.icon) return true;
+  if (initial.startUrl !== current.startUrl) return true;
   if (initial.proxyEnabled !== current.proxyEnabled) return true;
   if (initial.proxyType !== current.proxyType) return true;
   if (initial.proxyHost !== current.proxyHost) return true;
@@ -131,6 +141,10 @@ export function ProfileEditSheet({
         name: form.name,
         notes: form.notes || undefined,
         tags: form.tagsRaw.split(",").map((s) => s.trim()).filter(Boolean),
+        // null clears a custom icon (revert to the derived default).
+        icon: form.icon ?? null,
+        // null → app default start page.
+        startUrl: form.startUrl.trim() || null,
         proxy,
         fingerprint: form.fingerprint,
       });
@@ -150,21 +164,32 @@ export function ProfileEditSheet({
     <div className="px-5 pt-4 pb-0">
       {/* General */}
       <Group label="General">
-        <div className="grid grid-cols-2 gap-2.5">
-          <Field label="Name">
-            <Input
-              autoFocus
-              value={form.name}
-              onChange={(v) => update("name", v)}
+        <div className="flex gap-2.5 items-end">
+          <Field label="Icon">
+            <EmojiField
+              value={form.icon}
+              onChange={(v) => update("icon", v)}
+              name={form.name}
+              tags={form.tagsRaw.split(",").map((s) => s.trim()).filter(Boolean)}
+              id={profile.id}
             />
           </Field>
-          <Field label="Tags">
-            <Input
-              value={form.tagsRaw}
-              onChange={(v) => update("tagsRaw", v)}
-              placeholder="comma-separated"
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-2.5 flex-1 min-w-0">
+            <Field label="Name">
+              <Input
+                autoFocus
+                value={form.name}
+                onChange={(v) => update("name", v)}
+              />
+            </Field>
+            <Field label="Tags">
+              <Input
+                value={form.tagsRaw}
+                onChange={(v) => update("tagsRaw", v)}
+                placeholder="comma-separated"
+              />
+            </Field>
+          </div>
         </div>
         <div className="mt-2.5">
           <Field label="Notes">
@@ -175,6 +200,14 @@ export function ProfileEditSheet({
             />
           </Field>
         </div>
+      </Group>
+
+      {/* Browser — start page + default search */}
+      <Group label="Browser">
+        <BrowserSection
+          startUrl={form.startUrl}
+          onStartUrl={(v) => update("startUrl", v)}
+        />
       </Group>
 
       {/* Proxy */}

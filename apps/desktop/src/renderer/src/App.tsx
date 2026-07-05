@@ -31,6 +31,9 @@ export function App(): JSX.Element {
 
   // Ephemeral UI state.
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
+  // Profiles whose Chromium is winding down (window closed / Stop pressed) but
+  // hasn't fully exited — surfaced as a "Terminating…" state on the card.
+  const [closingIds, setClosingIds] = useState<Set<string>>(new Set());
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [info, setInfo] = useState<SystemInfo | null>(null);
   // Whether the Chromium runtime is ready — used to suppress the update banner
@@ -112,7 +115,15 @@ export function App(): JSX.Element {
 
     // Refetch on ANY running-state change, including the "user closed
     // Chromium window directly" case which doesn't go through MCP at all.
-    const offRunning = window.multizen.profiles.onRunningChanged(() => {
+    // Track the transient "closing" phase separately so the card can show
+    // "Terminating…" while the process winds down (still in the running map).
+    const offRunning = window.multizen.profiles.onRunningChanged((change) => {
+      setClosingIds((prev) => {
+        const next = new Set(prev);
+        if (change.kind === "closing") next.add(change.profileId);
+        else next.delete(change.profileId); // launched / closed
+        return next;
+      });
       void refresh();
     });
 
@@ -334,6 +345,7 @@ export function App(): JSX.Element {
                 <Constellation
                   profiles={profiles}
                   recentEvents={events}
+                  closingIds={closingIds}
                   onSelect={openEditFor}
                   onCreate={() => setShowSheet(true)}
                   onLaunch={launchProfile}
