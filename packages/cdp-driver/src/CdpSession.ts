@@ -464,15 +464,30 @@ function trimAccessibilityTree(rawNodes: RawAxNode[]): AccessibilityNode[] {
   const byId = new Map<string, RawAxNode>();
   for (const node of rawNodes) byId.set(node.nodeId, node);
 
+  // Roots = nodes with no parent in the returned set. Include ignored roots:
+  // Chrome routinely makes RootWebArea's only child an `ignored` role="none"
+  // wrapper (the <body>), with the entire page hanging below it.
   const childIds = new Set<string>();
   for (const node of rawNodes) {
     for (const c of node.childIds ?? []) childIds.add(c);
   }
-  const roots = rawNodes.filter((n) => !childIds.has(n.nodeId) && !n.ignored);
+  const roots = rawNodes.filter((n) => !childIds.has(n.nodeId));
 
-  function walk(node: RawAxNode, depth: number): AccessibilityNode | null {
-    if (node.ignored) return null;
-    if (depth > 12) return null;
+  // Returns a LIST so structural noise is spliced out rather than pruned: an
+  // `ignored` node (that <body> wrapper) or a generic/presentational container
+  // is dropped, but its meaningful descendants are hoisted to its parent. The
+  // previous version returned null for `ignored` nodes, which discarded the
+  // whole subtree — so a single ignored ancestor silently dropped ALL page text
+  // (e.g. extract returned only RootWebArea for pages whose <body> is ignored).
+  function walk(node: RawAxNode, depth: number): AccessibilityNode[] {
+    if (depth > 40) return []; // guard against pathological nesting only
+
+    const children = (node.childIds ?? [])
+      .map((id) => byId.get(id))
+      .filter((n): n is RawAxNode => Boolean(n))
+      .flatMap((n) => walk(n, depth + 1));
+
+    if (node.ignored) return children; // splice out ignored wrapper, keep its content
 
     const role = node.role?.value ?? "generic";
     const name = node.name?.value;
@@ -486,26 +501,22 @@ function trimAccessibilityTree(rawNodes: RawAxNode[]): AccessibilityNode[] {
       role !== "InlineTextBox" &&
       (name || value || description || ["link", "button", "textbox", "checkbox", "combobox", "option"].includes(role));
 
-    const children = (node.childIds ?? [])
-      .map((id) => byId.get(id))
-      .filter((n): n is RawAxNode => Boolean(n))
-      .map((n) => walk(n, depth + 1))
-      .filter((n): n is AccessibilityNode => Boolean(n));
+    if (!isInteresting) return children; // drop the generic wrapper, hoist its content
 
-    if (!isInteresting && children.length === 0) return null;
-
-    return {
-      nodeId: node.nodeId,
-      role,
-      name,
-      value,
-      description,
-      backendNodeId: node.backendDOMNodeId,
-      children: children.length > 0 ? children : undefined,
-    };
+    return [
+      {
+        nodeId: node.nodeId,
+        role,
+        name,
+        value,
+        description,
+        backendNodeId: node.backendDOMNodeId,
+        children: children.length > 0 ? children : undefined,
+      },
+    ];
   }
 
-  return roots.map((r) => walk(r, 0)).filter((n): n is AccessibilityNode => Boolean(n));
+  return roots.flatMap((r) => walk(r, 0));
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
