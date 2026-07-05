@@ -1,7 +1,7 @@
 {
   "name": "@multizen/desktop",
   "productName": "MultiZen",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
