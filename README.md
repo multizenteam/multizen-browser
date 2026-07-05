@@ -129,25 +129,29 @@ Each profile is a real Chromium window with persistent state on disk. The MCP se
 
 After installing, the MCP server starts on `localhost:7777`. Add it to your client config.
 
-**Cursor** (`~/.cursor/mcp.json`):
+**URL clients — Cursor** (`~/.cursor/mcp.json`), Cline, Continue:
 
 ```json
 {
   "mcpServers": {
     "multizen": {
+      "type": "sse",
       "url": "http://localhost:7777/sse"
     }
   }
 }
 ```
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS)
+— its config has no `url` field, so bridge the SSE endpoint through
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (needs Node):
 
 ```json
 {
   "mcpServers": {
     "multizen": {
-      "url": "http://localhost:7777/sse"
+      "command": "npx",
+      "args": ["mcp-remote", "http://localhost:7777/sse"]
     }
   }
 }

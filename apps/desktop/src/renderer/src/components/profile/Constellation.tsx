@@ -222,6 +222,7 @@ export function Constellation({
         ) : viewMode === "list" ? (
           <ProfileTable
             profiles={filtered}
+            closingIds={closingIds}
             onSelect={onSelect}
             onLaunch={onLaunch}
             onStop={onStop}

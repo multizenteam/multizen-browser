@@ -41,7 +41,7 @@ export function ActivityDrawer({ open, events, profiles, onToggle }: Props): JSX
         }}
       >
         <ActivityIcon size={13} className="text-purple-400" />
-        <span className="text-[12px] font-semibold text-slate-100">Activity</span>
+        <span className="text-[12px] font-semibold text-slate-100">MCP activity</span>
         {liveCount > 0 ? (
           <Pill kind="ai" dot>{liveCount} live</Pill>
         ) : (
@@ -62,7 +62,7 @@ export function ActivityDrawer({ open, events, profiles, onToggle }: Props): JSX
         <div className="flex-1 overflow-auto">
           {recent.length === 0 ? (
             <div className="px-6 py-12 text-center text-[12px] text-slate-500">
-              No activity yet. AI tool calls and manual launches will stream here.
+              No MCP calls yet. Connect an agent (see the MCP tab) and its tool calls stream here.
             </div>
           ) : (
             <>

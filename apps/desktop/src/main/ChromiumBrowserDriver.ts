@@ -611,7 +611,12 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     // process keeps running with zero windows. We poll /json/list and force-
     // kill the child when that happens, which then fires child.on('exit') and
     // emits the running-changed event.
+    // Latch so the 1s watcher signals termination + shuts down exactly once,
+    // not on every tick while pages stay at zero during the ~1.5–4s wind-down.
+    let signalledClose = false;
     const windowWatcher = createWindowWatcher(port, startedAt, () => {
+      if (signalledClose) return;
+      signalledClose = true;
       // Window closed but the process lingers (mac app lifecycle) — tell the GUI
       // we're terminating so the card stops showing "Stop" while it winds down.
       this.emit("running-changed", { kind: "closing", profileId });
@@ -659,9 +664,14 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     // a planned close (no event emitted from there).
     this.running.delete(profileId);
     clearInterval(r.windowWatcher);
-    await stopBridgeForProfile(profileId).catch(() => {});
-    await gracefulShutdown(r);
-    this.emit("running-changed", { kind: "closed", profileId, reason: "user-close" });
+    // Always emit "closed" — even if shutdown throws — so the GUI's terminating
+    // state can never get stranded.
+    try {
+      await stopBridgeForProfile(profileId).catch(() => {});
+      await gracefulShutdown(r);
+    } finally {
+      this.emit("running-changed", { kind: "closed", profileId, reason: "user-close" });
+    }
   }
 
   isRunning(profileId: ProfileId): boolean {
