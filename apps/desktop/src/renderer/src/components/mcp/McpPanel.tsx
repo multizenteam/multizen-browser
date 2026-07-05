@@ -1,5 +1,5 @@
 import { useMemo, useState, type JSX } from "react";
-import { Check, Copy, Plug, Terminal } from "lucide-react";
+import { Check, Copy, Plug, Sparkles, Terminal } from "lucide-react";
 import type { ActivityEvent, ProfileSummary } from "../../types";
 import { Pill, Flag, ccFromTimezone } from "../atoms";
 import { formatTime } from "../../lib/relativeTime";
@@ -20,8 +20,6 @@ export function McpPanel({ events, profiles, mcpUrl }: Props): JSX.Element {
   const profilesById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
   const recent = useMemo(() => events.slice().reverse(), [events]);
 
-  const sseUrl = mcpUrl ? `${mcpUrl.replace(/\/$/, "")}/sse` : null;
-
   return (
     <div className="flex-1 overflow-auto" style={{ padding: "24px 32px" }}>
       <div className="max-w-[960px] mx-auto">
@@ -35,7 +33,7 @@ export function McpPanel({ events, profiles, mcpUrl }: Props): JSX.Element {
           and read pages through it — every tool call streams into the feed below.
         </div>
 
-        <ConnectCard sseUrl={sseUrl} />
+        <ConnectCard baseUrl={mcpUrl} />
 
         {/* Live feed */}
         <div className="flex items-baseline gap-2.5 mt-7 mb-2.5">
@@ -76,24 +74,54 @@ export function McpPanel({ events, profiles, mcpUrl }: Props): JSX.Element {
   );
 }
 
-function ConnectCard({ sseUrl }: { sseUrl: string | null }): JSX.Element {
-  const off = sseUrl === null;
-  const url = sseUrl ?? "http://127.0.0.1:7777/sse";
-  // Two honest config shapes: URL-based clients (Cursor, Cline) speak SSE
-  // directly; stdio-only clients (Claude Desktop) need the `mcp-remote` bridge —
-  // its config-file format has no `url` key.
-  const sseConfig = useMemo(
-    () => JSON.stringify({ mcpServers: { multizen: { type: "sse", url } } }, null, 2),
-    [url],
+function ConnectCard({ baseUrl }: { baseUrl: string | null }): JSX.Element {
+  const off = baseUrl === null;
+  const base = (baseUrl ?? "http://127.0.0.1:7777").replace(/\/$/, "");
+  const httpUrl = `${base}/mcp`; // Streamable HTTP — the current MCP transport
+  const sseUrl = `${base}/sse`; // legacy HTTP+SSE, kept for older clients
+
+  // Modern clients speak Streamable HTTP directly by URL — no Node bridge.
+  // Codex uses TOML; Cursor/Cline/Continue use JSON with a `url`. Stdio-only
+  // clients (Claude Desktop) still need the `mcp-remote` bridge (no url field).
+  const jsonConfig = useMemo(
+    () => JSON.stringify({ mcpServers: { multizen: { url: httpUrl } } }, null, 2),
+    [httpUrl],
+  );
+  const codexConfig = useMemo(
+    () => `[mcp_servers.multizen]\nurl = "${httpUrl}"`,
+    [httpUrl],
   );
   const stdioConfig = useMemo(
     () =>
       JSON.stringify(
-        { mcpServers: { multizen: { command: "npx", args: ["mcp-remote", url] } } },
+        { mcpServers: { multizen: { command: "npx", args: ["mcp-remote", httpUrl] } } },
         null,
         2,
       ),
-    [url],
+    [httpUrl],
+  );
+
+  // A self-contained instruction the user can paste into any coding agent
+  // (Claude Code, Cursor, …) so it wires up the connection for them.
+  const llmPrompt = useMemo(
+    () =>
+      [
+        "I'm using the MultiZen browser, which runs a local MCP server so an AI agent can drive its browser profiles (open tabs, click, type, read pages).",
+        "",
+        `It exposes a Streamable HTTP MCP endpoint at: ${httpUrl}`,
+        `(A legacy HTTP+SSE endpoint is also available at ${sseUrl} for older clients.)`,
+        "",
+        "Please connect this MCP server to my MCP client:",
+        "1. Detect which MCP client I'm using and where its config file lives.",
+        '2. Add a server named "multizen" using the shape that matches my client:',
+        `   - Codex CLI (~/.codex/config.toml):  [mcp_servers.multizen] with  url = "${httpUrl}"`,
+        `   - JSON URL clients (Cursor, Cline, Continue, VS Code):  {"mcpServers":{"multizen":{"url":"${httpUrl}"}}}`,
+        `   - Stdio-only clients (Claude Desktop, no url field) bridge via mcp-remote (needs Node.js):  {"mcpServers":{"multizen":{"command":"npx","args":["mcp-remote","${httpUrl}"]}}}`,
+        "3. Merge it into the existing config without overwriting other servers, then tell me to restart/reload the client.",
+        "",
+        'Once connected, every MultiZen tool is prefixed "multizen." — I\'ll launch a profile in MultiZen and you can drive it.',
+      ].join("\n"),
+    [httpUrl, sseUrl],
   );
 
   return (
@@ -120,7 +148,8 @@ function ConnectCard({ sseUrl }: { sseUrl: string | null }): JSX.Element {
           <Plug size={15} strokeWidth={1.75} />
         </div>
         <div className="text-[13px] font-semibold text-slate-100">Connect an agent</div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {!off && <CopyPromptButton prompt={llmPrompt} />}
           {off ? (
             <Pill kind="idle">server off</Pill>
           ) : (
@@ -138,11 +167,15 @@ function ConnectCard({ sseUrl }: { sseUrl: string | null }): JSX.Element {
         </div>
       ) : (
         <>
-          {/* Endpoint */}
+          {/* Endpoint — Streamable HTTP is the current transport */}
           <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">
-            Endpoint (HTTP/SSE)
+            Endpoint (Streamable HTTP)
           </div>
-          <CopyRow value={sseUrl} mono />
+          <CopyRow value={httpUrl} mono />
+          <div className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
+            Legacy HTTP+SSE endpoint (older clients):{" "}
+            <code className="mono text-slate-400">{sseUrl}</code>
+          </div>
 
           {/* Steps */}
           <ol className="mt-4 space-y-2">
@@ -151,13 +184,19 @@ function ConnectCard({ sseUrl }: { sseUrl: string | null }): JSX.Element {
             <Step n={3}>Launch a profile here, and let the agent drive it.</Step>
           </ol>
 
-          {/* Config snippets — two honest shapes by client type */}
+          {/* Config snippets — three shapes by client type */}
           <div className="mt-4 space-y-3">
             <div>
               <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">
-                URL clients — Cursor, Cline, Continue
+                Codex CLI — ~/.codex/config.toml
               </div>
-              <CopyRow value={sseConfig} mono block />
+              <CopyRow value={codexConfig} mono block />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">
+                JSON URL clients — Cursor, Cline, Continue
+              </div>
+              <CopyRow value={jsonConfig} mono block />
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">
@@ -168,7 +207,7 @@ function ConnectCard({ sseUrl }: { sseUrl: string | null }): JSX.Element {
                 <Terminal size={12} className="mt-[2px] flex-shrink-0 text-slate-600" />
                 <span>
                   Claude Desktop&apos;s config has no <code className="text-slate-400">url</code>{" "}
-                  field, so it bridges the SSE endpoint through{" "}
+                  field, so it bridges the endpoint through{" "}
                   <code className="text-slate-400">mcp-remote</code> (needs Node). Change the port
                   in <span className="text-slate-400">Settings</span>.
                 </span>
@@ -268,6 +307,49 @@ function CopyRow({
         {copied ? <Check size={13} /> : <Copy size={13} />}
       </button>
     </div>
+  );
+}
+
+/**
+ * "Copy for LLM" — copies a ready-to-paste English instruction so the user can
+ * hand connection setup to a coding agent (Claude Code, Cursor, …) instead of
+ * editing config files by hand.
+ */
+function CopyPromptButton({ prompt }: { prompt: string }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  function copy(): void {
+    navigator.clipboard
+      .writeText(prompt)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1600);
+      })
+      .catch(() => {
+        /* clipboard denied (non-secure context) — no-op */
+      });
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title="Copy a prompt you can paste into Claude Code / Cursor to set up the connection"
+      className="flex items-center gap-1.5 transition-colors"
+      style={{
+        height: 26,
+        padding: "0 10px",
+        borderRadius: 8,
+        fontSize: 11,
+        fontWeight: 600,
+        background: copied ? "rgba(16,185,129,0.14)" : "rgba(168,85,247,0.12)",
+        boxShadow: copied
+          ? "inset 0 0 0 1px rgba(16,185,129,0.3)"
+          : "inset 0 0 0 1px rgba(168,85,247,0.24)",
+        color: copied ? "#6ee7b7" : "#c084fc",
+      }}
+    >
+      {copied ? <Check size={12} /> : <Sparkles size={12} />}
+      {copied ? "Copied" : "Copy for LLM"}
+    </button>
   );
 }
 

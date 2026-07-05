@@ -258,7 +258,12 @@ app.whenReady().then(async () => {
   if (cachedSettings.mcpHttpEnabled) {
     try {
       httpTransport = new HttpTransport({ port: cachedSettings.mcpHttpPort });
-      await httpTransport.start(mcp.server);
+      // Streamable HTTP builds a fresh MCP server per request; give it a factory
+      // that reuses the same profileManager/browserDriver AND the shared
+      // activityLog, so every transport's tool calls land in the one live feed.
+      await httpTransport.start(
+        () => createMultizenMcpServer({ profileManager, browserDriver, activityLog }).server,
+      );
     } catch (e) {
       // Port collision is non-fatal — log and continue
       process.stderr.write(`MCP HTTP transport failed to start: ${String(e)}\n`);
