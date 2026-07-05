@@ -141,18 +141,65 @@ default or clearly disclosed + one-click disable (anti-detect ethos: no silent c
 rough floor; research will say whether the ping is worth it.
 **Output:** `specs/analytics-ping/research.md` (agent running) → then spec.
 
-## 6. Extension-dedup follow-ups · 🔵 queued
+## 6. Extension-dedup follow-ups · 🟢 partly done
 **Slug:** `ext-dedup-followups`
 From the independent validation of issue #10 feedback:
-- **One-time migration** of legacy per-profile extension copies into the shared store at
-  startup (optional) — closes the "still per-profile folders" UX gap for users who updated
-  from <0.2.10 and never re-install.
 - **Delete dead code:** `unpackToProfile` + `UnpackInput` in `crxPipeline.ts` (0 call sites).
-- **Latent note:** keyless folder/zip installs store `id = contentHashId` while Chromium's
-  runtime id for an unpacked keyless ext = hash(abs path) → our stored id ≠ runtime id.
-  Harmless today (id only used for our dedup/GC), but document/guard.
-- **Reply to ahive on #10:** explain lazy migration (legacy folders stay until re-install;
-  fresh installs ARE shared) + uBO-Lite Basic-mode / MV2 reality for the ad-block complaint.
+  ✅ done (commit `c08af87`).
+- **One-time startup migration of legacy per-profile copies → ❌ DROPPED (won't ship).**
+  Independent research (2026-07-05) established it is unsafe: the pre-0.2.10 pipeline never
+  injected a manifest `key`, and Web-Store CRX manifests don't carry one, so **essentially
+  every legacy per-profile extension runs KEYLESS** — Chromium derives its runtime id from
+  `hash(abs load path)` and partitions all state (chrome.storage, IndexedDB, logins) by that
+  id. Moving the dir into the shared store changes the path → changes the runtime id → **wipes
+  state** (a keyless wallet like MetaMask/Phantom would appear gone) AND doesn't recover the
+  genuine store ID (no CRX header when re-unpacking an already-unpacked folder). Only the rare
+  extension shipping an explicit `key` inside `manifest.json` is safely migratable — not worth
+  a dedicated migration. Legacy copies already load fine via `resolveLoadDir`; disk cost is
+  bounded; **keep the existing lazy-on-reinstall migration** (`ExtensionsService.persist`/
+  `reclaim`). If disk reclamation is ever wanted, dedup ONLY the `key`-present subset.
+- **Latent note (still true, now explained):** keyless installs store `id = contentHashId`
+  while Chromium's runtime id = `hash(abs path)`; `computeExtensionId({absPath})` is exported
+  but has **0 call sites**, so nothing ever computes the real runtime id — which is exactly why
+  keyless state can't be relocated. Documented; no code change.
+- **Reply to ahive on #10:** DRAFTED, pending user approval to post (outward-facing). Explains
+  the MV2 gate (why classic uBO was refused), uBO Lite as the MV3 path + its Basic-mode caveats,
+  and that MV2-on-145 is under evaluation. See task #8.
+
+## 8. Ad-blocking / Manifest V2 on CloakBrowser 145 · 🟡 decision needed
+**Slug:** `mv2-adblock`
+Triggered by issue #10 (ahive: "all ad block extensions are paralyzed"). Root cause: MultiZen's
+own gate `crxPipeline.ts:82` rejects `manifest_version !== 3`, so classic uBlock Origin (MV2) is
+refused on upload (file AND Web-Store). Research (2026-07-05):
+- Chromium disabled MV2 for all users in **138**; **145** (our engine, shipped Feb 2026) still
+  has the `ExtensionManifestV2*` feature flags; **150** (Jun 30 2026) removes the last override.
+- **CloakBrowser is ungoogled-based**, and ungoogled ships `extensions-manifestv2.patch` that
+  **unconditionally re-enables MV2** (no flag). So classic uBO likely CAN run on our 145 engine
+  if we drop our gate — **UNVERIFIED for this exact CloakBrowser build; needs an empirical test**
+  (bypass the gate, hand-place an MV2 ext, launch, confirm it loads AND blocks).
+- uBO **Lite** (MV3) works today via `--load-extension` but is weaker: Basic mode by default (no
+  custom filter lists, no per-site dynamic filtering), Optimal/Complete need per-site host
+  permissions we can't pre-grant via CLI; DNR rule caps (~330k static / 30k dynamic).
+**Options:** (a) recommend uBO Lite only, keep the MV2 gate; (b) empirically verify + ship an
+**opt-in "Allow Manifest V2 extensions"** toggle (fixes classic uBO on 145, but MV2 is terminal —
+dies when we track CloakBrowser past 145). Strategic call for the maintainer.
+
+## 9. In-app curated extension catalog · 🔎 research running
+**Slug:** `extension-catalog`
+User idea (2026-07-05): show a built-in, official-feeling gallery of popular extensions grouped
+by category, with icons + names, searchable, one-click install. Uses the existing
+`installFromWebStore(id)` path — no new install plumbing.
+**Key constraints (my critical read):**
+- No official Web-Store "top-N per category" API. Scraping category pages is fragile + gec/locale-
+  dependent → **curate** a quality MV3-only list instead (stable, verifiable IDs), don't auto-scrape.
+- **MV3-only** for now (our gate rejects MV2); badge/exclude MV2 favourites (classic uBO) — ties to #8.
+- **Icons offline:** a build-time script fetches `og:image`/`og:title`/`og:description` from each
+  detail page by ID and bundles PNGs → no runtime network, no fingerprint impact.
+- Staleness: bundle JSON for v1; consider hosted JSON later (like #4) to update without a release.
+**Research agent (2026-07-05):** verifying metadata-by-ID is retrievable (og: tags) + assembling a
+seed catalog (categories × verified MV3 IDs). → then spec/plan/implement/review.
+**UI open Q:** own left-rail section ("Discover"/"Extensions") vs a picker inside the create/edit
+Extensions section (overlaps #2 "attach existing / install at create").
 
 ## 7. Issue #11 — DNS NXDOMAIN (Win10 LTSC) · ⏸ waiting on reporter — ⬆ NOW HIGHEST PRIORITY
 **Slug:** `issue-11-dns`
