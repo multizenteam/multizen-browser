@@ -56,6 +56,9 @@ export class HttpTransport {
     // Only requests whose Host header names our own loopback endpoint are
     // served — this is what blocks a DNS-rebinding page from POSTing to
     // 127.0.0.1:<port>/mcp under an attacker hostname to drive the browser.
+    // NOTE: this Host allowlist is sufficient BECAUSE we bind loopback. If the
+    // server is ever bound to a non-loopback interface (e.g. 0.0.0.0), the
+    // allowlist alone no longer protects it — set `authToken` as well.
     this.allowedHosts = Array.from(
       new Set([`${host}:${opts.port}`, `127.0.0.1:${opts.port}`, `localhost:${opts.port}`]),
     );
