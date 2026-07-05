@@ -84,17 +84,45 @@
   // render it; when they do we replace it in place. On the current Web Store for
   // non-Chrome browsers Google collapses this to 0×0 / display:none and shows a
   // promo banner instead (see findInstallBanner), so require real size here.
+  //
+  // Anchor STRUCTURALLY, not by the button's text: the CTA label is localized
+  // ("Add to Chrome" / "Chrome に追加" / "В Chrome" …), so a text match only
+  // worked on the English store. The primary CTA lives inside a stable action
+  // container (div.OdjmDb) regardless of UI language — match that.
+  function isVisibleContainer(container) {
+    if (!container) return false;
+    if (container.style && container.style.display === "none") return false;
+    if (container.querySelector && container.querySelector("#mz-add-to-multizen")) return false;
+    const r = container.getBoundingClientRect();
+    return r.width >= 1 && r.height >= 1; // collapsed → 0×0 for non-Chrome
+  }
+
   function findVisibleNativeAdd() {
+    // Primary, locale-independent: the action container holding the CTA button.
+    // The detail page's related-extension cards also use this container, so pick
+    // the TOPMOST visible one — the header CTA sits above the related cards.
+    const containers = document.querySelectorAll("div.OdjmDb");
+    let best = null;
+    let bestTop = Infinity;
+    for (let i = 0; i < containers.length; i++) {
+      const c = containers[i];
+      if (!c.querySelector("button")) continue;
+      if (!isVisibleContainer(c)) continue;
+      const top = c.getBoundingClientRect().top;
+      if (top < bestTop) {
+        bestTop = top;
+        best = c;
+      }
+    }
+    if (best) return best;
+    // Fallback for older/other layouts: match the English label directly.
     const spans = document.querySelectorAll("span");
     for (let i = 0; i < spans.length; i++) {
       if ((spans[i].textContent || "").trim() !== "Add to Chrome") continue;
       const btn = spans[i].closest("button");
       if (!btn) continue;
       const container = btn.closest("div.OdjmDb") || btn.parentElement || btn;
-      if (container.style && container.style.display === "none") continue;
-      const r = container.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1) continue; // collapsed for non-Chrome
-      return container;
+      if (isVisibleContainer(container)) return container;
     }
     return null;
   }
