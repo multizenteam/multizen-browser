@@ -473,6 +473,15 @@ function trimAccessibilityTree(rawNodes: RawAxNode[]): AccessibilityNode[] {
   }
   const roots = rawNodes.filter((n) => !childIds.has(n.nodeId));
 
+  // Chrome's real AX output is a strict tree, so neither guard below fires in
+  // practice — they harden `extract` against a future malformed/cyclic CDP
+  // source (a node reachable via two parents would recurse forever) and cap the
+  // payload on pathologically large pages so a single call can't return
+  // megabytes of tree.
+  const visited = new Set<string>();
+  const MAX_EMITTED_NODES = 5000;
+  let emitted = 0;
+
   // Returns a LIST so structural noise is spliced out rather than pruned: an
   // `ignored` node (that <body> wrapper) or a generic/presentational container
   // is dropped, but its meaningful descendants are hoisted to its parent. The
@@ -481,6 +490,9 @@ function trimAccessibilityTree(rawNodes: RawAxNode[]): AccessibilityNode[] {
   // (e.g. extract returned only RootWebArea for pages whose <body> is ignored).
   function walk(node: RawAxNode, depth: number): AccessibilityNode[] {
     if (depth > 40) return []; // guard against pathological nesting only
+    if (emitted >= MAX_EMITTED_NODES) return []; // payload cap on huge pages
+    if (visited.has(node.nodeId)) return []; // cycle guard (strict tree ⇒ never in practice)
+    visited.add(node.nodeId);
 
     const children = (node.childIds ?? [])
       .map((id) => byId.get(id))
@@ -503,6 +515,7 @@ function trimAccessibilityTree(rawNodes: RawAxNode[]): AccessibilityNode[] {
 
     if (!isInteresting) return children; // drop the generic wrapper, hoist its content
 
+    emitted += 1;
     return [
       {
         nodeId: node.nodeId,
