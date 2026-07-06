@@ -63,7 +63,14 @@ export async function stopAllBridges(): Promise<void> {
 }
 
 async function startBridge(upstream: ProxyConfig): Promise<BridgeHandle> {
+  // Track live client sockets so close() can force-destroy them. Otherwise
+  // net's server.close() waits for every open connection to end before its
+  // callback fires — and the browser's socks connection stays open until the
+  // browser itself dies, so close() would hang forever (blocking Stop).
+  const sockets = new Set<Socket>();
   const server = createServer((sock) => {
+    sockets.add(sock);
+    sock.once("close", () => sockets.delete(sock));
     sock.on("error", () => {
       /* swallow — pipes / close handlers will tear down */
     });
@@ -100,6 +107,10 @@ async function startBridge(upstream: ProxyConfig): Promise<BridgeHandle> {
     upstream,
     close: () =>
       new Promise<void>((resolve) => {
+        // Destroy live connections first so server.close() resolves promptly
+        // instead of waiting on the browser's still-open socket.
+        for (const s of sockets) s.destroy();
+        sockets.clear();
         server.close(() => resolve());
       }),
   };
