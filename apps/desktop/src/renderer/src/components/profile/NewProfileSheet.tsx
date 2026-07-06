@@ -186,7 +186,10 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
                     <Input
                       autoFocusHint
                       value={name}
-                      onChange={setName}
+                      onChange={(v) => {
+                        setName(v);
+                        setError(null); // clear a stale "…required" as they fix it
+                      }}
                       placeholder="e.g. acme — sales · west"
                     />
                   </Field>
@@ -249,7 +252,10 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
                     <Field label="Host">
                       <Input
                         value={proxy.host}
-                        onChange={(v) => setProxy((p) => ({ ...p, host: v }))}
+                        onChange={(v) => {
+                          setProxy((p) => ({ ...p, host: v }));
+                          setError(null);
+                        }}
                         onPaste={(text) => {
                           const parsed = parseProxyString(text);
                           if (!parsed) return false; // let the default paste fill host
