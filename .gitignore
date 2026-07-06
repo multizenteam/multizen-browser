@@ -54,3 +54,7 @@ vendor/multizen-private/
 docs/
 notes/
 INTERNAL_*.md
+
+# Python bytecode caches
+__pycache__/
+*.pyc
