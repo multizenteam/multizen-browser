@@ -1,0 +1,14 @@
+# MultiZen telemetry ingest — append this block to /etc/caddy/Caddyfile.
+# It is self-contained and does not touch the other site blocks.
+#
+# Reverse-proxies to the local ingest service and, crucially, DISABLES access
+# logging for this vhost so client IPs are never written to disk (the ingest
+# itself already ignores the IP). Caddy fetches a Let's Encrypt cert
+# automatically once ping.getmultizen.com resolves to this host.
+
+ping.getmultizen.com {
+	log {
+		output discard
+	}
+	reverse_proxy 127.0.0.1:8787
+}

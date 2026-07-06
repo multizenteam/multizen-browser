@@ -6,7 +6,7 @@ import { ProxyTester } from "./ProxyTester";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { EmojiField } from "./EmojiField";
 import { BrowserSection, DEFAULT_START_URL } from "./BrowserSection";
-import type { FingerprintConfig, ProxyConfig } from "../../types";
+import type { ExtensionConfig, FingerprintConfig, ProxyConfig } from "../../types";
 import { parseProxyString } from "../../lib/parseProxy";
 
 interface Props {
@@ -48,6 +48,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
   const [icon, setIcon] = useState<string | undefined>(undefined);
   const [startUrl, setStartUrl] = useState(DEFAULT_START_URL);
   const [proxy, setProxy] = useState<DraftProxy>(EMPTY_PROXY);
+  const [extensions, setExtensions] = useState<ExtensionConfig[]>([]);
   const [fingerprint, setFingerprint] = useState<FingerprintConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,12 +76,13 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
       proxy.enabled ||
       proxy.host !== "" ||
       proxy.username !== "" ||
-      proxy.password !== "";
+      proxy.password !== "" ||
+      extensions.length > 0;
     if (dirty !== dirtyRef.current) {
       dirtyRef.current = dirty;
       onDirtyChange?.(dirty);
     }
-  }, [name, tagsRaw, icon, startUrl, proxy, onDirtyChange]);
+  }, [name, tagsRaw, icon, startUrl, proxy, extensions, onDirtyChange]);
 
   function buildProxy(): ProxyConfig | undefined {
     if (!proxy.enabled) return undefined;
@@ -124,6 +126,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
         startUrl: startUrl.trim() || undefined,
         proxy: built,
         fingerprint: fingerprint ?? undefined,
+        extensions: extensions.length > 0 ? extensions : undefined,
       });
       onCreated(created.id, autoLaunch);
     } catch (e) {
@@ -287,9 +290,13 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
             )}
           </Group>
 
-          {/* Extensions — added after the profile is created (needs an id). */}
+          {/* Extensions — staged into the shared store and passed to create. */}
           <Group label="Extensions">
-            <ExtensionsSection profileId={null} />
+            <ExtensionsSection
+              profileId={null}
+              staged={extensions}
+              onStagedChange={setExtensions}
+            />
           </Group>
 
           {/* Fingerprint — shared component with the edit sheet */}

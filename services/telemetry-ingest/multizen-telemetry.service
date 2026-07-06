@@ -1,0 +1,29 @@
+[Unit]
+Description=MultiZen telemetry ingest (anonymous daily heartbeat)
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mztel
+Group=mztel
+WorkingDirectory=/opt/multizen-telemetry/repo/services/telemetry-ingest
+# Local-only bind; Caddy terminates TLS and reverse-proxies to this.
+Environment=MZ_TELEMETRY_HOST=127.0.0.1
+Environment=MZ_TELEMETRY_PORT=8787
+Environment=MZ_TELEMETRY_REDIS=redis://127.0.0.1:6379/2
+ExecStart=/opt/multizen-telemetry/venv/bin/python server.py
+Restart=always
+RestartSec=3
+# Hardening: no privileges, read-only FS except nothing it needs to write.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

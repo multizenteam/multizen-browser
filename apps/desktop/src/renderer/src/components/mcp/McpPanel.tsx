@@ -191,6 +191,14 @@ function ConnectCard({ baseUrl }: { baseUrl: string | null }): JSX.Element {
                 Codex CLI — ~/.codex/config.toml
               </div>
               <CopyRow value={codexConfig} mono block />
+              <div className="flex items-start gap-1.5 mt-2 text-[11px] text-slate-500 leading-relaxed">
+                <Terminal size={12} className="mt-[2px] flex-shrink-0 text-slate-600" />
+                <span>
+                  The <code className="text-slate-400">url</code> field needs a Codex build with
+                  streamable-HTTP MCP support. On older Codex (stdio only), use the{" "}
+                  <span className="text-slate-400">Stdio clients</span> config below instead.
+                </span>
+              </div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">
