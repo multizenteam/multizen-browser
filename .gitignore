@@ -53,7 +53,14 @@ vendor/multizen-private/
 # Internal strategy / planning docs — never committed
 docs/
 notes/
+specs/
 INTERNAL_*.md
+
+# Markdown is internal working material — the only doc we ship is README.md
+# (at any depth). Everything else (CONTRIBUTING, ROADMAP, specs, notes…) stays
+# local and out of git.
+*.md
+!README.md
 
 # Python bytecode caches
 __pycache__/
