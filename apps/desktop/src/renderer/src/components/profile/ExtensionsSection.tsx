@@ -1,7 +1,8 @@
 import { useEffect, useState, type Dispatch, type JSX, type SetStateAction } from "react";
-import { Blocks, LayoutGrid, Library, Loader2, Plus, Trash2 } from "lucide-react";
+import { LayoutGrid, Library, Loader2, Plus, Trash2 } from "lucide-react";
 import type { ExtensionConfig } from "../../types";
 import { ExtensionCatalog } from "./ExtensionCatalog";
+import { ExtIcon } from "./ExtIcon";
 import type { CatalogExtension } from "../../data/extensionCatalog";
 
 /**
@@ -280,7 +281,7 @@ function StagingExtensions({
                   boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
                 }}
               >
-                <Blocks size={14} className="text-purple-300 shrink-0" />
+                <ExtIcon id={ext.id} />
                 <span className="flex-1 text-[12px] text-slate-200 truncate">{ext.name}</span>
                 <Plus size={13} className="text-slate-500 shrink-0" />
               </button>
@@ -318,7 +319,7 @@ function ExtRow({
         boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
       }}
     >
-      <Blocks size={14} className="text-purple-300 shrink-0" />
+      <ExtIcon id={ext.id} />
       <span className="flex-1 text-[12px] text-slate-200 truncate">{ext.name}</span>
       <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
         <input

@@ -1,11 +1,11 @@
 import { useMemo, useState, type JSX } from "react";
-import { Blocks, Check, Loader2, Plus, Search } from "lucide-react";
+import { Check, Loader2, Plus, Search } from "lucide-react";
 import {
   CATALOG_CATEGORIES,
   CATALOG_EXTENSIONS,
   type CatalogExtension,
 } from "../../data/extensionCatalog";
-import { CATALOG_ICONS } from "../../data/extensionCatalogIcons";
+import { ExtIcon } from "./ExtIcon";
 
 /**
  * In-app "Discover" picker over the curated MV3 catalog. Searchable, grouped by
@@ -13,21 +13,6 @@ import { CATALOG_ICONS } from "../../data/extensionCatalogIcons";
  * install for a saved profile, or staging for the create sheet) so this stays
  * mode-agnostic.
  */
-/** Bundled Web Store icon (data URI), falling back to the generic glyph. */
-function ExtIcon({ id }: { id: string }): JSX.Element {
-  const src = CATALOG_ICONS[id];
-  if (!src) return <Blocks size={14} className="text-purple-300 shrink-0" />;
-  return (
-    <img
-      src={src}
-      alt=""
-      width={16}
-      height={16}
-      className="w-4 h-4 rounded-[3px] shrink-0 object-contain"
-    />
-  );
-}
-
 export function ExtensionCatalog({
   installedIds,
   busyId,
