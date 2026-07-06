@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream, statSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import {
   createHash,
   randomBytes,
@@ -135,9 +135,13 @@ export async function importProfile(
   cursor += manifestLen;
 
   // Preserve the original id when free (faithful move to another machine); mint
-  // a fresh one only if it's already taken here (duplicate import on the same
-  // machine) so we never clobber the existing profile's dataDir.
-  const targetId = opts.idTaken?.(manifest.profile.id) ? randomUUID() : manifest.profile.id;
+  // a fresh one if it's already taken here (duplicate import), OR if the
+  // archive's id is not a safe path segment. The id becomes a directory name
+  // (`<profilesRoot>/<id>`), so an attacker-crafted id like "" or ".." could
+  // otherwise redirect the whole restore outside its own dataDir.
+  const original = manifest.profile.id;
+  const idUsable = isSafeIdSegment(original) && !opts.idTaken?.(original);
+  const targetId = idUsable ? original : randomUUID();
   const restored: Profile = {
     ...manifest.profile,
     id: targetId,
@@ -157,8 +161,12 @@ export async function importProfile(
       throw new Error(`Checksum mismatch for ${fileMeta.path}`);
     }
 
-    const absPath = resolve(restored.dataDir, fileMeta.path);
-    if (!absPath.startsWith(resolve(restored.dataDir))) {
+    const base = resolve(restored.dataDir);
+    const absPath = resolve(base, fileMeta.path);
+    // Must stay strictly inside dataDir. Compare against `base + sep` so a
+    // sibling dir sharing the prefix (…/<id>-evil) can't slip through, and
+    // reject the base itself as a file target.
+    if (absPath !== base && !absPath.startsWith(base + sep)) {
       throw new Error(`Refusing path-traversal entry: ${fileMeta.path}`);
     }
     await mkdir(join(absPath, ".."), { recursive: true });
@@ -166,6 +174,16 @@ export async function importProfile(
   }
 
   return restored;
+}
+
+/**
+ * A profile id is used verbatim as a directory name, so restrict it to a plain
+ * single path segment (uuids qualify). Rejects "", ".", "..", and anything with
+ * a path separator — the values that would let a crafted archive escape its
+ * dataDir.
+ */
+function isSafeIdSegment(id: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) && id !== "." && id !== "..";
 }
 
 interface CollectedFile {
