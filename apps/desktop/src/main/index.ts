@@ -357,6 +357,39 @@ app.whenReady().then(async () => {
     },
   );
 
+  // Staging IPC (no profile id yet) — used by the create sheet to attach or
+  // install extensions before the profile exists. `prepare*` unpack into the
+  // shared store and return the single ref; the renderer holds the staged list
+  // and passes it to profiles:create as `extensions`.
+  ipcMain.handle("extensions:storeEntries", () => extensionsService.storeEntries());
+  ipcMain.handle("extensions:prepareFromWebStore", async (_e, urlOrId: string) => {
+    try {
+      return await extensionsService.prepareFromWebStore(urlOrId);
+    } catch (e) {
+      process.stderr.write(
+        `[extensions] prepareFromWebStore FAILED: ${(e as Error).stack ?? (e as Error).message}\n`,
+      );
+      throw e;
+    }
+  });
+  ipcMain.handle("extensions:prepareFromFile", async () => {
+    const r = await dialog.showOpenDialog(mainWindow!, {
+      title: "Add extension (.crx or .zip)",
+      properties: ["openFile"],
+      filters: [{ name: "Chrome extension", extensions: ["crx", "zip"] }],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return extensionsService.prepareFromFile(r.filePaths[0]);
+  });
+  ipcMain.handle("extensions:prepareFromFolder", async () => {
+    const r = await dialog.showOpenDialog(mainWindow!, {
+      title: "Add unpacked extension folder",
+      properties: ["openDirectory"],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return extensionsService.prepareFromFile(r.filePaths[0]);
+  });
+
   // App self-update IPC
   ipcMain.handle("update:status", () => updater.getStatus());
   ipcMain.handle("update:lastChecked", () => updater.getLastCheckedAt());

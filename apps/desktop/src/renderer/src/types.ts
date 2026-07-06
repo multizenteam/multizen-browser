@@ -103,6 +103,11 @@ export interface MultizenApi {
     addFromWebStore: (profileId: string, urlOrId: string) => Promise<ExtensionConfig[]>;
     remove: (profileId: string, extId: string) => Promise<ExtensionConfig[]>;
     toggle: (profileId: string, extId: string, enabled: boolean) => Promise<ExtensionConfig[]>;
+    /** Staging (create sheet, no profile id yet). */
+    storeEntries: () => Promise<ExtensionConfig[]>;
+    prepareFromWebStore: (urlOrId: string) => Promise<ExtensionConfig>;
+    prepareFromFile: () => Promise<ExtensionConfig | null>;
+    prepareFromFolder: () => Promise<ExtensionConfig | null>;
     onInstalled: (cb: (e: ExtensionInstalledEvent) => void) => () => void;
   };
   update: {
