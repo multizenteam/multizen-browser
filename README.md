@@ -167,15 +167,6 @@ url = "http://localhost:7777/mcp"
 
 Restart your client. The agent now has tools: `list_profiles`, `launch_profile`, `close_profile`, `navigate`, `click`, `type`, `extract`, `screenshot`.
 
-## Honest limits
-
-What isn't handled yet — and where each is headed. No "100% undetectable" claims here.
-
-- **TLS fingerprint** isn't spoofed yet: the most aggressive stacks (some Cloudflare Enterprise setups, DataDome) fingerprint JA3/JA4 at the TLS layer, below the browser. → Addressed by the patched-Chromium engine on the [roadmap](#roadmap).
-- **Behavioral signals** aren't shaped: mouse paths, timing, and scroll are unmodeled, and an agent driving the DOM moves linearly — detectable. → Behavioral injection is on the [roadmap](#roadmap).
-- **Anti-detect score** is ~65/100 on fingerprint-scan.com over a residential proxy — the CloakBrowser ceiling without our own patches. → The patched engine lifts this past 90.
-- **Parallelism** targets ~30–50 profiles per machine, not fleets. For 500 concurrent browsers, use Browserbase or Hyperbrowser.
-
 ## Stack
 
 | Layer | Tech |
