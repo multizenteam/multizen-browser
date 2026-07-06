@@ -120,9 +120,13 @@ export function Modal({
     previouslyFocused.current = document.activeElement as HTMLElement | null;
     const t = window.setTimeout(() => {
       if (!panelRef.current) return;
-      const candidate = panelRef.current.querySelector<HTMLElement>(
-        "input, textarea, select, button, [tabindex]:not([tabindex='-1'])",
-      );
+      // Prefer an explicitly-tagged field (e.g. the sheet's Name input) over the
+      // first tab-order element, which would otherwise be a nav/rail button.
+      const candidate =
+        panelRef.current.querySelector<HTMLElement>("[data-autofocus]") ??
+        panelRef.current.querySelector<HTMLElement>(
+          "input, textarea, select, button, [tabindex]:not([tabindex='-1'])",
+        );
       candidate?.focus();
     }, 60);
     return () => {

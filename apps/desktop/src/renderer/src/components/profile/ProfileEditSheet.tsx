@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
-import { Blocks, Check, Fingerprint, Globe, IdCard, Loader2, Network, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState, type JSX } from "react";
+import { Check, Loader2, TriangleAlert } from "lucide-react";
 import type { FingerprintConfig, Profile, ProxyConfig, UpdateProfileInput } from "../../types";
 import { FingerprintForm } from "./FingerprintForm";
 import { ProxyTester } from "./ProxyTester";
@@ -7,6 +7,14 @@ import { ExtensionsSection } from "./ExtensionsSection";
 import { EmojiField } from "./EmojiField";
 import { BrowserSection } from "./BrowserSection";
 import { parseProxyString } from "../../lib/parseProxy";
+import {
+  Field,
+  Input,
+  SHEET_HEIGHT,
+  SectionRail,
+  Textarea,
+  type SectionId,
+} from "./profileSheetKit";
 
 /**
  * Edit an existing profile. Discord-settings-style: a left rail switches
@@ -32,16 +40,6 @@ interface FormState {
   proxyPassword: string;
   fingerprint: FingerprintConfig;
 }
-
-type SectionId = "general" | "browser" | "proxy" | "extensions" | "fingerprint";
-
-const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof IdCard }> = [
-  { id: "general", label: "General", icon: IdCard },
-  { id: "browser", label: "Browser", icon: Globe },
-  { id: "proxy", label: "Proxy", icon: Network },
-  { id: "extensions", label: "Extensions", icon: Blocks },
-  { id: "fingerprint", label: "Fingerprint", icon: Fingerprint },
-];
 
 function toForm(p: Profile): FormState {
   return {
@@ -155,12 +153,19 @@ export function ProfileEditSheet({ profile, onSaved }: Props): JSX.Element {
   }, [form]);
 
   // Flush a pending, valid change on unmount so closing never drops the last
-  // edit. Fire-and-forget — the main process completes it after we're gone.
+  // edit. Chain onSaved so the profile list re-reads AFTER the write lands —
+  // otherwise a close-within-debounce leaves the card showing the stale value.
   useEffect(() => {
     return () => {
       const { form: f, id } = latestRef.current;
       if (JSON.stringify(f) !== savedRef.current && !validate(f)) {
-        void window.multizen.profiles.update(id, toPatch(f));
+        void window.multizen.profiles
+          .update(id, toPatch(f))
+          .then(() => onSavedRef.current?.())
+          .catch(() => {
+            // Component is gone; nothing to surface. Swallow to avoid an
+            // unhandled rejection warning.
+          });
       }
     };
   }, []);
@@ -181,36 +186,13 @@ export function ProfileEditSheet({ profile, onSaved }: Props): JSX.Element {
       : undefined;
 
   return (
-    <div className="flex" style={{ height: "min(600px, calc(100vh - 168px))" }}>
-      {/* Left rail */}
-      <nav
-        className="flex flex-col shrink-0 py-3 px-2 gap-0.5"
-        style={{ width: 168, borderRight: "1px solid rgba(255,255,255,0.05)" }}
-      >
-        {SECTIONS.map(({ id, label, icon: Icon }) => {
-          const active = section === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setSection(id)}
-              className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left transition-colors"
-              style={{
-                background: active ? "rgba(168,85,247,0.14)" : "transparent",
-                color: active ? "#e9d5ff" : "#94a3b8",
-                boxShadow: active ? "inset 0 0 0 1px rgba(168,85,247,0.22)" : undefined,
-              }}
-            >
-              <Icon size={15} strokeWidth={1.75} className="shrink-0" />
-              <span className="font-medium">{label}</span>
-            </button>
-          );
-        })}
-
-        <div className="mt-auto px-1.5 pt-2">
-          <StatusPill status={status} />
-        </div>
-      </nav>
+    <div className="flex" style={{ height: SHEET_HEIGHT }}>
+      <SectionRail
+        section={section}
+        onSelect={setSection}
+        badges={{ general: !form.name.trim() }}
+        footer={<StatusPill status={status} />}
+      />
 
       {/* Content pane — only this scrolls */}
       <div className="flex-1 min-w-0 overflow-y-auto px-5 py-4">
@@ -228,7 +210,7 @@ export function ProfileEditSheet({ profile, onSaved }: Props): JSX.Element {
               </Field>
               <div className="grid grid-cols-2 gap-2.5 flex-1 min-w-0">
                 <Field label="Name">
-                  <Input autoFocus value={form.name} onChange={(v) => update("name", v)} />
+                  <Input autoFocusHint value={form.name} onChange={(v) => update("name", v)} />
                 </Field>
                 <Field label="Tags">
                   <Input
@@ -361,79 +343,5 @@ function StatusPill({ status }: { status: SaveStatus }): JSX.Element {
     <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
       <Check size={11} className="text-emerald-400/80" /> All changes saved
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }): JSX.Element {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-medium text-slate-500">{label}</div>
-      {children}
-    </div>
-  );
-}
-
-function Input({
-  value,
-  onChange,
-  placeholder,
-  mono,
-  type,
-  autoFocus,
-  onPaste,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  mono?: boolean;
-  type?: "text" | "password";
-  autoFocus?: boolean;
-  /** Return true to signal the paste was consumed (default browser paste is suppressed). */
-  onPaste?: (text: string) => boolean;
-}): JSX.Element {
-  return (
-    <input
-      autoFocus={autoFocus}
-      type={type ?? "text"}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onPaste={
-        onPaste
-          ? (e) => {
-              if (onPaste(e.clipboardData.getData("text"))) e.preventDefault();
-            }
-          : undefined
-      }
-      placeholder={placeholder}
-      className="w-full px-2.5 h-9 rounded-lg bg-white/[0.03] text-[12px] text-slate-200 placeholder:text-slate-600 outline-none focus:bg-white/[0.05] transition-colors"
-      style={{
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)",
-        fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
-        fontWeight: mono ? 500 : 400,
-      }}
-    />
-  );
-}
-
-function Textarea({
-  value,
-  onChange,
-  placeholder,
-  rows = 3,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  rows?: number;
-}): JSX.Element {
-  return (
-    <textarea
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      rows={rows}
-      className="w-full px-2.5 py-2 rounded-lg bg-white/[0.03] text-[12px] text-slate-200 placeholder:text-slate-600 outline-none focus:bg-white/[0.05] transition-colors resize-none"
-      style={{ boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.08)", fontFamily: "var(--font-sans)" }}
-    />
   );
 }
