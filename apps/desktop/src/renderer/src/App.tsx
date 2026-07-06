@@ -353,7 +353,7 @@ export function App(): JSX.Element {
                 open={showSheet}
                 title="New profile"
                 subtitle="Cookies, login state, and fingerprint live in this profile only."
-                width={620}
+                width={720}
                 onClose={() => {
                   setShowSheet(false);
                   setSheetDirty(false);
@@ -418,7 +418,7 @@ export function App(): JSX.Element {
         open={editingProfile !== null}
         title={editingProfile ? `Edit ${editingProfile.name}` : "Edit profile"}
         subtitle="Changes autosave and apply on the next profile launch."
-        width={620}
+        width={720}
         onClose={() => {
           setEditingProfile(null);
           void refresh();
