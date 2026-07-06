@@ -1002,42 +1002,60 @@ function browserDataDirForEngine(profileDataDir: string, engine: BrowserEngine):
  * watcher; the second call no-ops because the child is already exiting.
  */
 async function gracefulShutdown(r: RunningProcess): Promise<void> {
-  if (r.child.exitCode !== null || r.child.killed) {
+  const { pid } = r;
+
+  // Source of truth is the OS, not `child.killed`/`exitCode`. Those flags lie
+  // in a real case: the window watcher may have already fired a SIGTERM (so
+  // `child.killed` is true) that Chromium ignored, and a subsequent Stop press
+  // would then skip escalation and report "closed" while the browser lives on.
+  if (!isPidAlive(pid)) {
     await r.session.close().catch(() => {});
     return;
   }
 
-  const exited = new Promise<void>((resolve) => {
-    if (r.child.exitCode !== null) {
-      resolve();
-      return;
-    }
-    r.child.once("exit", () => resolve());
-  });
-
-  // Fire Browser.close — websocket disconnects mid-call, that's expected.
+  // 1. Graceful CDP close (⌘Q equivalent — flushes session-restore). The
+  //    websocket disconnects mid-call, so ignore the rejection.
   await r.session.closeBrowser().catch(() => {});
-
-  // Wait up to 4s for graceful exit. Chromium needs ~500ms-2s to flush
-  // session-restore on macOS; 4s gives a comfortable margin.
-  const exitedInTime = await Promise.race([
-    exited.then(() => true),
-    sleep(4000).then(() => false),
-  ]);
+  // Chromium needs ~500ms–2s to flush session-restore on macOS; 4s is margin.
+  if (await waitForPidDeath(pid, 4000)) {
+    await r.session.close().catch(() => {});
+    return;
+  }
 
   await r.session.close().catch(() => {});
 
-  if (!exitedInTime && r.child.exitCode === null && !r.child.killed) {
-    // CDP didn't deliver — fall through to signals.
-    r.child.kill("SIGTERM");
-    const termExited = await Promise.race([
-      exited.then(() => true),
-      sleep(2000).then(() => false),
-    ]);
-    if (!termExited && r.child.exitCode === null && !r.child.killed) {
-      r.child.kill("SIGKILL");
-    }
+  // 2. SIGTERM by PID (not r.child.kill — don't trust the child flags).
+  killPid(pid, "SIGTERM");
+  if (await waitForPidDeath(pid, 2000)) return;
+
+  // 3. SIGKILL — the kernel guarantees this. We poll to confirm the process is
+  //    genuinely gone before returning, so close() never reports a false
+  //    "closed" while Chromium is still on screen.
+  killPid(pid, "SIGKILL");
+  await waitForPidDeath(pid, 2000);
+}
+
+function killPid(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // ESRCH (already dead) or EPERM — nothing more we can do here.
   }
+}
+
+/**
+ * Poll until `pid` is no longer alive or the timeout elapses. Returns true if
+ * the process is confirmed dead. Uses the OS (`kill -0`) as the authority, so
+ * it's immune to stale ChildProcess flags and works no matter which code path
+ * (Stop button, window watcher, external ⌘Q) initiated the shutdown.
+ */
+async function waitForPidDeath(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidAlive(pid)) return true;
+    await sleep(100);
+  }
+  return !isPidAlive(pid);
 }
 
 function createWindowWatcher(
