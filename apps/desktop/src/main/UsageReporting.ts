@@ -62,6 +62,13 @@ export class UsageReporting {
 
   /** Begin the daily heartbeat loop. Safe to call once at startup. */
   start(): void {
+    // Never phone home from a dev/unpackaged build. Dev and the installed app
+    // share one userData (app name is "MultiZen" in both), so the opt-in setting
+    // is shared too — without this guard a dev/CI launch would send a ping that
+    // is indistinguishable from a real user and would silently inflate the
+    // numbers. A dev explicitly testing telemetry can still opt in by setting
+    // MULTIZEN_TELEMETRY_ENDPOINT to a test server.
+    if (!app.isPackaged && !process.env.MULTIZEN_TELEMETRY_ENDPOINT) return;
     if (this.startTimer || this.timer) return;
     this.startTimer = setTimeout(() => {
       this.startTimer = null;
