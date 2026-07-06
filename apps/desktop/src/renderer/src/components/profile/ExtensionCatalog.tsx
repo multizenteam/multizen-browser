@@ -5,6 +5,7 @@ import {
   CATALOG_EXTENSIONS,
   type CatalogExtension,
 } from "../../data/extensionCatalog";
+import { CATALOG_ICONS } from "../../data/extensionCatalogIcons";
 
 /**
  * In-app "Discover" picker over the curated MV3 catalog. Searchable, grouped by
@@ -12,6 +13,21 @@ import {
  * install for a saved profile, or staging for the create sheet) so this stays
  * mode-agnostic.
  */
+/** Bundled Web Store icon (data URI), falling back to the generic glyph. */
+function ExtIcon({ id }: { id: string }): JSX.Element {
+  const src = CATALOG_ICONS[id];
+  if (!src) return <Blocks size={14} className="text-purple-300 shrink-0" />;
+  return (
+    <img
+      src={src}
+      alt=""
+      width={16}
+      height={16}
+      className="w-4 h-4 rounded-[3px] shrink-0 object-contain"
+    />
+  );
+}
+
 export function ExtensionCatalog({
   installedIds,
   busyId,
@@ -79,7 +95,7 @@ export function ExtensionCatalog({
                       boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
                     }}
                   >
-                    <Blocks size={14} className="text-purple-300 shrink-0" />
+                    <ExtIcon id={ext.id} />
                     <div className="flex-1 min-w-0">
                       <div className="text-[12px] text-slate-200 truncate">{ext.name}</div>
                       <div className="text-[11px] text-slate-500 truncate">{ext.description}</div>
