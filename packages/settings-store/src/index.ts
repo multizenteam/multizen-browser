@@ -29,6 +29,16 @@ export interface AppSettings {
    * "Check for updates" works regardless of this flag.
    */
   autoUpdate: boolean;
+  /**
+   * Opt-in anonymous usage heartbeat. OFF by default — for an anti-detect
+   * audience any call-home must be an explicit choice. When on, the app sends
+   * at most one ping/day carrying only app version + OS family + an ephemeral
+   * daily-rotating nonce (no persistent id, no IP sent; the server derives a
+   * coarse country from the transient connection IP then discards it). The
+   * MULTIZEN_NO_TELEMETRY env var force-disables it regardless. See
+   * docs/TELEMETRY.md.
+   */
+  usageReporting: boolean;
 }
 
 const DEFAULTS: AppSettings = {
@@ -39,6 +49,8 @@ const DEFAULTS: AppSettings = {
   // available as a compatibility fallback from Settings.
   browserEngine: "cloakbrowser",
   autoUpdate: true,
+  // Opt-in. Never phone home unless the user explicitly turns this on.
+  usageReporting: false,
 };
 
 export class SettingsStore {
@@ -69,6 +81,9 @@ export class SettingsStore {
     }
     if (typeof merged.autoUpdate !== "boolean") {
       merged.autoUpdate = DEFAULTS.autoUpdate;
+    }
+    if (typeof merged.usageReporting !== "boolean") {
+      merged.usageReporting = DEFAULTS.usageReporting;
     }
     this.cache = merged;
     return merged;
