@@ -50,7 +50,16 @@ IS the proxy health check (probes ipapi.co through the proxy, persists country).
 **Plan:** implement in `ProfileTile.tsx` + `Avatar`→emoji + classifier util + emoji field in
 create/edit + ProfileManager column → independent-agent validation.
 
-## 2. Extensions at profile creation ("attach existing" / no "save first") · 🔵 queued
+## 2. Extensions at profile creation ("attach existing" / no "save first") · ✅ done (branch, reviewed)
+**Done (2026-07-05, branch `feat/catalog-attach-telemetry-followups`, commit `09539fa` + polish):**
+ExtensionsService split into profile-less `prepare*` (unpack to shared store, no
+persist) + `storeEntries()` (distinct shared refs, deduped newest-version);
+IPC/preload `extensions:storeEntries|prepareFromWebStore|prepareFromFile|prepareFromFolder`;
+`ExtensionsSection` split into LiveExtensions (edit, unchanged) + StagingExtensions
+(create) with "Attach from your profiles" (ref only, no data); `NewProfileSheet`
+stages into `create({ extensions })`. Independent review: no blocker/high (delete-
+sweep-vs-staging race is LOW + practically unreachable behind the create modal).
+
 **Slug:** `extensions-at-create`
 **Why:** on the create screen we show "Save the profile first — then you can add
 extensions". That's a legacy limit from when extensions were per-profile (needed a saved
@@ -130,7 +139,17 @@ fallback, show "from $X" ranges rather than quoting live prices.
 tracking; affiliate-link disclosure done transparently (OSS + anti-detect audience).
 **Output:** `specs/proxy-monetization/research.md` (agent running) → then spec.
 
-## 5. Anonymous analytics / ping · 🔎 research running
+## 5. Anonymous analytics / ping · ✅ client + spec done (branch) · ⏸ server pending infra
+**Done (2026-07-05, branch, commit `5fc70ff`):** opt-in, default-OFF daily heartbeat.
+`usageReporting` flag in AppSettings; `UsageReporting.ts` (env kill switch
+`MULTIZEN_NO_TELEMETRY` → setting → once-per-local-day; payload exactly
+`{v, os, n}` = app version + OS family + single-use random nonce; no persistent
+id, no IP sent; fail-silent, date persisted only on success). Settings toggle with
+full disclosure; `docs/TELEMETRY.md` = transparency contract + server design spec.
+Independent review: CLEAN, no privacy leaks. **Server NOT deployed** — dormant until
+the user provides a Hetzner box; then stand up the ~100-line ingest (offline
+GeoLite2 country→discard IP, daily-salt HyperLogLog, k-anonymity suppression).
+
 **Slug:** `analytics-ping`
 **Decisions:** **count + aggregates** (active installs, OS, version, coarse country), but
 genuinely **non-trackable**, opt-out/disclosed, own server on Hetzner, open-source-visible.
@@ -184,7 +203,18 @@ refused on upload (file AND Web-Store). Research (2026-07-05):
 **opt-in "Allow Manifest V2 extensions"** toggle (fixes classic uBO on 145, but MV2 is terminal —
 dies when we track CloakBrowser past 145). Strategic call for the maintainer.
 
-## 9. In-app curated extension catalog · 🔎 research running
+## 9. In-app curated extension catalog · ✅ done (branch, reviewed)
+**Done (2026-07-05, branch, commit `66aeca7` + race fix `ec02410`):** static bundled
+catalog of **31 verified MV3 extensions** across 7 categories, each confirmed against
+its live Chrome Web Store page (32-char id, name, MV3 status); classic uBlock Origin
+excluded (MV2). `ExtensionCatalog.tsx` = searchable, category-grouped picker with
+one-click install; surfaced as a "Browse catalog" toggle inside the Extensions
+section in BOTH create (staging) and edit (live) — unified with #2, no separate nav.
+MV2 id would surface a readable error (not crash). Independent whole-branch review:
+mergeable; found + fixed one MEDIUM staging concurrent-install race (functional
+updates). **Follow-up:** bundle real store icons (v1 uses the generic block glyph);
+optional standalone "Discover" left-rail mount reusing the same component.
+
 **Slug:** `extension-catalog`
 User idea (2026-07-05): show a built-in, official-feeling gallery of popular extensions grouped
 by category, with icons + names, searchable, one-click install. Uses the existing
@@ -222,13 +252,9 @@ on non-English locales), dead-code removal, and the **extract AX-tree fix** (was
 RootWebArea for pages whose `<body>` is an ignored AX node). Whole-branch independent review: no
 blockers. Also this session: replied to ahive on #10; both build-signing research reports done.
 
-## 10. Post-v0.2.11 follow-ups (from final review, LOW) · 🔵 queued
-**Slug:** `post-0211-followups`
-- **AX-tree robustness** (`CdpSession.ts` `trimAccessibilityTree`): add a `Set<visited>` guard +
-  a node cap. Not reachable via Chrome's real AX output (strict tree), but hardens against a future
-  malformed/cyclic CDP source and caps extract payload on huge pages.
-- **Codex config doc accuracy** (`McpPanel.tsx`): the `url = "…/mcp"` shape only works on Codex CLI
-  builds that support streamable-HTTP MCP; older Codex accepted only stdio `command`/`args`. Consider
-  a note for users on older Codex.
-- **MCP `instructions`**: set the MCP `initialize` `instructions` field so any connecting agent learns
-  the overall workflow (launch-first, headful, human-in-loop, no headless) — not just per-tool descs.
+## 10. Post-v0.2.11 follow-ups (from final review, LOW) · ✅ done (branch, reviewed)
+**Done (2026-07-05, branch, commit `b46da47`):** all three shipped + reviewed CLEAN.
+- **AX-tree robustness** (`CdpSession.ts`): `visited` Set cycle guard + 5000-node payload cap.
+- **Codex config note** (`McpPanel.tsx`): `url` needs streamable-HTTP Codex; older stdio → mcp-remote.
+- **MCP `instructions`** (`server.ts`): `initialize` instructions describe the workflow (launch-first,
+  extract-before-click, headful, human-in-loop). Verified factually against dispatch/tool defs.
