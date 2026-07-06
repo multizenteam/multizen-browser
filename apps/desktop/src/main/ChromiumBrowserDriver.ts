@@ -29,6 +29,9 @@ interface RunningProcess {
   pid: number;
   startedAt: string;
   session: CdpSession;
+  /** The engine's `--user-data-dir`. Used to sweep any lingering browser
+   *  process that still holds this profile's data dir on shutdown. */
+  browserDataDir: string;
   /** Polls /json/list and kills the child when no page targets remain. */
   windowWatcher: NodeJS.Timeout;
 }
@@ -631,6 +634,7 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       pid: child.pid,
       startedAt,
       session,
+      browserDataDir,
       windowWatcher,
     };
     const r = record;
@@ -657,6 +661,7 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
   async close(profileId: ProfileId): Promise<void> {
     const r = this.running.get(profileId);
     if (!r) return;
+    console.log(`[multizen] close() profile=${profileId} pid=${r.pid}`);
     // Signal the terminating phase up front (covers MCP/external callers that
     // don't drive the button's local "Stopping…" state).
     this.emit("running-changed", { kind: "closing", profileId });
@@ -669,7 +674,14 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     try {
       await stopBridgeForProfile(profileId).catch(() => {});
       await gracefulShutdown(r);
+      // Belt-and-suspenders: after the PID-based shutdown, sweep for ANY
+      // process still holding this profile's user-data-dir and SIGKILL it.
+      // Catches re-parented/forked survivors (or leftover helpers) that the
+      // single tracked PID could miss — the actual root cause of "Stop says
+      // done but a Chromium window is still up".
+      await killBrowsersUsingDataDir(r.browserDataDir);
     } finally {
+      console.log(`[multizen] close() done profile=${profileId} pid=${r.pid} alive=${isPidAlive(r.pid)}`);
       this.emit("running-changed", { kind: "closed", profileId, reason: "user-close" });
     }
   }
@@ -1025,14 +1037,43 @@ async function gracefulShutdown(r: RunningProcess): Promise<void> {
   await r.session.close().catch(() => {});
 
   // 2. SIGTERM by PID (not r.child.kill — don't trust the child flags).
+  console.log(`[multizen] shutdown pid=${pid}: Browser.close didn't exit in 4s → SIGTERM`);
   killPid(pid, "SIGTERM");
   if (await waitForPidDeath(pid, 2000)) return;
 
   // 3. SIGKILL — the kernel guarantees this. We poll to confirm the process is
   //    genuinely gone before returning, so close() never reports a false
   //    "closed" while Chromium is still on screen.
+  console.log(`[multizen] shutdown pid=${pid}: SIGTERM didn't exit in 2s → SIGKILL`);
   killPid(pid, "SIGKILL");
   await waitForPidDeath(pid, 2000);
+}
+
+/** All PIDs whose command line holds `--user-data-dir=<dataDir>` (main browser
+ *  + helpers). Exact substring match — no regex pitfalls with path chars. */
+async function pidsUsingDataDir(dataDir: string): Promise<number[]> {
+  const needle = `--user-data-dir=${dataDir}`;
+  try {
+    const { stdout } = await execFileP("ps", ["-Ao", "pid=,command="]);
+    const pids: number[] = [];
+    for (const line of stdout.split("\n")) {
+      if (!line.includes(needle)) continue;
+      const pid = Number.parseInt(line.trimStart(), 10);
+      if (Number.isFinite(pid) && pid > 0 && pid !== process.pid) pids.push(pid);
+    }
+    return pids;
+  } catch {
+    return [];
+  }
+}
+
+/** SIGKILL every process still holding `dataDir`. Final safety net so a Stop
+ *  can never leave a Chromium window behind. */
+async function killBrowsersUsingDataDir(dataDir: string): Promise<void> {
+  const pids = await pidsUsingDataDir(dataDir);
+  if (pids.length === 0) return;
+  console.log(`[multizen] sweep: SIGKILL ${pids.length} lingering proc(s) for ${dataDir}: ${pids.join(", ")}`);
+  for (const pid of pids) killPid(pid, "SIGKILL");
 }
 
 function killPid(pid: number, signal: NodeJS.Signals): void {
