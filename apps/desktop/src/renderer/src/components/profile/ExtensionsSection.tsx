@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from "react";
+import { useEffect, useState, type Dispatch, type JSX, type SetStateAction } from "react";
 import { Blocks, LayoutGrid, Library, Loader2, Plus, Trash2 } from "lucide-react";
 import type { ExtensionConfig } from "../../types";
 import { ExtensionCatalog } from "./ExtensionCatalog";
@@ -23,7 +23,9 @@ export function ExtensionsSection({
 }: {
   profileId: string | null;
   staged?: ExtensionConfig[];
-  onStagedChange?: (next: ExtensionConfig[]) => void;
+  // A React setter (supports functional updates) so concurrent staging installs
+  // compose against the latest list rather than a stale closure snapshot.
+  onStagedChange?: Dispatch<SetStateAction<ExtensionConfig[]>>;
 }): JSX.Element {
   if (!profileId) {
     if (onStagedChange) {
@@ -144,7 +146,7 @@ function StagingExtensions({
   onChange,
 }: {
   staged: ExtensionConfig[];
-  onChange: (next: ExtensionConfig[]) => void;
+  onChange: Dispatch<SetStateAction<ExtensionConfig[]>>;
 }): JSX.Element {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -157,8 +159,10 @@ function StagingExtensions({
   const stagedIds = new Set(staged.map((e) => e.id));
 
   // Upsert by id so re-adding the same extension doesn't create a duplicate row.
+  // Functional update: a slow prepareFromWebStore can overlap another install,
+  // so compose against the latest list, not this render's `staged` snapshot.
   function upsert(cfg: ExtensionConfig): void {
-    onChange([...staged.filter((e) => e.id !== cfg.id), cfg]);
+    onChange((prev) => [...prev.filter((e) => e.id !== cfg.id), cfg]);
   }
 
   async function run(fn: () => Promise<ExtensionConfig | null>): Promise<void> {
@@ -208,9 +212,11 @@ function StagingExtensions({
               key={ext.id}
               ext={ext}
               onToggle={(enabled) =>
-                onChange(staged.map((e) => (e.id === ext.id ? { ...e, enabled } : e)))
+                onChange((prev) =>
+                  prev.map((e) => (e.id === ext.id ? { ...e, enabled } : e)),
+                )
               }
-              onRemove={() => onChange(staged.filter((e) => e.id !== ext.id))}
+              onRemove={() => onChange((prev) => prev.filter((e) => e.id !== ext.id))}
             />
           ))}
         </div>
