@@ -71,3 +71,30 @@ jobs:
           # unsigned. Users get a Gatekeeper warning on first launch.
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: yarn workspace @multizen/desktop ${{ matrix.script }}
+
+  # electron-builder creates the Release with an empty body. After all three
+  # builds finish, generate a grouped changelog from Conventional Commits since
+  # the previous tag and set it as the release notes. Tag pushes only.
+  release-notes:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history + tags so we can diff against the previous tag
+
+      - name: Generate & set release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="$(bash scripts/release-notes.sh "${GITHUB_REF_NAME}")"
+          if [ -z "$notes" ]; then
+            echo "No conventional commits found for ${GITHUB_REF_NAME}; leaving notes as-is."
+            exit 0
+          fi
+          printf '%s\n' "$notes"
+          gh release edit "${GITHUB_REF_NAME}" --notes "$notes"
