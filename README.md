@@ -70,7 +70,7 @@ Some distros need `libfuse2` (`apt install libfuse2t64` on Ubuntu 24.04+). If Ch
 
 ### Windows
 
-Download [MultiZen-win-x64.exe](https://github.com/multizenteam/multizen-browser/releases/latest/download/MultiZen-win-x64.exe). SmartScreen will warn the installer is not signed by an EV cert (we are working on it). Click **More info**, then **Run anyway**.
+Download [MultiZen-win-x64.exe](https://github.com/multizenteam/multizen-browser/releases/latest/download/MultiZen-win-x64.exe). SmartScreen may flag the installer as unrecognized on first download. Click **More info**, then **Run anyway**.
 
 ### One-liner installer
 
@@ -169,13 +169,12 @@ Restart your client. The agent now has tools: `list_profiles`, `launch_profile`,
 
 ## Honest limits
 
-Building trust by saying what is not yet done.
+What isn't handled yet — and where each is headed. No "100% undetectable" claims here.
 
-- **TLS fingerprint** is not spoofed yet. The most aggressive bot stacks (some Cloudflare Enterprise setups, DataDome) fingerprint JA3 or JA4 at the TLS layer and will catch us. On the roadmap.
-- **Code signing**: macOS builds are ad-hoc signed (no Apple Developer ID), Windows installer is unsigned (no EV cert). Both raise warnings on first launch. The Homebrew install path bypasses this on macOS. SignPath OSS application is in flight for Windows.
-- **Behavioral analysis** is not handled. DataDome and similar look at mouse paths, timing, and scroll patterns. The agent moves linearly through the DOM, which is detectable.
-- **High parallelism is not the target**. Roughly 30 to 50 profiles per machine before the resource ceiling. For 500 concurrent browsers, use Browserbase or Hyperbrowser instead.
-- **Anti-detect score** on fingerprint-scan.com is around 65/100 on a residential proxy. Roughly the CloakBrowser ceiling without our own custom patches.
+- **TLS fingerprint** isn't spoofed yet: the most aggressive stacks (some Cloudflare Enterprise setups, DataDome) fingerprint JA3/JA4 at the TLS layer, below the browser. → Addressed by the patched-Chromium engine on the [roadmap](#roadmap).
+- **Behavioral signals** aren't shaped: mouse paths, timing, and scroll are unmodeled, and an agent driving the DOM moves linearly — detectable. → Behavioral injection is on the [roadmap](#roadmap).
+- **Anti-detect score** is ~65/100 on fingerprint-scan.com over a residential proxy — the CloakBrowser ceiling without our own patches. → The patched engine lifts this past 90.
+- **Parallelism** targets ~30–50 profiles per machine, not fleets. For 500 concurrent browsers, use Browserbase or Hyperbrowser.
 
 ## Stack
 
@@ -228,7 +227,6 @@ Things landing in upcoming releases.
 - **Behavioral injection**: humanized mouse paths, keystroke timing, scroll jitter applied at the CDP input layer.
 - **Per-profile cloud sync** (opt-in, end-to-end encrypted): so the same profile follows you across laptops.
 - **Team workspaces**: shared profile pool with audit log.
-- **Code signing**: Apple Developer ID, EV cert for Windows once SignPath OSS approves.
 
 ## Why MultiZen vs the alternatives
 
