@@ -1063,7 +1063,9 @@ async function pidsUsingDataDir(dataDir: string): Promise<number[]> {
     const { stdout } = await execFileP("ps", ["-Ao", "pid=,command="]);
     const pids: number[] = [];
     for (const line of stdout.split("\n")) {
-      if (!line.includes(needle)) continue;
+      // Require a boundary after the dir (a following arg, or end of line) so
+      // this profile's dir can't prefix-match a longer sibling's data-dir.
+      if (!line.includes(`${needle} `) && !line.endsWith(needle)) continue;
       const pid = Number.parseInt(line.trimStart(), 10);
       if (Number.isFinite(pid) && pid > 0 && pid !== process.pid) pids.push(pid);
     }
