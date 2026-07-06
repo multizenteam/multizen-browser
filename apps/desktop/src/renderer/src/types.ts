@@ -154,4 +154,5 @@ export type {
   DeviceFamily,
   UpdateStatus,
   ExtensionConfig,
+  UpdateProfileInput,
 };

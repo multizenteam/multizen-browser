@@ -85,7 +85,6 @@ export function App(): JSX.Element {
   const [showSheet, setShowSheet] = useState(false);
   const [sheetDirty, setSheetDirty] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
-  const [editDirty, setEditDirty] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>({ kind: "none" });
   const [toast, setToast] = useState<string | null>(null);
@@ -354,7 +353,7 @@ export function App(): JSX.Element {
                 open={showSheet}
                 title="New profile"
                 subtitle="Cookies, login state, and fingerprint live in this profile only."
-                width={620}
+                width={720}
                 onClose={() => {
                   setShowSheet(false);
                   setSheetDirty(false);
@@ -412,40 +411,21 @@ export function App(): JSX.Element {
 
       </div>
 
-      {/* Edit profile — same Modal experience as Create */}
+      {/* Edit profile — autosaves as you go (Discord-settings style), so no
+          Save button and no discard gate; the sheet flushes a pending change
+          on close. */}
       <Modal
         open={editingProfile !== null}
         title={editingProfile ? `Edit ${editingProfile.name}` : "Edit profile"}
-        subtitle="Changes apply on the next profile launch."
-        width={620}
+        subtitle="Changes autosave and apply on the next profile launch."
+        width={720}
         onClose={() => {
           setEditingProfile(null);
-          setEditDirty(false);
-        }}
-        confirmClose={async () => {
-          if (!editDirty) return true;
-          return confirm({
-            title: "Discard your changes?",
-            body: "Edits to this profile haven't been saved yet.",
-            confirmLabel: "Discard",
-            destructive: true,
-          });
+          void refresh();
         }}
       >
         {editingProfile && (
-          <ProfileEditSheet
-            profile={editingProfile}
-            onCancel={() => {
-              setEditingProfile(null);
-              setEditDirty(false);
-            }}
-            onDirtyChange={setEditDirty}
-            onSaved={async () => {
-              setEditingProfile(null);
-              setEditDirty(false);
-              await refresh();
-            }}
-          />
+          <ProfileEditSheet profile={editingProfile} onSaved={() => void refresh()} />
         )}
       </Modal>
 

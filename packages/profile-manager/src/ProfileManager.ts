@@ -172,6 +172,44 @@ export class ProfileManager {
     return profile;
   }
 
+  /**
+   * Insert an already-fully-formed profile verbatim — id, dataDir, extensions,
+   * icon, startUrl, searchProvider, and timestamps all preserved. Used by
+   * import, where the id + on-disk dataDir were established by
+   * {@link importProfile} and must NOT be regenerated (that was the old bug: the
+   * handler called create(), which minted a new id/dataDir and orphaned the
+   * restored user-data-dir). Throws on id collision — the caller resolves that
+   * before extracting files.
+   */
+  insertImported(profile: Profile): Profile {
+    if (this.get(profile.id)) {
+      throw new Error(`Profile ${profile.id} already exists`);
+    }
+    mkdirSync(profile.dataDir, { recursive: true });
+    this.db
+      .prepare(
+        `INSERT INTO profiles
+         (id, name, notes, tags, proxy, fingerprint, extensions, icon, start_url, search_provider, data_dir, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        profile.id,
+        profile.name,
+        profile.notes ?? null,
+        JSON.stringify(profile.tags),
+        profile.proxy ? JSON.stringify(profile.proxy) : null,
+        JSON.stringify(profile.fingerprint),
+        JSON.stringify(profile.extensions ?? []),
+        profile.icon ?? null,
+        profile.startUrl ?? null,
+        profile.searchProvider ?? null,
+        profile.dataDir,
+        profile.createdAt,
+        profile.updatedAt,
+      );
+    return profile;
+  }
+
   update(id: ProfileId, patch: UpdateProfileInput): Profile {
     const existing = this.get(id);
     if (!existing) throw new Error(`Profile ${id} not found`);
