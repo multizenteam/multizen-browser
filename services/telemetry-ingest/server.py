@@ -34,7 +34,8 @@ HOST = os.environ.get("MZ_TELEMETRY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MZ_TELEMETRY_PORT", "8787"))
 REDIS_URL = os.environ.get("MZ_TELEMETRY_REDIS", "redis://127.0.0.1:6379/0")
 MAX_BODY = 4096  # a valid ping is ~80 bytes
-KEY_TTL_SECONDS = 400 * 24 * 60 * 60  # ~13 months, then self-expire
+KEY_TTL_SECONDS = 90 * 24 * 60 * 60  # 90d covers MAU; keeps junk-key growth bounded
+REQUEST_TIMEOUT_S = 15  # drop slow/trickled connections (slowloris) per socket
 
 OS_FAMILIES = {"macos", "windows", "linux", "other"}
 VERSION_RE = re.compile(r"^\d{1,4}(\.\d{1,4}){0,3}(-[0-9A-Za-z.]{1,20})?$")
@@ -60,6 +61,9 @@ def _record(v: str, os_family: str, nonce: str) -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Bound how long a single connection may trickle its request (slowloris).
+    timeout = REQUEST_TIMEOUT_S
+
     # Silence the default access logger entirely — it prints client IPs.
     def log_message(self, *args) -> None:  # noqa: D401, ANN002
         return

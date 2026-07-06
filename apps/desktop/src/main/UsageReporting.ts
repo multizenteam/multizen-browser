@@ -15,11 +15,9 @@ import type { AppSettings } from "@multizen/settings-store";
  *   - At most ONE ping per local calendar day. The only persisted state is the
  *     last-ping date, which is NEVER sent.
  *   - Payload is exactly { v, os, n }: app version, OS family, and a random
- *     128-bit nonce regenerated every ping. No persistent id, no IP (the client
- *     doesn't send one; the server derives a coarse country from the transient
- *     connection IP then discards it). The nonce lets the server count distinct
- *     machines per day via a daily-salted HyperLogLog without ever storing a
- *     stable identifier.
+ *     128-bit nonce regenerated every ping. No persistent id, and no IP is sent.
+ *     The nonce lets the server count distinct machines per day via a
+ *     HyperLogLog without ever storing a stable identifier.
  *   - Fail-silent: short timeout, no retries; a ping failure never affects the
  *     browser.
  *

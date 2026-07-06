@@ -28,6 +28,12 @@ chown -R mztel:mztel /opt/multizen-telemetry/repo
 # 3. Local Redis (own instance; NOT shared with the fapboo container)
 apt-get update && apt-get install -y redis-server python3-venv
 # redis-server ships bound to 127.0.0.1 and systemd-managed by default.
+# Backstop against junk-key growth from a flood of spoofed pings: cap memory
+# and evict by TTL (every key we write has one). Belt-and-suspenders with the
+# 90-day key TTL in server.py.
+sed -i 's/^# maxmemory <bytes>/maxmemory 128mb/; s/^# maxmemory-policy noeviction/maxmemory-policy volatile-ttl/' /etc/redis/redis.conf
+grep -q '^maxmemory ' /etc/redis/redis.conf || printf '\nmaxmemory 128mb\nmaxmemory-policy volatile-ttl\n' >> /etc/redis/redis.conf
+systemctl restart redis-server
 
 # 4. Python venv + deps
 python3 -m venv /opt/multizen-telemetry/venv
