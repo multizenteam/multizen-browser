@@ -1,7 +1,14 @@
 import { createReadStream, createWriteStream, statSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { createHash, randomBytes, scrypt as scryptCb, createCipheriv, createDecipheriv } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  scrypt as scryptCb,
+  createCipheriv,
+  createDecipheriv,
+} from "node:crypto";
 import { promisify } from "node:util";
 import type { Profile } from "@multizen/types";
 
@@ -78,10 +85,21 @@ export async function exportProfile(
   await writeFile(outPath, out);
 }
 
+export interface ImportOptions {
+  /**
+   * Predicate telling whether a profile id already exists locally. When the
+   * archive's original id is taken (re-importing on the same machine), the
+   * restore gets a fresh id — so it lands in its OWN dataDir and never
+   * overwrites the existing profile's files.
+   */
+  idTaken?: (id: string) => boolean;
+}
+
 export async function importProfile(
   archivePath: string,
   passphrase: string,
   destProfilesRoot: string,
+  opts: ImportOptions = {},
 ): Promise<Profile> {
   const buf = await readFile(archivePath);
   if (buf.subarray(0, 4).toString("ascii") !== MAGIC) {
@@ -100,7 +118,13 @@ export async function importProfile(
   const key = (await scrypt(passphrase, salt, KEY_LEN)) as Buffer;
   const decipher = createDecipheriv(ALGO, key, iv);
   decipher.setAuthTag(tag);
-  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  let plaintext: Buffer;
+  try {
+    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  } catch {
+    // GCM auth failure ⇒ wrong passphrase (or a tampered/corrupt archive).
+    throw new Error("Wrong passphrase or corrupted archive.");
+  }
 
   let cursor = 0;
   const manifestLen = plaintext.readUInt32BE(cursor);
@@ -110,9 +134,14 @@ export async function importProfile(
   ) as ArchiveManifest;
   cursor += manifestLen;
 
+  // Preserve the original id when free (faithful move to another machine); mint
+  // a fresh one only if it's already taken here (duplicate import on the same
+  // machine) so we never clobber the existing profile's dataDir.
+  const targetId = opts.idTaken?.(manifest.profile.id) ? randomUUID() : manifest.profile.id;
   const restored: Profile = {
     ...manifest.profile,
-    dataDir: join(destProfilesRoot, manifest.profile.id),
+    id: targetId,
+    dataDir: join(destProfilesRoot, targetId),
   };
 
   await mkdir(restored.dataDir, { recursive: true });

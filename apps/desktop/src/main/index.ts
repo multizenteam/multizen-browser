@@ -496,20 +496,18 @@ app.whenReady().then(async () => {
       const archivePath = result.filePaths[0];
       if (!archivePath) return { ok: false, reason: "cancelled" };
       try {
-        const restored = await importProfile(archivePath, passphrase, join(dataRoot, "profiles"));
-        // Re-insert into DB. ProfileManager.create generates new id; here we want to preserve id.
-        // For now we treat import as create-with-known-id: skip if id collision.
-        if (profileManager.get(restored.id)) {
-          return { ok: false, reason: "already_exists" };
-        }
-        // Quick path: insert via raw create then update to inherit id-bound dataDir
-        const inserted = profileManager.create({
-          name: restored.name,
-          notes: restored.notes,
-          tags: restored.tags,
-          proxy: restored.proxy,
-          fingerprint: restored.fingerprint,
+        // Restore the full user-data-dir to disk. If the archive's id already
+        // exists here, importProfile mints a fresh id + dataDir so it never
+        // overwrites the existing profile. The returned Profile carries every
+        // field (extensions, icon, startUrl, searchProvider, fingerprint,
+        // proxy) and its dataDir points at the restored files.
+        const restored = await importProfile(archivePath, passphrase, join(dataRoot, "profiles"), {
+          idTaken: (id) => Boolean(profileManager.get(id)),
         });
+        // Insert the row verbatim so the DB entry points at the restored files
+        // (the old create()-based path minted a new id/dataDir and orphaned the
+        // cookies/logins that were just restored).
+        const inserted = profileManager.insertImported(restored);
         return { ok: true, id: inserted.id };
       } catch (e) {
         return { ok: false, reason: (e as Error).message };
