@@ -28,6 +28,7 @@ import { companionDir } from "./extensions/companion";
 import { resolveLoadDir } from "./extensions/extensionStore.ts";
 import { killProcessTree, gracefulShutdown } from "./processTree";
 import { waitForCdpSessionReady } from "./cdpReadiness";
+import { sanitizeStartUrl } from "./startPage";
 
 interface RunningProcess {
   child: ChildProcess;
@@ -36,6 +37,9 @@ interface RunningProcess {
   pid: number;
   startedAt: string;
   session: CdpSession;
+  /** The engine's `--user-data-dir`. Used to sweep any lingering browser
+   *  process that still holds this profile's data dir on shutdown. */
+  browserDataDir: string;
   /** Polls /json/list and kills the child when no page targets remain. */
   windowWatcher: NodeJS.Timeout;
 }
@@ -56,6 +60,9 @@ export interface ChromiumBrowserDriverOptions {
 
 export type RunningStateChange =
   | { kind: "launched"; profileId: ProfileId }
+  // Shutdown has begun (window closed / Stop pressed) but the process hasn't
+  // fully exited yet — the GUI shows a "Terminating…" transitional state.
+  | { kind: "closing"; profileId: ProfileId }
   | { kind: "closed"; profileId: ProfileId; reason: "user-close" | "external-exit" };
 
 interface DriverEvents {
@@ -390,6 +397,19 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       // macOS app bundles need this to find their frameworks.
       DYLD_FALLBACK_FRAMEWORK_PATH: process.env.DYLD_FALLBACK_FRAMEWORK_PATH ?? "",
     };
+    // Start page (positional URL) — only on first run, i.e. when there is no
+    // restorable session. With `--restore-last-session` a returning profile
+    // reopens its real tabs, so we must NOT stack an extra tab; on first launch
+    // there's nothing to restore, so the command-line URL becomes the initial
+    // tab (verified on CloakBrowser 145 — pref `startup_urls` is ignored there,
+    // a positional URL works). Defaults to DuckDuckGo when the profile has no
+    // explicit start page. Must be the LAST argv entry (positional).
+    if (!(await hasRestorableSession(browserDataDir))) {
+      // sanitizeStartUrl rejects non-http(s)/about (incl. `-`-prefixed tokens
+      // Chromium would treat as switches) → falls back to the default.
+      args.push(sanitizeStartUrl(profile.startUrl));
+    }
+
     const child = spawn(chromiumPath, args, {
       // Unix: make the child a process-group leader so we can group-kill the
       // whole Chromium tree (renderers/GPU/utility) with process.kill(-pid),
@@ -625,7 +645,15 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     // process keeps running with zero windows. We poll /json/list and force-
     // kill the child when that happens, which then fires child.on('exit') and
     // emits the running-changed event.
+    // Latch so the 1s watcher signals termination + shuts down exactly once,
+    // not on every tick while pages stay at zero during the ~1.5–4s wind-down.
+    let signalledClose = false;
     const windowWatcher = createWindowWatcher(port, startedAt, () => {
+      if (signalledClose) return;
+      signalledClose = true;
+      // Window closed but the process lingers (mac app lifecycle) — tell the GUI
+      // we're terminating so the card stops showing "Stop" while it winds down.
+      this.emit("running-changed", { kind: "closing", profileId });
       // Graceful CDP shutdown — preserves session-restore on CFT too.
       void gracefulShutdown(r);
     });
@@ -637,6 +665,7 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       pid: child.pid,
       startedAt,
       session,
+      browserDataDir,
       windowWatcher,
     };
     const r = record;
@@ -1730,6 +1759,23 @@ async function unlinkSingletonFiles(
     await fsp.unlink(path).catch(() => {});
   }
   console.log(`[multizen] cleaned stale Singleton files (${reason})`);
+}
+
+/**
+ * Whether the profile has a session Chromium can restore on launch. Used to
+ * decide if we should open the start page (only on a genuine first run).
+ * Chromium writes tab/session state under `Default/Sessions/`; older builds
+ * also keep `Default/Current Session`. Any of these present → restorable.
+ */
+async function hasRestorableSession(dataDir: string): Promise<boolean> {
+  const sessionsDir = join(dataDir, "Default", "Sessions");
+  try {
+    const entries = await fsp.readdir(sessionsDir);
+    if (entries.length > 0) return true;
+  } catch {
+    // no Sessions dir yet
+  }
+  return existsSync(join(dataDir, "Default", "Current Session"));
 }
 
 async function ensureSessionRestore(dataDir: string): Promise<void> {

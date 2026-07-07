@@ -79,7 +79,7 @@ Some distros need `libfuse2` (`apt install libfuse2t64` on Ubuntu 24.04+). If Ch
 
 ### Windows
 
-Download [MultiZen-win-x64.exe](https://github.com/multizenteam/multizen-browser/releases/latest/download/MultiZen-win-x64.exe). SmartScreen will warn the installer is not signed by an EV cert (we are working on it). Click **More info**, then **Run anyway**.
+Download [MultiZen-win-x64.exe](https://github.com/multizenteam/multizen-browser/releases/latest/download/MultiZen-win-x64.exe). SmartScreen may flag the installer as unrecognized on first download. Click **More info**, then **Run anyway**.
 
 ### One-liner installer
 
@@ -113,7 +113,7 @@ curl -sSL https://getmultizen.com/install.sh | bash
                                    spoofed at C++ level)
 ```
 
-Each profile is a real Chromium window with persistent state on disk. The MCP server speaks the standard Anthropic Model Context Protocol over HTTP and SSE so it works with any client. Browser-drive tools call into Chrome DevTools Protocol under the hood.
+Each profile is a real Chromium window with persistent state on disk. The MCP server speaks the standard Anthropic Model Context Protocol over Streamable HTTP (plus legacy SSE) so it works with any client. Browser-drive tools call into Chrome DevTools Protocol under the hood.
 
 ## Features
 
@@ -134,45 +134,47 @@ Each profile is a real Chromium window with persistent state on disk. The MCP se
   <img src=".github/assets/firstrun.jpg" alt="MultiZen first-run onboarding" width="85%" />
 </div>
 
-## Connect to Cursor or Claude Desktop
+## Connect an agent (Codex, Cursor, Claude Desktop)
 
-After installing, the MCP server starts on `localhost:7777`. Add it to your client config.
+After installing, the MCP server starts on `localhost:7777`. It serves the current
+**Streamable HTTP** transport at `http://localhost:7777/mcp` (plus a legacy HTTP+SSE
+endpoint at `/sse` for older clients). Add it to your client config.
 
-**Cursor** (`~/.cursor/mcp.json`):
+**Codex CLI** (`~/.codex/config.toml`) — connects to Streamable HTTP directly:
+
+```toml
+[mcp_servers.multizen]
+url = "http://localhost:7777/mcp"
+```
+
+**JSON URL clients — Cursor** (`~/.cursor/mcp.json`), Cline, Continue:
 
 ```json
 {
   "mcpServers": {
     "multizen": {
-      "url": "http://localhost:7777/sse"
+      "url": "http://localhost:7777/mcp"
     }
   }
 }
 ```
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS)
+— its config has no `url` field, so bridge the endpoint through
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) (needs Node):
 
 ```json
 {
   "mcpServers": {
     "multizen": {
-      "url": "http://localhost:7777/sse"
+      "command": "npx",
+      "args": ["mcp-remote", "http://localhost:7777/mcp"]
     }
   }
 }
 ```
 
 Restart your client. The agent now has tools: `list_profiles`, `create_profile`, `update_profile`, `delete_profile`, `launch_profile`, `close_profile`, `navigate`, `click`, `type`, `extract`, `screenshot`, `list_fingerprint_options`. Profile management is full CRUD: `create_profile` / `update_profile` accept an optional `proxy` and high-level `fingerprint` (device, locale, timezone, screen), and `list_fingerprint_options` enumerates the valid device families and locale groups.
-
-## Honest limits
-
-Building trust by saying what is not yet done.
-
-- **TLS fingerprint** is not spoofed yet. The most aggressive bot stacks (some Cloudflare Enterprise setups, DataDome) fingerprint JA3 or JA4 at the TLS layer and will catch us. On the roadmap.
-- **Code signing**: macOS builds are ad-hoc signed (no Apple Developer ID), Windows installer is unsigned (no EV cert). Both raise warnings on first launch. The Homebrew install path bypasses this on macOS. SignPath OSS application is in flight for Windows.
-- **Behavioral analysis** is not handled. DataDome and similar look at mouse paths, timing, and scroll patterns. The agent moves linearly through the DOM, which is detectable.
-- **High parallelism is not the target**. Roughly 30 to 50 profiles per machine before the resource ceiling. For 500 concurrent browsers, use Browserbase or Hyperbrowser instead.
-- **Anti-detect score** on fingerprint-scan.com is around 65/100 on a residential proxy. Roughly the CloakBrowser ceiling without our own custom patches.
 
 ## Stack
 
@@ -181,7 +183,7 @@ Building trust by saying what is not yet done.
 | Desktop shell | Electron 33 |
 | Renderer | React 19, Tailwind v4, TypeScript strict |
 | Main process | TypeScript ESM, electron-vite, native MCP SDK |
-| MCP server | `@modelcontextprotocol/sdk` over HTTP and SSE |
+| MCP server | `@modelcontextprotocol/sdk` over Streamable HTTP + SSE |
 | Profile storage | better-sqlite3 with idempotent migrations |
 | Browser driver | chrome-remote-interface over CDP |
 | Browser engine | CloakBrowser (open-source patched Chromium) |
@@ -225,7 +227,6 @@ Things landing in upcoming releases.
 - **Behavioral injection**: humanized mouse paths, keystroke timing, scroll jitter applied at the CDP input layer.
 - **Per-profile cloud sync** (opt-in, end-to-end encrypted): so the same profile follows you across laptops.
 - **Team workspaces**: shared profile pool with audit log.
-- **Code signing**: Apple Developer ID, EV cert for Windows once SignPath OSS approves.
 
 ## Why MultiZen vs the alternatives
 

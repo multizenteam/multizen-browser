@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, MoreHorizontal, Play, Square, Zap } from "lucide-react";
+import { ChevronRight, Loader2, MoreHorizontal, Play, Square, Zap } from "lucide-react";
 import {
   Avatar,
   Flag,
@@ -25,6 +25,8 @@ const STATE_RING_COLOR: Record<TileState, string> = {
 
 interface Props {
   profile: TileData;
+  /** Chromium winding down (window closed / Stop) but not yet exited. */
+  terminating?: boolean;
   onOpen: () => void;
   onLaunch: () => Promise<void> | void;
   onStop: () => Promise<void> | void;
@@ -35,6 +37,7 @@ interface Props {
 /** A dense row equivalent of <ProfileTile />. Same data, same handlers. */
 export function ProfileRow({
   profile,
+  terminating = false,
   onOpen,
   onLaunch,
   onStop,
@@ -158,10 +161,20 @@ export function ProfileRow({
       <div
         className={cn(
           "flex items-center justify-end gap-1.5 transition-opacity",
-          isRunning ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+          isRunning || terminating ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}
       >
-        {!isRunning ? (
+        {terminating ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled
+            title="Terminating…"
+            leftIcon={<Loader2 size={9} className="animate-spin" />}
+          >
+            Ending
+          </Button>
+        ) : !isRunning ? (
           <Button
             variant="accent"
             size="sm"

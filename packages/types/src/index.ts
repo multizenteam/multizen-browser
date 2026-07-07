@@ -137,6 +137,18 @@ export interface Profile {
   fingerprint: FingerprintConfig;
   /** Extensions installed into this profile (see {@link ExtensionConfig}). */
   extensions?: ExtensionConfig[];
+  /** Optional emoji the user picked as this profile's avatar. When unset the
+   *  GUI derives a default emoji from the name/tags/id (see profileEmoji). */
+  icon?: string;
+  /** Start page opened on first launch (no restorable session). Empty/unset →
+   *  the app default (DuckDuckGo). Opened as a positional URL arg; not enforced,
+   *  so later in-browser navigation / session restore is untouched. */
+  startUrl?: string;
+  /** Reserved: per-profile default search engine. NOT wired yet — ungoogled
+   *  CloakBrowser ignores both pref-seeding and extension `search_provider`
+   *  overrides (verified), so this is deferred to the patched-Chromium build.
+   *  The column/field are kept so the feature can land without a migration. */
+  searchProvider?: string;
   dataDir: string;
   createdAt: string;
   updatedAt: string;
@@ -154,6 +166,8 @@ export interface ProfileSummary {
   tags: string[];
   lastOpenedAt?: string;
   isRunning: boolean;
+  /** User-picked emoji avatar (empty → GUI derives a default from name/tags/id). */
+  icon?: string;
   /** Proxy config (denormalised so the GUI can render a proxy chip without a second fetch) */
   proxy?: ProxyConfig;
   /** IANA timezone from the profile's fingerprint (for flag inference) */
@@ -170,6 +184,9 @@ export interface CreateProfileInput {
   name: string;
   notes?: string;
   tags?: string[];
+  icon?: string;
+  startUrl?: string;
+  searchProvider?: string;
   proxy?: ProxyConfig;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];
@@ -179,6 +196,9 @@ export interface UpdateProfileInput {
   name?: string;
   notes?: string;
   tags?: string[];
+  icon?: string | null;
+  startUrl?: string | null;
+  searchProvider?: string | null;
   proxy?: ProxyConfig | null;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];

@@ -138,6 +138,15 @@ const api = {
       ipcRenderer.invoke("extensions:remove", profileId, extId),
     toggle: (profileId: string, extId: string, enabled: boolean): Promise<ExtensionConfig[]> =>
       ipcRenderer.invoke("extensions:toggle", profileId, extId, enabled),
+    // Staging (create sheet, no profile id yet).
+    storeEntries: (): Promise<ExtensionConfig[]> =>
+      ipcRenderer.invoke("extensions:storeEntries"),
+    prepareFromWebStore: (urlOrId: string): Promise<ExtensionConfig> =>
+      ipcRenderer.invoke("extensions:prepareFromWebStore", urlOrId),
+    prepareFromFile: (): Promise<ExtensionConfig | null> =>
+      ipcRenderer.invoke("extensions:prepareFromFile"),
+    prepareFromFolder: (): Promise<ExtensionConfig | null> =>
+      ipcRenderer.invoke("extensions:prepareFromFolder"),
     onInstalled: (cb: (e: ExtensionInstalledEvent) => void): (() => void) => {
       const listener = (_: unknown, e: ExtensionInstalledEvent): void => cb(e);
       ipcRenderer.on("extensions:installed", listener);

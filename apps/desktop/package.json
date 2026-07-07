@@ -20,6 +20,8 @@
     "test": "node --import ../../packages/mcp-server/node_modules/tsx/dist/loader.mjs --test src/main/processTree.test.ts src/main/cdpReadiness.test.ts"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@emoji-mart/react": "^1.1.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@multizen/cdp-driver": "workspace:*",
     "@multizen/mcp-server": "workspace:*",
@@ -29,6 +31,7 @@
     "better-sqlite3": "^11.7.0",
     "chrome-remote-interface": "^0.33.3",
     "electron-updater": "^6.8.9",
+    "emoji-mart": "^5.6.0",
     "extract-zip": "^2.0.1",
     "framer-motion": "^12.0.0",
     "https-proxy-agent": "^9.0.0",

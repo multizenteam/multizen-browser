@@ -1,8 +1,8 @@
 import type { JSX } from "react";
-import { Activity, Boxes, Command, Settings } from "lucide-react";
+import { Boxes, Command, Plug, Settings } from "lucide-react";
 import { cn } from "../../lib/cn";
 
-export type Section = "profiles" | "activity" | "settings";
+export type Section = "profiles" | "mcp" | "settings";
 
 interface Item {
   id: Section;
@@ -13,7 +13,7 @@ interface Item {
 
 const ITEMS: Item[] = [
   { id: "profiles", icon: Boxes, label: "Profiles", kbd: "1" },
-  { id: "activity", icon: Activity, label: "Activity", kbd: "2" },
+  { id: "mcp", icon: Plug, label: "MCP", kbd: "2" },
   { id: "settings", icon: Settings, label: "Settings", kbd: "," },
 ];
 

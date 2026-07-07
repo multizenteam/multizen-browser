@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from "react";
-import { Boxes, Command, Download, Play, Plus, Settings as SettingsIcon, Upload } from "lucide-react";
+import { Boxes, Command, Download, Play, Plug, Plus, Settings as SettingsIcon } from "lucide-react";
 import type { ProfileSummary } from "../../types";
 import { Kbd } from "../atoms";
 
@@ -10,7 +10,7 @@ export type CommandAction =
   | { kind: "import" }
   | { kind: "export" }
   | { kind: "settings" }
-  | { kind: "section"; id: "profiles" | "activity" | "settings" };
+  | { kind: "section"; id: "profiles" | "mcp" | "settings" };
 
 interface Props {
   open: boolean;
@@ -83,12 +83,12 @@ export function CommandPalette({ open, profiles, onClose, onAction }: Props): JS
         action: { kind: "section", id: "profiles" },
       },
       {
-        id: "section:activity",
-        icon: <Upload size={14} strokeWidth={1.5} />,
-        title: "Go to Activity",
+        id: "section:mcp",
+        icon: <Plug size={14} strokeWidth={1.5} />,
+        title: "Go to MCP",
         kbd: <Kbd>⌘ 2</Kbd>,
         group: "Navigate",
-        action: { kind: "section", id: "activity" },
+        action: { kind: "section", id: "mcp" },
       },
       {
         id: "settings",

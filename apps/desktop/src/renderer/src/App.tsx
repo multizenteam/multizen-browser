@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { TopBar } from "./components/screens/TopBar";
 import { LeftRail, type Section } from "./components/screens/LeftRail";
 import { Constellation } from "./components/profile/Constellation";
@@ -7,7 +7,7 @@ import { NewProfileSheet } from "./components/profile/NewProfileSheet";
 import { ProfileEditSheet } from "./components/profile/ProfileEditSheet";
 import type { Profile } from "@multizen/types";
 import { ActivityDrawer } from "./components/activity/ActivityDrawer";
-import { ActivityPage } from "./components/activity/ActivityPage";
+import { McpPanel } from "./components/mcp/McpPanel";
 import { Settings } from "./components/screens/Settings";
 import { Confirm, Prompt } from "./components/screens/Confirm";
 import { CommandPalette, type CommandAction } from "./components/palette/CommandPalette";
@@ -29,8 +29,22 @@ export function App(): JSX.Element {
   const [section, setSection] = usePersistedState<Section>("section", "profiles");
   const [drawerOpen, setDrawerOpen] = usePersistedState<boolean>("drawerOpen", false);
 
+  // Migrate the legacy "activity" section (renamed to "mcp") from localStorage
+  // so an existing install doesn't land on a blank screen.
+  useEffect(() => {
+    if ((section as string) === "activity") setSection("mcp");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Ephemeral UI state.
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
+  // Profiles whose Chromium is winding down (window closed / Stop pressed) but
+  // hasn't fully exited — surfaced as a "Terminating…" state on the card.
+  const [closingIds, setClosingIds] = useState<Set<string>>(new Set());
+  // One live safety-net timer per terminating profile. Keyed by id so a
+  // re-terminate (or a relaunch) cancels the *previous* episode's timer
+  // instead of letting a stale one fire and clear a genuinely-closing card.
+  const closingTimers = useRef<Map<string, number>>(new Map());
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [info, setInfo] = useState<SystemInfo | null>(null);
   // Whether the Chromium runtime is ready — used to suppress the update banner
@@ -71,7 +85,6 @@ export function App(): JSX.Element {
   const [showSheet, setShowSheet] = useState(false);
   const [sheetDirty, setSheetDirty] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
-  const [editDirty, setEditDirty] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>({ kind: "none" });
   const [toast, setToast] = useState<string | null>(null);
@@ -112,7 +125,41 @@ export function App(): JSX.Element {
 
     // Refetch on ANY running-state change, including the "user closed
     // Chromium window directly" case which doesn't go through MCP at all.
-    const offRunning = window.multizen.profiles.onRunningChanged(() => {
+    // Track the transient "closing" phase separately so the card can show
+    // "Terminating…" while the process winds down (still in the running map).
+    const offRunning = window.multizen.profiles.onRunningChanged((change) => {
+      const id = change.profileId;
+      const timers = closingTimers.current;
+      // Any state transition ends the previous episode's safety timer, so a
+      // stale timer can never clear a card that a later episode re-marked.
+      const existing = timers.get(id);
+      if (existing !== undefined) {
+        window.clearTimeout(existing);
+        timers.delete(id);
+      }
+      setClosingIds((prev) => {
+        const next = new Set(prev);
+        if (change.kind === "closing") next.add(id);
+        else next.delete(id); // launched / closed
+        return next;
+      });
+      if (change.kind === "closing") {
+        // Safety net: if a terminal (closed/launched) event is ever missed,
+        // don't strand the card on "Terminating…" — self-clear after 10s.
+        const timer = window.setTimeout(() => {
+          // Guard against a superseding episode: if a newer "closing" replaced
+          // this timer between it elapsing and its callback running, do nothing.
+          if (timers.get(id) !== timer) return;
+          timers.delete(id);
+          setClosingIds((prev) => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        }, 10_000);
+        timers.set(id, timer);
+      }
       void refresh();
     });
 
@@ -126,6 +173,8 @@ export function App(): JSX.Element {
       offEvents();
       offRunning();
       offProxyCountry();
+      closingTimers.current.forEach((t) => window.clearTimeout(t));
+      closingTimers.current.clear();
     };
   }, [refresh]);
 
@@ -156,7 +205,7 @@ export function App(): JSX.Element {
       }
       if (meta && e.key === "2") {
         e.preventDefault();
-        setSection("activity");
+        setSection("mcp");
         return;
       }
       if (meta && e.key === ",") {
@@ -197,7 +246,14 @@ export function App(): JSX.Element {
   }
 
   async function closeProfile(id: string): Promise<void> {
-    await window.multizen.profiles.close(id);
+    // close() may reject if graceful shutdown throws, but the driver's
+    // finally still emits "closed" (which drives its own refresh), so a
+    // rejection here is cosmetic — swallow it to avoid an unhandled rejection.
+    try {
+      await window.multizen.profiles.close(id);
+    } catch {
+      /* driver emits "closed" regardless; state self-heals */
+    }
     await refresh();
   }
 
@@ -297,7 +353,7 @@ export function App(): JSX.Element {
                 open={showSheet}
                 title="New profile"
                 subtitle="Cookies, login state, and fingerprint live in this profile only."
-                width={620}
+                width={720}
                 onClose={() => {
                   setShowSheet(false);
                   setSheetDirty(false);
@@ -334,6 +390,7 @@ export function App(): JSX.Element {
                 <Constellation
                   profiles={profiles}
                   recentEvents={events}
+                  closingIds={closingIds}
                   onSelect={openEditFor}
                   onCreate={() => setShowSheet(true)}
                   onLaunch={launchProfile}
@@ -345,51 +402,34 @@ export function App(): JSX.Element {
             </>
           )}
 
-          {section === "activity" && <ActivityPage events={events} profiles={profiles} />}
+          {section === "mcp" && (
+            <McpPanel events={events} profiles={profiles} mcpUrl={info?.mcpHttpUrl ?? null} />
+          )}
 
           {section === "settings" && <Settings onImport={() => setModal({ kind: "import-passphrase" })} />}
         </div>
 
       </div>
 
-      {/* Edit profile — same Modal experience as Create */}
+      {/* Edit profile — autosaves as you go (Discord-settings style), so no
+          Save button and no discard gate; the sheet flushes a pending change
+          on close. */}
       <Modal
         open={editingProfile !== null}
         title={editingProfile ? `Edit ${editingProfile.name}` : "Edit profile"}
-        subtitle="Changes apply on the next profile launch."
-        width={620}
+        subtitle="Changes autosave and apply on the next profile launch."
+        width={720}
         onClose={() => {
           setEditingProfile(null);
-          setEditDirty(false);
-        }}
-        confirmClose={async () => {
-          if (!editDirty) return true;
-          return confirm({
-            title: "Discard your changes?",
-            body: "Edits to this profile haven't been saved yet.",
-            confirmLabel: "Discard",
-            destructive: true,
-          });
+          void refresh();
         }}
       >
         {editingProfile && (
-          <ProfileEditSheet
-            profile={editingProfile}
-            onCancel={() => {
-              setEditingProfile(null);
-              setEditDirty(false);
-            }}
-            onDirtyChange={setEditDirty}
-            onSaved={async () => {
-              setEditingProfile(null);
-              setEditDirty(false);
-              await refresh();
-            }}
-          />
+          <ProfileEditSheet profile={editingProfile} onSaved={() => void refresh()} />
         )}
       </Modal>
 
-      {section !== "activity" && (
+      {section !== "mcp" && (
         <ActivityDrawer
           open={drawerOpen}
           events={events}

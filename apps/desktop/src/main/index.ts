@@ -19,10 +19,11 @@ import {
   type ActivityEvent,
 } from "@multizen/mcp-server";
 import { SettingsStore, defaultSettingsPath, type AppSettings } from "@multizen/settings-store";
-import type { ChromiumStatus, ProxyConfig, UpdateStatus } from "@multizen/types";
+import type { ChromiumStatus, ExtensionConfig, ProxyConfig, UpdateStatus } from "@multizen/types";
 import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
 import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
 import { UpdaterService } from "./UpdaterService.ts";
+import { UsageReporting } from "./UsageReporting.ts";
 import { ExtensionsService } from "./extensions/ExtensionsService.ts";
 import { sweepOrphans } from "./extensions/extensionStore.ts";
 import { probeProxyGeo, type ProxyGeoResult } from "./proxyGeo.ts";
@@ -57,6 +58,7 @@ let profileManager: ProfileManager;
 let browserDriver: ChromiumBrowserDriver;
 let chromiumBootstrap: ChromiumBootstrap;
 let updater: UpdaterService;
+let usageReporting: UsageReporting;
 let extensionsService: ExtensionsService;
 /** Recent companion installs, to de-dupe the marker's retry logs. */
 const recentCompanionInstalls = new Set<string>();
@@ -165,6 +167,15 @@ app.whenReady().then(async () => {
     mainWindow?.webContents.send("update:status", status);
   });
   updater.init();
+
+  // Opt-in anonymous usage heartbeat. OFF by default; dormant until the user
+  // enables it in Settings. Reads settings live so the toggle takes effect
+  // without restart. See docs/TELEMETRY.md.
+  usageReporting = new UsageReporting({
+    getSettings: () => cachedSettings as AppSettings,
+    statePath: join(dataRoot, "usage-state.json"),
+  });
+  usageReporting.start();
 
   // Per-profile extension management. Engine version feeds the Web Store CRX
   // endpoint's prodversion (falls back to a sane default before the runtime is
@@ -359,6 +370,52 @@ app.whenReady().then(async () => {
     },
   );
 
+  // Staging IPC (no profile id yet) — used by the create sheet to attach or
+  // install extensions before the profile exists. `prepare*` unpack into the
+  // shared store and return the single ref; the renderer holds the staged list
+  // and passes it to profiles:create as `extensions`.
+  // Shared staging helper: unpack a local source into the store, logging
+  // failures like prepareFromWebStore does (the dialogs above call this).
+  const prepareStaged = async (sourcePath: string): Promise<ExtensionConfig | null> => {
+    try {
+      return await extensionsService.prepareFromFile(sourcePath);
+    } catch (e) {
+      process.stderr.write(
+        `[extensions] prepareFromFile FAILED: ${(e as Error).stack ?? (e as Error).message}\n`,
+      );
+      throw e;
+    }
+  };
+
+  ipcMain.handle("extensions:storeEntries", () => extensionsService.storeEntries());
+  ipcMain.handle("extensions:prepareFromWebStore", async (_e, urlOrId: string) => {
+    try {
+      return await extensionsService.prepareFromWebStore(urlOrId);
+    } catch (e) {
+      process.stderr.write(
+        `[extensions] prepareFromWebStore FAILED: ${(e as Error).stack ?? (e as Error).message}\n`,
+      );
+      throw e;
+    }
+  });
+  ipcMain.handle("extensions:prepareFromFile", async () => {
+    const r = await dialog.showOpenDialog(mainWindow!, {
+      title: "Add extension (.crx or .zip)",
+      properties: ["openFile"],
+      filters: [{ name: "Chrome extension", extensions: ["crx", "zip"] }],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return prepareStaged(r.filePaths[0]);
+  });
+  ipcMain.handle("extensions:prepareFromFolder", async () => {
+    const r = await dialog.showOpenDialog(mainWindow!, {
+      title: "Add unpacked extension folder",
+      properties: ["openDirectory"],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return prepareStaged(r.filePaths[0]);
+  });
+
   // App self-update IPC
   ipcMain.handle("update:status", () => updater.getStatus());
   ipcMain.handle("update:lastChecked", () => updater.getLastCheckedAt());
@@ -441,20 +498,18 @@ app.whenReady().then(async () => {
       const archivePath = result.filePaths[0];
       if (!archivePath) return { ok: false, reason: "cancelled" };
       try {
-        const restored = await importProfile(archivePath, passphrase, join(dataRoot, "profiles"));
-        // Re-insert into DB. ProfileManager.create generates new id; here we want to preserve id.
-        // For now we treat import as create-with-known-id: skip if id collision.
-        if (profileManager.get(restored.id)) {
-          return { ok: false, reason: "already_exists" };
-        }
-        // Quick path: insert via raw create then update to inherit id-bound dataDir
-        const inserted = profileManager.create({
-          name: restored.name,
-          notes: restored.notes,
-          tags: restored.tags,
-          proxy: restored.proxy,
-          fingerprint: restored.fingerprint,
+        // Restore the full user-data-dir to disk. If the archive's id already
+        // exists here, importProfile mints a fresh id + dataDir so it never
+        // overwrites the existing profile. The returned Profile carries every
+        // field (extensions, icon, startUrl, searchProvider, fingerprint,
+        // proxy) and its dataDir points at the restored files.
+        const restored = await importProfile(archivePath, passphrase, join(dataRoot, "profiles"), {
+          idTaken: (id) => Boolean(profileManager.get(id)),
         });
+        // Insert the row verbatim so the DB entry points at the restored files
+        // (the old create()-based path minted a new id/dataDir and orphaned the
+        // cookies/logins that were just restored).
+        const inserted = profileManager.insertImported(restored);
         return { ok: true, id: inserted.id };
       } catch (e) {
         return { ok: false, reason: (e as Error).message };

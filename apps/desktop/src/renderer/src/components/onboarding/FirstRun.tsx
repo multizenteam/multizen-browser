@@ -8,24 +8,39 @@ interface Props {
 const DEFAULT_NAME = "My first profile";
 
 /**
- * Two-step first-run. We omit the Anthropic-key step from the original
- * Claude Design output because MultiZen no longer calls any external API.
+ * Three-step first-run: welcome → anonymous-usage consent → name a profile.
+ * We omit the Anthropic-key step from the original Claude Design output because
+ * MultiZen no longer calls any external API.
  *
- * Step 2 asks for one thing — a name — and gives a sensible default.
- * Tags / proxy / fingerprint are NOT here: the user has been in the app
- * for 30 seconds, they don't yet have a workflow that needs taxonomy.
- * They can fill those in later by clicking the profile to edit.
+ * The telemetry step is a deliberate opt-in ASK (Homebrew's rule: no ping
+ * before the notice). The heartbeat stays OFF unless the user clicks Enable —
+ * "Not now" leaves it off. The final step asks for one thing, a name; tags /
+ * proxy / fingerprint are editable later from the profile panel.
  */
 export function FirstRun({ onCreate }: Props): JSX.Element {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   // Pre-filled with the default. The input below auto-selects on focus,
   // so the user can hit Enter to accept or just start typing to replace.
   const [name, setName] = useState(DEFAULT_NAME);
+  const [telemetry, setTelemetry] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Record the telemetry choice, then advance to the final (name) step.
+  function chooseTelemetry(enabled: boolean): void {
+    setTelemetry(enabled);
+    setStep(3);
+  }
 
   async function submit(): Promise<void> {
     setBusy(true);
     try {
+      // Apply the consent choice before the first heartbeat could ever fire.
+      // Best-effort: a settings hiccup must not block getting into the app.
+      try {
+        await window.multizen.settings.update({ usageReporting: telemetry });
+      } catch {
+        /* leave the default (off) */
+      }
       await onCreate(name.trim() || DEFAULT_NAME, []);
     } finally {
       setBusy(false);
@@ -122,6 +137,43 @@ export function FirstRun({ onCreate }: Props): JSX.Element {
                 className="font-bold tracking-tight text-slate-100"
                 style={{ fontSize: 26, lineHeight: 1.15, letterSpacing: "-0.01em" }}
               >
+                Help improve MultiZen?
+              </div>
+              <div className="text-[13px] text-slate-400 mt-2.5 leading-relaxed">
+                Optionally send an anonymous daily heartbeat: just app version and
+                OS family. No account, no persistent ID, and your IP is never
+                stored. No profiles, proxies, or browsing — ever. Off unless you
+                enable it; change it anytime in Settings.
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 mt-1">
+              <button
+                type="button"
+                onClick={() => chooseTelemetry(true)}
+                className="btn-brand text-[13px]"
+                style={{ padding: "10px 16px", borderRadius: 11 }}
+              >
+                Enable
+              </button>
+              <button
+                type="button"
+                onClick={() => chooseTelemetry(false)}
+                className="btn-ghost text-[13px]"
+                style={{ padding: "10px 16px", borderRadius: 11 }}
+              >
+                Not now
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <div>
+              <div
+                className="font-bold tracking-tight text-slate-100"
+                style={{ fontSize: 26, lineHeight: 1.15, letterSpacing: "-0.01em" }}
+              >
                 Name your first profile.
               </div>
               <div className="text-[13px] text-slate-400 mt-2.5 leading-relaxed">
@@ -157,7 +209,7 @@ export function FirstRun({ onCreate }: Props): JSX.Element {
 
         {/* Step indicator */}
         <div className="flex gap-1.5 mt-2">
-          {[1, 2].map((i) => (
+          {[1, 2, 3].map((i) => (
             <span
               key={i}
               style={{

@@ -1,5 +1,15 @@
 import { useEffect, useState, type JSX, type ReactNode } from "react";
-import { Boxes, Check, Chrome, Copy, DownloadCloud, RefreshCw, Sparkles, Zap } from "lucide-react";
+import {
+  Boxes,
+  Check,
+  Chrome,
+  Copy,
+  DownloadCloud,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 import { Pill } from "../atoms";
 import { relativeTime } from "../../lib/relativeTime";
 import type { AppSettings, SystemInfo, UpdateStatus } from "../../types";
@@ -204,6 +214,29 @@ export function Settings({ onImport }: Props): JSX.Element {
             />
             Automatically check for updates
           </label>
+        </Row>
+
+        <Row
+          icon={<ShieldCheck size={16} strokeWidth={1.5} />}
+          title="Anonymous usage"
+          desc="Off by default. Help gauge how many people run MultiZen."
+        >
+          <label className="flex items-center gap-2.5 text-[12px] text-slate-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.usageReporting}
+              onChange={(e) => void patch({ usageReporting: e.target.checked })}
+              className="w-3.5 h-3.5 rounded accent-purple-500"
+            />
+            Send an anonymous daily heartbeat
+          </label>
+          <div className="text-[11px] text-slate-600 mt-2 leading-relaxed">
+            When on, sends once a day: app version, OS family, and a random
+            single-use token — <b>no</b> account, <b>no</b> persistent ID, and your IP is
+            never stored (a coarse country is derived server-side then discarded). No
+            profiles, proxies, or browsing are ever included. Set{" "}
+            <code className="text-slate-500">MULTIZEN_NO_TELEMETRY=1</code> to force it off.
+          </div>
         </Row>
 
         <Row icon={<Sparkles size={16} strokeWidth={1.5} />} title="About" desc="">
