@@ -73,15 +73,24 @@ export class ActivityLog extends EventEmitter {
 }
 
 function sanitize(args: Record<string, unknown>): Record<string, unknown> {
-  // For now we don't have any obviously secret fields in tool args.
-  // When `type` is added with passwords, redact here.
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args)) {
     if (k === "text" && typeof v === "string" && v.length > 80) {
       out[k] = `${v.slice(0, 60)}…[${v.length} chars]`;
+    } else if (k === "proxy" && v && typeof v === "object") {
+      // Proxy credentials are secrets — never let them reach the activity
+      // stream / audit log.
+      out[k] = redactProxy(v as Record<string, unknown>);
     } else {
       out[k] = v;
     }
   }
+  return out;
+}
+
+function redactProxy(proxy: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...proxy };
+  if (typeof out.username === "string" && out.username.length > 0) out.username = "***";
+  if (typeof out.password === "string" && out.password.length > 0) out.password = "***";
   return out;
 }

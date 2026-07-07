@@ -45,7 +45,35 @@ export interface CdpSessionOptions {
   port: number;
   /** Optional host override, defaults to localhost */
   host?: string;
+  /**
+   * Browser engine identifier (e.g. "cft" | "cloakbrowser"). Lets the safe
+   * `cdpSend` layer refuse `*.enable` of DCHECK-sensitive domains on
+   * anti-detect forks where enabling — not the paired disable — is what
+   * trips the automation tripwire.
+   */
+  engine?: string;
 }
+
+/**
+ * Domains the safe `cdpSend` layer is allowed to enable-then-disable. We use
+ * an explicit allowlist (domain → has a paired `*.disable`) instead of a
+ * string heuristic on `*.enable` so unknown domains are never touched.
+ */
+const SAFE_PAIRED_DISABLE_DOMAINS = new Set([
+  "Runtime",
+  "Network",
+  "DOM",
+  "Accessibility",
+  "Log",
+  "Performance",
+]);
+
+/**
+ * Domains whose `*.enable` trips the DCHECK on anti-detect Chromium forks
+ * (CloakBrowser) at enable time. A paired disable cannot undo it, so safe
+ * mode refuses these enables outright on such engines.
+ */
+const CLOAK_RISKY_ENABLE_DOMAINS = new Set(["Runtime", "Network"]);
 
 /**
  * Thin wrapper around chrome-remote-interface that exposes the
@@ -67,6 +95,19 @@ export class CdpSession {
   private readonly opts: CdpSessionOptions;
   /** Cleanups (e.g. polling intervals) to run on close(). */
   private readonly teardowns: Array<() => void> = [];
+  /**
+   * Domains enabled by {@link connect}. These are part of the stealth-minimal
+   * baseline (currently just `Page`) and must NEVER be disabled by the safe
+   * `cdpSend` layer — `navigate`/`Page.loadEventFired` depend on `Page`.
+   */
+  private readonly connectEnabledDomains = new Set<string>(["Page"]);
+  /**
+   * Per-domain refcount of enables performed by the safe `cdpSend` layer.
+   * Parallel safe calls share the count so they don't clobber each other's
+   * in-flight enable; the paired disable runs only when a domain's count
+   * falls back to 0.
+   */
+  private readonly safeEnableRefcount = new Map<string, number>();
 
   constructor(opts: CdpSessionOptions) {
     this.opts = opts;
@@ -315,6 +356,78 @@ export class CdpSession {
   private require(): CDP.Client {
     if (!this.client) throw new Error("CDP session not connected. Call connect() first.");
     return this.client;
+  }
+
+  /**
+   * Single primitive every CDP tool composes on top of.
+   *
+   * - `safe: false` — pure passthrough. No accounting, no auto-disable. The
+   *   caller owns the stealth consequences (used by `cdp_send_no_safety`).
+   * - `safe: true` (default) — stealth-preserving. If the command is an
+   *   allowlisted `*.enable` for a domain that was NOT enabled at connect, the
+   *   domain is refcounted and a paired `<domain>.disable` is fired once the
+   *   refcount returns to 0. Domains enabled at connect (e.g. `Page`) are
+   *   never disabled. On anti-detect engines, enabling a DCHECK-sensitive
+   *   domain is refused outright (a paired disable cannot undo the enable).
+   *
+   * The convenience wrappers (evaluate_js, cookies, tabs, …) deliberately do
+   * NOT enable any domain — `Runtime.evaluate`, `Network.getCookies`, and the
+   * `Target.*` methods all work without one — so they never touch this path's
+   * accounting branch.
+   */
+  async cdpSend(
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+    opts: { safe?: boolean } = {},
+  ): Promise<unknown> {
+    const client = this.require();
+    const send = buildSender(client, sessionId);
+    const safe = opts.safe ?? true;
+
+    if (!safe) {
+      return send(method, params);
+    }
+
+    const dot = method.indexOf(".");
+    const domain = dot > 0 ? method.slice(0, dot) : "";
+    const isEnable = dot > 0 && method.slice(dot + 1) === "enable";
+    // A "tracked" enable is one the safe layer is responsible for undoing:
+    // an allowlisted domain that wasn't already enabled at connect.
+    const tracked =
+      isEnable && SAFE_PAIRED_DISABLE_DOMAINS.has(domain) && !this.connectEnabledDomains.has(domain);
+
+    if (tracked && this.opts.engine === "cloakbrowser" && CLOAK_RISKY_ENABLE_DOMAINS.has(domain)) {
+      throw new Error(
+        `Refusing ${method} in safe mode: enabling ${domain} trips the anti-detect ` +
+          `DCHECK on this engine at enable time, and a paired disable cannot undo it. ` +
+          `Use cdp_send_no_safety if you accept the stealth/crash risk.`,
+      );
+    }
+
+    if (tracked) {
+      // Increment BEFORE the call so a concurrent safe cdpSend sees the
+      // in-flight enable and won't issue its own redundant disable.
+      this.safeEnableRefcount.set(domain, (this.safeEnableRefcount.get(domain) ?? 0) + 1);
+    }
+
+    try {
+      return await send(method, params);
+    } finally {
+      // Decrement in finally so an exception thrown after a successful enable
+      // doesn't strand the domain enabled.
+      if (tracked) {
+        const next = (this.safeEnableRefcount.get(domain) ?? 1) - 1;
+        if (next <= 0) {
+          this.safeEnableRefcount.delete(domain);
+          await buildSender(client, sessionId)(`${domain}.disable`).catch(() => {
+            // Domain may already be disabled / session gone — best effort.
+          });
+        } else {
+          this.safeEnableRefcount.set(domain, next);
+        }
+      }
+    }
   }
 
   async navigate(url: string, opts: { timeoutMs?: number } = {}): Promise<{ url: string; title: string }> {

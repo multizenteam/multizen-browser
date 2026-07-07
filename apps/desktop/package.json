@@ -16,7 +16,8 @@
     "build:win:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --win --publish always",
     "build:linux:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --linux --publish always",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "preview": "electron-vite preview"
+    "preview": "electron-vite preview",
+    "test": "node --import ../../packages/mcp-server/node_modules/tsx/dist/loader.mjs --test src/main/cdpReadiness.test.ts"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",

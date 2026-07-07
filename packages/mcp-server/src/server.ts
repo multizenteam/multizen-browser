@@ -5,7 +5,19 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ProfileManager } from "@multizen/profile-manager";
-import type { LaunchedProfile, ProfileId } from "@multizen/types";
+import {
+  reconcileFingerprint,
+  generateFingerprint,
+  deviceCatalog,
+  localeCatalog,
+} from "@multizen/profile-manager";
+import type {
+  LaunchedProfile,
+  ProfileId,
+  FingerprintConfig,
+  UpdateProfileInput,
+  CreateProfileInput,
+} from "@multizen/types";
 import { ActivityLog } from "./ActivityLog.js";
 
 /**
@@ -23,6 +35,18 @@ export interface BrowserDriver {
   type(profileId: ProfileId, selector: string, text: string): Promise<{ ok: true }>;
   extract(profileId: ProfileId): Promise<{ result: unknown }>;
   screenshot(profileId: ProfileId): Promise<{ pngBase64: string }>;
+  /**
+   * Send a raw CDP command. `opts.safe` (default true) auto-disables any
+   * domain the call had to enable so the stealth baseline is preserved; the
+   * convenience CDP tools compose on top of this single primitive.
+   */
+  cdpSend(
+    profileId: ProfileId,
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+    opts?: { safe?: boolean },
+  ): Promise<unknown>;
 }
 
 export interface MultizenMcpServerOptions {
@@ -45,10 +69,107 @@ const TypeSchema = ProfileIdSchema.extend({
   text: z.string(),
 });
 const ExtractSchema = ProfileIdSchema;
+
+// ── CDP tool schemas ────────────────────────────────────────────────────────
+const CdpSendSchema = ProfileIdSchema.extend({
+  method: z.string().min(1),
+  params: z.record(z.unknown()).optional(),
+  sessionId: z.string().optional(),
+});
+const EvaluateJsSchema = ProfileIdSchema.extend({
+  expression: z.string().min(1),
+  sessionId: z.string().optional(),
+});
+const WaitForSelectorSchema = ProfileIdSchema.extend({
+  selector: z.string().min(1),
+  timeout_ms: z.number().int().positive().optional(),
+  sessionId: z.string().optional(),
+});
+const GetCookiesSchema = ProfileIdSchema.extend({
+  urls: z.array(z.string()).optional(),
+  sessionId: z.string().optional(),
+});
+const SetCookiesSchema = ProfileIdSchema.extend({
+  cookies: z
+    .array(z.object({ name: z.string(), value: z.string() }).passthrough())
+    .min(1),
+  sessionId: z.string().optional(),
+});
+const ListTabsSchema = ProfileIdSchema.extend({ sessionId: z.string().optional() });
+const NewTabSchema = ProfileIdSchema.extend({
+  url: z.string().optional(),
+  sessionId: z.string().optional(),
+});
+const TabIdSchema = ProfileIdSchema.extend({
+  target_id: z.string().min(1),
+  sessionId: z.string().optional(),
+});
+const WaitForLoadSchema = ProfileIdSchema.extend({
+  timeout_ms: z.number().int().positive().optional(),
+  sessionId: z.string().optional(),
+});
+
+/** Real device families a fingerprint can impersonate. Mirrors the
+ *  `DeviceFamily` union in @multizen/types; call `list_fingerprint_options`
+ *  for the human-readable catalog. */
+const DEVICE_FAMILIES = [
+  "macbook-pro-14-m3",
+  "macbook-pro-14-m3-pro",
+  "macbook-pro-16-m3-pro",
+  "macbook-air-13-m3",
+  "imac-24-m3",
+  "windows-laptop-intel",
+  "windows-laptop-nvidia",
+  "windows-desktop-nvidia",
+  "linux-desktop-intel",
+] as const;
+
+const ProxySchema = z.object({
+  type: z.enum(["http", "socks5"]),
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  username: z.string().optional(),
+  password: z.string().optional(),
+});
+
+/**
+ * User-facing fingerprint knobs. We deliberately do NOT accept the raw
+ * `FingerprintConfig` (userAgent, clientHints, webgl, …): those surfaces must
+ * stay mutually coherent or detection vendors flag the mismatch. Instead the
+ * caller picks high-level dimensions and `reconcileFingerprint` derives a
+ * coherent config from them.
+ */
+const FingerprintInputSchema = z
+  .object({
+    device: z.enum(DEVICE_FAMILIES).optional(),
+    localeId: z.string().min(1).optional(),
+    timezone: z.string().min(1).optional(),
+    screen: z
+      .object({
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+      })
+      .optional(),
+    hardwareConcurrency: z.number().int().positive().optional(),
+    deviceMemory: z.number().positive().optional(),
+  })
+  .strict();
+
 const CreateProfileSchema = z.object({
   name: z.string().min(1),
   notes: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  proxy: ProxySchema.optional(),
+  fingerprint: FingerprintInputSchema.optional(),
+});
+
+const UpdateProfileSchema = ProfileIdSchema.extend({
+  name: z.string().min(1).optional(),
+  notes: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  // `null` clears the proxy; omitted leaves it untouched.
+  proxy: ProxySchema.nullable().optional(),
+  fingerprint: FingerprintInputSchema.optional(),
 });
 
 /**
@@ -77,7 +198,7 @@ export function createMultizenMcpServer(opts: MultizenMcpServerOptions): Multize
   const activityLog = opts.activityLog ?? new ActivityLog();
 
   const server = new Server(
-    { name: "multizen", version: "0.2.0-pre" },
+    { name: "multizen", version: "0.2.11" },
     {
       capabilities: {
         tools: {},
@@ -134,8 +255,70 @@ async function dispatch(
     }
     case "create_profile": {
       const input = CreateProfileSchema.parse(args);
-      const created = profileManager.create(input);
-      return { id: created.id, name: created.name };
+      const createInput: CreateProfileInput = {
+        name: input.name,
+        notes: input.notes,
+        tags: input.tags,
+        proxy: input.proxy,
+      };
+      if (input.fingerprint) {
+        // Seed from a fresh coherent fingerprint, then apply the caller's
+        // high-level knobs so the result stays internally consistent.
+        createInput.fingerprint = reconcileFingerprint(
+          generateFingerprint(),
+          input.fingerprint,
+        );
+      }
+      const created = profileManager.create(createInput);
+      return {
+        id: created.id,
+        name: created.name,
+        proxy: created.proxy,
+        fingerprint: fingerprintSummary(created.fingerprint),
+      };
+    }
+    case "update_profile": {
+      const input = UpdateProfileSchema.parse(args);
+      const existing = profileManager.get(input.profile_id);
+      if (!existing) throw new Error(`Profile ${input.profile_id} not found`);
+
+      const patch: UpdateProfileInput = {};
+      if (input.name !== undefined) patch.name = input.name;
+      if (input.notes !== undefined) patch.notes = input.notes;
+      if (input.tags !== undefined) patch.tags = input.tags;
+      // `proxy: null` clears it, `proxy: {…}` sets it, omitted leaves as-is.
+      if (input.proxy !== undefined) patch.proxy = input.proxy;
+      if (input.fingerprint !== undefined) {
+        patch.fingerprint = reconcileFingerprint(existing.fingerprint, input.fingerprint);
+      }
+
+      const updated = profileManager.update(input.profile_id, patch);
+      return {
+        id: updated.id,
+        name: updated.name,
+        tags: updated.tags,
+        proxy: updated.proxy,
+        fingerprint: fingerprintSummary(updated.fingerprint),
+        // Surface the caveat: a live browser keeps the old proxy/fingerprint.
+        appliesOnNextLaunch: browserDriver.isRunning(input.profile_id),
+      };
+    }
+    case "delete_profile": {
+      const { profile_id } = ProfileIdSchema.parse(args);
+      assertProfileExists(profileManager, profile_id);
+      // Close first so Chromium releases the data dir before we remove it
+      // (on Windows a live handle would otherwise block the rmSync).
+      if (browserDriver.isRunning(profile_id)) {
+        await browserDriver.close(profile_id);
+      }
+      profileManager.delete(profile_id);
+      return { deleted: profile_id };
+    }
+    case "list_fingerprint_options": {
+      return {
+        devices: deviceCatalog(),
+        locales: localeCatalog(),
+      };
     }
     case "launch_profile": {
       const { profile_id } = ProfileIdSchema.parse(args);
@@ -175,10 +358,176 @@ async function dispatch(
       assertProfileRunning(browserDriver, profile_id);
       return await browserDriver.screenshot(profile_id);
     }
+    case "cdp_send": {
+      const { profile_id, method, params, sessionId } = CdpSendSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(profile_id, method, params, sessionId, { safe: true });
+    }
+    case "cdp_send_no_safety": {
+      const { profile_id, method, params, sessionId } = CdpSendSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(profile_id, method, params, sessionId, { safe: false });
+    }
+    case "evaluate_js": {
+      const { profile_id, expression, sessionId } = EvaluateJsSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // Runtime.evaluate works without Runtime.enable — no domain is enabled.
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Runtime.evaluate",
+        { expression, returnByValue: true },
+        sessionId,
+        { safe: true },
+      );
+    }
+    case "wait_for_selector": {
+      const { profile_id, selector, timeout_ms, sessionId } = WaitForSelectorSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      const expression = `!!document.querySelector(${JSON.stringify(selector)})`;
+      const found = await pollUntil(
+        async () => {
+          const res = (await browserDriver.cdpSend(
+            profile_id,
+            "Runtime.evaluate",
+            { expression, returnByValue: true },
+            sessionId,
+            { safe: true },
+          )) as { result?: { value?: unknown } };
+          return res?.result?.value === true;
+        },
+        timeout_ms ?? 30000,
+      );
+      return { found, selector };
+    }
+    case "get_cookies": {
+      const { profile_id, urls, sessionId } = GetCookiesSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // Network.getCookies works without Network.enable.
+      const params = urls ? { urls } : {};
+      return await browserDriver.cdpSend(profile_id, "Network.getCookies", params, sessionId, {
+        safe: true,
+      });
+    }
+    case "set_cookies": {
+      const { profile_id, cookies, sessionId } = SetCookiesSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // Network.setCookies (plural) sets the whole batch in one call without
+      // Network.enable.
+      return await browserDriver.cdpSend(profile_id, "Network.setCookies", { cookies }, sessionId, {
+        safe: true,
+      });
+    }
+    case "list_tabs": {
+      const { profile_id, sessionId } = ListTabsSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(profile_id, "Target.getTargets", {}, sessionId, {
+        safe: true,
+      });
+    }
+    case "new_tab": {
+      const { profile_id, url, sessionId } = NewTabSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Target.createTarget",
+        { url: url ?? "about:blank" },
+        sessionId,
+        { safe: true },
+      );
+    }
+    case "activate_tab": {
+      const { profile_id, target_id, sessionId } = TabIdSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Target.activateTarget",
+        { targetId: target_id },
+        sessionId,
+        { safe: true },
+      );
+    }
+    case "close_tab": {
+      const { profile_id, target_id, sessionId } = TabIdSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Target.closeTarget",
+        { targetId: target_id },
+        sessionId,
+        { safe: true },
+      );
+    }
+    case "wait_for_navigation":
+    case "wait_for_load": {
+      const { profile_id, timeout_ms, sessionId } = WaitForLoadSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // `Page` is enabled at connect, but waiting on the loadEventFired event
+      // requires an event subscription the single cdpSend primitive can't
+      // express. Polling document.readyState gives the same readiness signal
+      // purely through Runtime.evaluate (no domain enable).
+      const loaded = await pollUntil(
+        async () => {
+          const res = (await browserDriver.cdpSend(
+            profile_id,
+            "Runtime.evaluate",
+            { expression: "document.readyState", returnByValue: true },
+            sessionId,
+            { safe: true },
+          )) as { result?: { value?: unknown } };
+          return res?.result?.value === "complete";
+        },
+        timeout_ms ?? 30000,
+      );
+      return { loaded };
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
 }
+
+const PROXY_JSON_SCHEMA = {
+  type: "object",
+  description: "Per-profile proxy. DNS is resolved remotely via a local SOCKS5 bridge.",
+  required: ["type", "host", "port"],
+  properties: {
+    type: { type: "string", enum: ["http", "socks5"] },
+    host: { type: "string" },
+    port: { type: "integer", minimum: 1, maximum: 65535 },
+    username: { type: "string" },
+    password: { type: "string" },
+  },
+} as const;
+
+const FINGERPRINT_JSON_SCHEMA = {
+  type: "object",
+  description:
+    "High-level fingerprint dimensions. The server derives a coherent UA / Client-Hints / WebGL / locale story from these — raw surfaces cannot be set individually. All fields optional; omitted ones keep their current/coherent value.",
+  properties: {
+    device: {
+      type: "string",
+      enum: [...DEVICE_FAMILIES],
+      description: "Device family to impersonate (see list_fingerprint_options).",
+    },
+    localeId: {
+      type: "string",
+      description: "Locale group id, e.g. 'en-US', 'de-DE' (see list_fingerprint_options).",
+    },
+    timezone: {
+      type: "string",
+      description: "IANA timezone; must belong to the chosen locale, else snapped to a valid one.",
+    },
+    screen: {
+      type: "object",
+      required: ["width", "height"],
+      properties: {
+        width: { type: "integer", minimum: 1 },
+        height: { type: "integer", minimum: 1 },
+      },
+    },
+    hardwareConcurrency: { type: "integer", minimum: 1 },
+    deviceMemory: { type: "number", minimum: 1 },
+  },
+} as const;
 
 const TOOL_DEFINITIONS = [
   {
@@ -189,7 +538,8 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "create_profile",
-    description: "Create a new browser profile with sensible default fingerprint.",
+    description:
+      "Create a new browser profile. Only `name` is required; a coherent default fingerprint is generated. Optionally pass a `proxy` and/or high-level `fingerprint` knobs to set them at creation time. Call list_fingerprint_options for valid device families and locale ids.",
     inputSchema: {
       type: "object",
       required: ["name"],
@@ -197,6 +547,8 @@ const TOOL_DEFINITIONS = [
         name: { type: "string", description: "Human-readable name" },
         notes: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
+        proxy: PROXY_JSON_SCHEMA,
+        fingerprint: FINGERPRINT_JSON_SCHEMA,
       },
     },
   },
@@ -281,7 +633,237 @@ const TOOL_DEFINITIONS = [
       properties: { profile_id: { type: "string" } },
     },
   },
+  {
+    name: "update_profile",
+    description:
+      "Update an existing profile's name, notes, tags, proxy, and/or fingerprint. Every field is optional — only the ones you pass change. Set `proxy` to null to remove the proxy. Fingerprint changes are reconciled for coherence. If the profile is running, changes apply on the next launch (response includes appliesOnNextLaunch).",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        name: { type: "string" },
+        notes: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        proxy: {
+          description: "Proxy object to set, or null to clear. Omit to leave unchanged.",
+          anyOf: [PROXY_JSON_SCHEMA, { type: "null" }],
+        },
+        fingerprint: FINGERPRINT_JSON_SCHEMA,
+      },
+    },
+  },
+  {
+    name: "delete_profile",
+    description:
+      "Permanently delete a profile and its on-disk data (cookies, Chromium state, installed extensions). Closes the browser first if it's running. This cannot be undone.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: { profile_id: { type: "string" } },
+    },
+  },
+  {
+    name: "list_fingerprint_options",
+    description:
+      "List the valid fingerprint building blocks: device families (with their real screen sizes) and locale groups (locale, country, plausible timezones). Use these values for the `device`, `localeId`, `timezone`, and `screen` fields of create_profile / update_profile.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "cdp_send",
+    description:
+      "Send a raw Chrome DevTools Protocol command (stealth-safe). Any domain this call had to enable is auto-disabled afterwards so the anti-detect baseline is preserved; domains enabled at connect (Page) are never touched. On anti-detect engines, enabling a DCHECK-sensitive domain (Runtime/Network) is refused — use the convenience wrappers (evaluate_js, get_cookies, …) which need no enable, or cdp_send_no_safety if you accept the risk.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "method"],
+      properties: {
+        profile_id: { type: "string" },
+        method: { type: "string", description: "CDP method, e.g. 'Runtime.evaluate'" },
+        params: { type: "object", description: "CDP command params" },
+        sessionId: { type: "string", description: "Optional flattened CDP sessionId for a sub-target" },
+      },
+    },
+  },
+  {
+    name: "cdp_send_no_safety",
+    description:
+      "Send a raw CDP command with NO safety. WARNING: this bypasses MultiZen's stealth protection — it performs no auto-disable, so any domain you enable (Runtime, Network, DOM, …) stays globally enabled and becomes a detectable automation signal. On anti-detect Chromium builds (CloakBrowser) enabling such domains can trip a DCHECK and crash/expose the session. Only use when you knowingly accept the detection/stability risk.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "method"],
+      properties: {
+        profile_id: { type: "string" },
+        method: { type: "string", description: "CDP method, e.g. 'Network.enable'" },
+        params: { type: "object", description: "CDP command params" },
+        sessionId: { type: "string", description: "Optional flattened CDP sessionId for a sub-target" },
+      },
+    },
+  },
+  {
+    name: "evaluate_js",
+    description:
+      "Evaluate a JavaScript expression in the page and return the result by value. Runs via Runtime.evaluate without enabling the Runtime domain (stealth-safe).",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "expression"],
+      properties: {
+        profile_id: { type: "string" },
+        expression: { type: "string", description: "JavaScript expression to evaluate" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "wait_for_selector",
+    description:
+      "Poll the page until an element matching the CSS selector exists, or the timeout elapses. Returns { found, selector }. Uses Runtime.evaluate polling (no domain enable).",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "selector"],
+      properties: {
+        profile_id: { type: "string" },
+        selector: { type: "string", description: "CSS selector to wait for" },
+        timeout_ms: { type: "integer", minimum: 1, description: "Wait budget in ms (default 30000)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "get_cookies",
+    description:
+      "Get cookies via Network.getCookies (no Network.enable needed). Optionally restrict to specific URLs.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        urls: { type: "array", items: { type: "string" }, description: "Optional URL filter" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "set_cookies",
+    description:
+      "Set one or more cookies via Network.setCookies (no Network.enable needed). Each cookie needs at least name and value; CDP fields like url, domain, path, expires, httpOnly, secure, sameSite are also accepted.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "cookies"],
+      properties: {
+        profile_id: { type: "string" },
+        cookies: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["name", "value"],
+            properties: {
+              name: { type: "string" },
+              value: { type: "string" },
+              url: { type: "string" },
+              domain: { type: "string" },
+              path: { type: "string" },
+            },
+          },
+        },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "list_tabs",
+    description: "List open targets (tabs/pages) via Target.getTargets.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: { profile_id: { type: "string" }, sessionId: { type: "string" } },
+    },
+  },
+  {
+    name: "new_tab",
+    description: "Open a new tab via Target.createTarget. Defaults to about:blank if no url is given.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        url: { type: "string", description: "URL to open (default about:blank)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "activate_tab",
+    description: "Bring a tab to the foreground via Target.activateTarget.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "target_id"],
+      properties: {
+        profile_id: { type: "string" },
+        target_id: { type: "string", description: "Target id from list_tabs" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "close_tab",
+    description: "Close a tab via Target.closeTarget.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "target_id"],
+      properties: {
+        profile_id: { type: "string" },
+        target_id: { type: "string", description: "Target id from list_tabs" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "wait_for_navigation",
+    description:
+      "Wait until the page finishes loading (document.readyState === 'complete'), or the timeout elapses. Returns { loaded }. Polls via Runtime.evaluate (no domain enable).",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        timeout_ms: { type: "integer", minimum: 1, description: "Wait budget in ms (default 30000)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "wait_for_load",
+    description:
+      "Alias of wait_for_navigation: wait until document.readyState === 'complete' or the timeout elapses. Returns { loaded }.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        timeout_ms: { type: "integer", minimum: 1, description: "Wait budget in ms (default 30000)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
 ];
+
+/** Trim a full FingerprintConfig down to the human-meaningful dimensions
+ *  the caller can actually reason about / set. */
+function fingerprintSummary(fp: FingerprintConfig): {
+  device: string;
+  locale: string;
+  timezone: string;
+  screen: { width: number; height: number };
+  userAgent: string;
+} {
+  return {
+    device: fp.device,
+    locale: fp.locale,
+    timezone: fp.timezone,
+    screen: fp.screen,
+    userAgent: fp.userAgent,
+  };
+}
 
 function summarize(result: unknown): string {
   if (typeof result === "string") return result.slice(0, 200);
@@ -318,5 +900,59 @@ function assertProfileExists(pm: ProfileManager, id: string): void {
 function assertProfileRunning(driver: BrowserDriver, id: string): void {
   if (!driver.isRunning(id)) {
     throw new Error(`Profile ${id} is not running. Call launch_profile first.`);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Transient CDP failures raised while a target is mid-navigation: the V8
+ * execution context is torn down and recreated, so an in-flight Runtime.evaluate
+ * can reject even though the page is perfectly fine a moment later. These are
+ * safe to swallow and retry; any other error is a genuine failure (e.g. an
+ * invalid selector expression) and must surface immediately.
+ */
+const TRANSIENT_NAVIGATION_ERROR =
+  /execution context was destroyed|Cannot find context|Inspected target (navigated|closed)|No execution context/i;
+
+function isTransientNavigationError(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return TRANSIENT_NAVIGATION_ERROR.test(message);
+}
+
+/**
+ * Poll `check` on a fixed 150ms backoff until it returns true or the budget is
+ * exhausted. Returns the final boolean rather than throwing so wait_* tools
+ * can report a clean `{ found/loaded: false }` on a normal timeout.
+ *
+ * Scoped retry: transient navigation errors (execution context destroyed while
+ * the page reloads) are swallowed and retried until the budget runs out — never
+ * masking real errors, which propagate immediately. If only transient errors
+ * are seen right up to the deadline, a clear timeout error is thrown so the
+ * caller is not told the page settled when it never did.
+ */
+async function pollUntil(check: () => Promise<boolean>, budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  let lastTransient: Error | undefined;
+  for (;;) {
+    try {
+      if (await check()) return true;
+      lastTransient = undefined; // a clean check ran: not stuck on a transient error
+    } catch (e) {
+      if (!isTransientNavigationError(e)) throw e;
+      lastTransient = e instanceof Error ? e : new Error(String(e));
+    }
+    if (Date.now() >= deadline) {
+      if (lastTransient) {
+        throw new Error(
+          `Timed out after ${budgetMs}ms waiting for the page to settle; ` +
+            `last transient navigation error: ${lastTransient.message}`,
+        );
+      }
+      return false;
+    }
+    await sleep(150);
   }
 }

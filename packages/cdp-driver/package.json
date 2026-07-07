@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import ../mcp-server/node_modules/tsx/dist/loader.mjs --test src/CdpSession.test.ts"
   },
   "dependencies": {
     "@multizen/types": "workspace:*",
