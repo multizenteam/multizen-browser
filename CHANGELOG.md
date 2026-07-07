@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-07
+
+Synced with upstream `multizenteam/multizen-browser` v0.2.12, bringing its
+feature set into the extended fork while keeping the fork's MCP/CDP tooling.
+
+### Added
+
+- **Per-profile start page.** Each profile can set its own start URL, opened on
+  first launch (sanitized, with a safe default) instead of a fixed page.
+- **In-app extensions catalog.** Browse a curated set of MV3 extensions — shown
+  with their real Chrome Web Store icons — and add or attach them while creating
+  a profile.
+- **Emoji profile avatars.** Choose an emoji (with automatic color tinting) as a
+  profile avatar through the new emoji picker.
+- **In-app MCP panel** with a Copy-for-LLM connect card, so pointing
+  Cursor / Claude / Codex at the local server is a one-click copy.
+- **Opt-in anonymous telemetry** — a default-off onboarding consent step plus a
+  self-hostable ingest service. Nothing is ever sent from dev/unpackaged builds.
+
+### Changed
+
+- **Redesigned profile create/edit flow and cards** — Discord-style sidebar
+  navigation in the New and Edit profile sheets (with edit autosave), roomier
+  modals, refreshed profile tiles, and a clear terminating state while a profile
+  winds down.
+- Per-profile proxy health is now surfaced in the UI.
+
+### Fixed
+
+- Profile import now restores faithfully (id, data directory, and every field)
+  and rejects unsafe archive ids and path-traversal attempts.
+
 ## [0.4.1] - 2026-07-01
 
 ### Added
@@ -190,6 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-profile SOCKS5 bridge with persona alignment, and the activity log.
 - GitHub Actions release workflow with stable, version-less download URLs.
 
+[0.5.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.3.0...v0.3.1
