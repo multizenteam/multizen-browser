@@ -1,4 +1,4 @@
-import { createReadStream, createWriteStream, statSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, statSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import {
@@ -15,18 +15,47 @@ import type { Profile } from "@multizen/types";
 const scrypt = promisify(scryptCb);
 
 const MAGIC = "MZAR";
-const VERSION = 1;
+/** v1 = profile user-data-dir only. v2 = also bundles shared-store extension
+ *  code so a fresh machine gets working extensions, not dangling references. */
+const VERSION = 2;
+/** Archive versions this build can read. */
+const SUPPORTED_VERSIONS = new Set([1, 2]);
 /** AES-256-GCM */
 const ALGO = "aes-256-gcm";
 const KEY_LEN = 32;
 const SALT_LEN = 16;
 const IV_LEN = 12;
 
+interface FileMeta {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+interface BundledExtension {
+  id: string;
+  version: string;
+  files: FileMeta[];
+}
+
 interface ArchiveManifest {
   magic: typeof MAGIC;
   version: number;
   profile: Profile;
-  files: Array<{ path: string; size: number; sha256: string }>;
+  files: FileMeta[];
+  /** v2+: shared-store extensions bundled into the archive. Their file
+   *  payloads follow the profile files in the same sequential framing. */
+  extensions?: BundledExtension[];
+}
+
+export interface ExportOptions {
+  /**
+   * Shared-store extension directories to bundle into the archive so importing
+   * on another machine restores the extension code too (not just a reference
+   * that dangles until the user re-adds it). Each entry's files are read from
+   * `dir` and stored under the extension's (id, version).
+   */
+  extensions?: Array<{ id: string; version: string; dir: string }>;
 }
 
 /**
@@ -46,13 +75,37 @@ export async function exportProfile(
   profile: Profile,
   passphrase: string,
   outPath: string,
+  opts: ExportOptions = {},
 ): Promise<void> {
   const files = await collectFiles(profile.dataDir);
+
+  // Collect bundled extensions (v2). Each extension's files are appended after
+  // the profile files, in the same [len][content] framing, so import can read
+  // them sequentially by walking manifest.files then manifest.extensions.
+  const bundled: BundledExtension[] = [];
+  const extChunks: Buffer[] = [];
+  for (const ext of opts.extensions ?? []) {
+    const extFiles = await collectFiles(ext.dir);
+    if (extFiles.length === 0) continue; // nothing on disk to bundle
+    bundled.push({
+      id: ext.id,
+      version: ext.version,
+      files: extFiles.map((f) => ({ path: f.relPath, size: f.size, sha256: f.sha256 })),
+    });
+    for (const f of extFiles) {
+      const len = Buffer.alloc(4);
+      len.writeUInt32BE(f.size, 0);
+      extChunks.push(len);
+      extChunks.push(await readFile(f.absPath));
+    }
+  }
+
   const manifest: ArchiveManifest = {
     magic: MAGIC,
     version: VERSION,
     profile,
     files: files.map((f) => ({ path: f.relPath, size: f.size, sha256: f.sha256 })),
+    extensions: bundled.length > 0 ? bundled : undefined,
   };
 
   const manifestJson = Buffer.from(JSON.stringify(manifest), "utf8");
@@ -67,7 +120,7 @@ export async function exportProfile(
     fileChunks.push(await readFile(f.absPath));
   }
 
-  const plaintext = Buffer.concat([manifestLen, manifestJson, ...fileChunks]);
+  const plaintext = Buffer.concat([manifestLen, manifestJson, ...fileChunks, ...extChunks]);
 
   const salt = randomBytes(SALT_LEN);
   const iv = randomBytes(IV_LEN);
@@ -93,6 +146,13 @@ export interface ImportOptions {
    * overwrites the existing profile's files.
    */
   idTaken?: (id: string) => boolean;
+  /**
+   * Shared extension store root (`<userData>/data/extension-store`). When set,
+   * v2 archives restore their bundled extensions here (under `<id>/<version>`)
+   * so a fresh machine has the extension code. An existing store entry is left
+   * untouched (never clobbered). When unset, bundled extensions are ignored.
+   */
+  extensionStoreRoot?: string;
 }
 
 export async function importProfile(
@@ -106,7 +166,7 @@ export async function importProfile(
     throw new Error("Not a MultiZen archive");
   }
   const version = buf.readUInt16BE(4);
-  if (version !== VERSION) {
+  if (!SUPPORTED_VERSIONS.has(version)) {
     throw new Error(`Unsupported archive version: ${version}`);
   }
 
@@ -155,25 +215,70 @@ export async function importProfile(
     cursor += 4;
     const content = plaintext.subarray(cursor, cursor + len);
     cursor += len;
+    verifyChecksum(fileMeta, content);
+    await writeGuarded(restored.dataDir, fileMeta.path, content);
+  }
 
-    const hash = createHash("sha256").update(content).digest("hex");
-    if (hash !== fileMeta.sha256) {
-      throw new Error(`Checksum mismatch for ${fileMeta.path}`);
+  // v2: restore bundled shared-store extensions. The chunks follow the profile
+  // files in the same order as manifest.extensions[].files. We always read the
+  // chunks (to stay checksum-honest even when we skip writing), but only write
+  // to the store when a root is provided and the entry isn't already present.
+  for (const ext of manifest.extensions ?? []) {
+    const destDir = opts.extensionStoreRoot
+      ? join(opts.extensionStoreRoot, sanitizeSegment(ext.id), sanitizeSegment(ext.version || "0"))
+      : null;
+    // Don't clobber an extension the user already has in the store.
+    const skipWrite = !destDir || existsSync(destDir);
+    for (const fileMeta of ext.files) {
+      const len = plaintext.readUInt32BE(cursor);
+      cursor += 4;
+      const content = plaintext.subarray(cursor, cursor + len);
+      cursor += len;
+      verifyChecksum(fileMeta, content);
+      if (skipWrite || !destDir) continue;
+      await writeGuarded(destDir, fileMeta.path, content);
     }
-
-    const base = resolve(restored.dataDir);
-    const absPath = resolve(base, fileMeta.path);
-    // Must stay strictly inside dataDir. Compare against `base + sep` so a
-    // sibling dir sharing the prefix (…/<id>-evil) can't slip through, and
-    // reject the base itself as a file target.
-    if (absPath !== base && !absPath.startsWith(base + sep)) {
-      throw new Error(`Refusing path-traversal entry: ${fileMeta.path}`);
-    }
-    await mkdir(join(absPath, ".."), { recursive: true });
-    await writeFile(absPath, content);
   }
 
   return restored;
+}
+
+/** Throw if the content's SHA-256 doesn't match the manifest entry. */
+function verifyChecksum(fileMeta: FileMeta, content: Buffer): void {
+  const hash = createHash("sha256").update(content).digest("hex");
+  if (hash !== fileMeta.sha256) {
+    throw new Error(`Checksum mismatch for ${fileMeta.path}`);
+  }
+}
+
+/**
+ * Write `content` to `relPath` inside `baseDir`, refusing any path that escapes
+ * baseDir. Compare against `base + sep` so a sibling sharing the prefix can't
+ * slip through, and reject the base itself as a file target.
+ */
+async function writeGuarded(baseDir: string, relPath: string, content: Buffer): Promise<void> {
+  const base = resolve(baseDir);
+  const absPath = resolve(base, relPath);
+  // Reject the base itself as a file target AND anything outside it. `base + sep`
+  // stops a sibling sharing the prefix (…/<id>-evil) from slipping through.
+  if (absPath === base || !absPath.startsWith(base + sep)) {
+    throw new Error(`Refusing path-traversal entry: ${relPath}`);
+  }
+  await mkdir(join(absPath, ".."), { recursive: true });
+  await writeFile(absPath, content);
+}
+
+/**
+ * A store path segment (extension id / version) taken from an untrusted archive
+ * becomes a directory name, so reject anything that isn't a plain segment —
+ * "", ".", "..", or containing a separator would let a crafted archive escape
+ * the store root.
+ */
+function sanitizeSegment(seg: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(seg) || seg === "." || seg === "..") {
+    throw new Error(`Refusing unsafe extension path segment: ${seg}`);
+  }
+  return seg;
 }
 
 /**

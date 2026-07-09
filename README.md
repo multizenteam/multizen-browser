@@ -37,7 +37,7 @@
 
 ## What it is
 
-MultiZen is a desktop app that runs a library of isolated Chromium browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy. A local MCP server on `localhost:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot) to any MCP client.
+MultiZen is a desktop app that runs a library of isolated Chromium browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy. A local MCP server on `127.0.0.1:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot) to any MCP client.
 
 The result: your AI agent in Cursor or Claude Desktop can complete real authenticated workflows. When it hits a 2FA prompt or CAPTCHA, you step in through the same Chromium window. When you are done, the agent picks up where it left off. Cookies and session state survive between launches.
 
@@ -85,7 +85,7 @@ curl -sSL https://getmultizen.com/install.sh | bash
 ```
 +----------------------+         +-----------------------+
 |  Cursor / Claude     |  MCP    |  MultiZen Desktop App |
-|  Desktop / Cline     | <-----> |  localhost:7777       |
+|  Desktop / Cline     | <-----> |  127.0.0.1:7777       |
 +----------------------+         +-----------+-----------+
                                              |
                                              | spawn / drive (CDP)
@@ -127,15 +127,15 @@ Each profile is a real Chromium window with persistent state on disk. The MCP se
 
 ## Connect an agent (Codex, Cursor, Claude Desktop)
 
-After installing, the MCP server starts on `localhost:7777`. It serves the current
-**Streamable HTTP** transport at `http://localhost:7777/mcp` (plus a legacy HTTP+SSE
+After installing, the MCP server starts on `127.0.0.1:7777`. It serves the current
+**Streamable HTTP** transport at `http://127.0.0.1:7777/mcp` (plus a legacy HTTP+SSE
 endpoint at `/sse` for older clients). Add it to your client config.
 
 **Codex CLI** (`~/.codex/config.toml`) — connects to Streamable HTTP directly:
 
 ```toml
 [mcp_servers.multizen]
-url = "http://localhost:7777/mcp"
+url = "http://127.0.0.1:7777/mcp"
 ```
 
 **JSON URL clients — Cursor** (`~/.cursor/mcp.json`), Cline, Continue:
@@ -144,7 +144,7 @@ url = "http://localhost:7777/mcp"
 {
   "mcpServers": {
     "multizen": {
-      "url": "http://localhost:7777/mcp"
+      "url": "http://127.0.0.1:7777/mcp"
     }
   }
 }
@@ -159,7 +159,7 @@ url = "http://localhost:7777/mcp"
   "mcpServers": {
     "multizen": {
       "command": "npx",
-      "args": ["mcp-remote", "http://localhost:7777/mcp"]
+      "args": ["mcp-remote", "http://127.0.0.1:7777/mcp"]
     }
   }
 }

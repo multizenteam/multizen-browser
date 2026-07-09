@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import {
@@ -25,7 +25,12 @@ import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
 import { UpdaterService } from "./UpdaterService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
 import { ExtensionsService } from "./extensions/ExtensionsService.ts";
-import { sweepOrphans } from "./extensions/extensionStore.ts";
+import {
+  sweepOrphans,
+  storeEntryDir,
+  resolveLoadDir,
+  readManifestIcon,
+} from "./extensions/extensionStore.ts";
 import { probeProxyGeo, type ProxyGeoResult } from "./proxyGeo.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -386,6 +391,25 @@ app.whenReady().then(async () => {
   };
 
   ipcMain.handle("extensions:storeEntries", () => extensionsService.storeEntries());
+  // Real icon from an extension's own manifest, as a data URI (or null → the
+  // renderer shows the generic glyph). Lets non-catalog extensions show their
+  // actual icon. Shared entries resolve from the store; profile-scoped ones
+  // need the owning profile's dataDir.
+  ipcMain.handle(
+    "extensions:icon",
+    async (_e, ext: ExtensionConfig, profileId: string | null): Promise<string | null> => {
+      const dataDir = profileId ? profileManager.get(profileId)?.dataDir : undefined;
+      if (ext.scope !== "shared" && !dataDir) return null;
+      const dir = resolveLoadDir(ext, dataDir ?? "", extensionStoreRoot);
+      // Defense-in-depth: a crafted archive could carry a profile-scope ext.dir
+      // that escapes the profile. Keep the resolved dir inside its expected root
+      // before reading any file from it.
+      const root = resolve(ext.scope === "shared" ? extensionStoreRoot : (dataDir ?? ""));
+      const abs = resolve(dir);
+      if (abs !== root && !abs.startsWith(root + sep)) return null;
+      return readManifestIcon(abs);
+    },
+  );
   ipcMain.handle("extensions:prepareFromWebStore", async (_e, urlOrId: string) => {
     try {
       return await extensionsService.prepareFromWebStore(urlOrId);
@@ -477,7 +501,16 @@ app.whenReady().then(async () => {
         filters: [{ name: "MultiZen archive", extensions: ["mzar"] }],
       });
       if (result.canceled || !result.filePath) return { ok: false, reason: "cancelled" };
-      await exportProfile(profile, passphrase, result.filePath);
+      // Bundle the profile's shared-store extensions so importing on another
+      // machine restores the extension code too, not just a dangling reference.
+      const extensions = (profile.extensions ?? [])
+        .filter((e) => e.scope === "shared")
+        .map((e) => ({
+          id: e.id,
+          version: e.version,
+          dir: storeEntryDir(extensionStoreRoot, e.id, e.version),
+        }));
+      await exportProfile(profile, passphrase, result.filePath, { extensions });
       return { ok: true, path: result.filePath };
     },
   );
@@ -503,6 +536,9 @@ app.whenReady().then(async () => {
         // proxy) and its dataDir points at the restored files.
         const restored = await importProfile(archivePath, passphrase, join(dataRoot, "profiles"), {
           idTaken: (id) => Boolean(profileManager.get(id)),
+          // Restore bundled (v2) extensions into the shared store so they work
+          // on this machine without the user re-adding them.
+          extensionStoreRoot,
         });
         // Insert the row verbatim so the DB entry points at the restored files
         // (the old create()-based path minted a new id/dataDir and orphaned the
