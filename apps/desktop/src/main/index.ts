@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import {
@@ -400,7 +400,14 @@ app.whenReady().then(async () => {
     async (_e, ext: ExtensionConfig, profileId: string | null): Promise<string | null> => {
       const dataDir = profileId ? profileManager.get(profileId)?.dataDir : undefined;
       if (ext.scope !== "shared" && !dataDir) return null;
-      return readManifestIcon(resolveLoadDir(ext, dataDir ?? "", extensionStoreRoot));
+      const dir = resolveLoadDir(ext, dataDir ?? "", extensionStoreRoot);
+      // Defense-in-depth: a crafted archive could carry a profile-scope ext.dir
+      // that escapes the profile. Keep the resolved dir inside its expected root
+      // before reading any file from it.
+      const root = resolve(ext.scope === "shared" ? extensionStoreRoot : (dataDir ?? ""));
+      const abs = resolve(dir);
+      if (abs !== root && !abs.startsWith(root + sep)) return null;
+      return readManifestIcon(abs);
     },
   );
   ipcMain.handle("extensions:prepareFromWebStore", async (_e, urlOrId: string) => {

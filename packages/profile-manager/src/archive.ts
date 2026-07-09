@@ -259,7 +259,9 @@ function verifyChecksum(fileMeta: FileMeta, content: Buffer): void {
 async function writeGuarded(baseDir: string, relPath: string, content: Buffer): Promise<void> {
   const base = resolve(baseDir);
   const absPath = resolve(base, relPath);
-  if (absPath !== base && !absPath.startsWith(base + sep)) {
+  // Reject the base itself as a file target AND anything outside it. `base + sep`
+  // stops a sibling sharing the prefix (…/<id>-evil) from slipping through.
+  if (absPath === base || !absPath.startsWith(base + sep)) {
     throw new Error(`Refusing path-traversal entry: ${relPath}`);
   }
   await mkdir(join(absPath, ".."), { recursive: true });

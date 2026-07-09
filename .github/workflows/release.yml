@@ -3,8 +3,10 @@ name: Release
 # Triggered by pushing a tag like v0.2.1. The tag value should match the
 # version in apps/desktop/package.json — electron-builder reads from there.
 #
-# Manual trigger via workflow_dispatch is also supported for testing the
-# pipeline; it publishes to the release for the current package.json version.
+# workflow_dispatch is supported too, but the jobs only do work when the run's
+# ref is a tag (i.e. re-running a release by dispatching against `vX.Y.Z`).
+# Dispatching against a branch is a no-op, so it can't create a stray public
+# release or an accidental tag.
 on:
   push:
     tags:
@@ -21,6 +23,7 @@ jobs:
   # with HTTP 422 "already_exists", killing that platform's build. Pre-creating
   # the release means every build just uploads assets into an existing release.
   prepare-release:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -42,6 +45,7 @@ jobs:
 
   build:
     needs: prepare-release
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
