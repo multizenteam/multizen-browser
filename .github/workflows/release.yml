@@ -4,8 +4,7 @@ name: Release
 # version in apps/desktop/package.json — electron-builder reads from there.
 #
 # Manual trigger via workflow_dispatch is also supported for testing the
-# pipeline without creating a public release (it still uploads to a draft
-# release that you can delete after).
+# pipeline; it publishes to the release for the current package.json version.
 on:
   push:
     tags:
@@ -16,7 +15,33 @@ permissions:
   contents: write # needed to create GitHub Releases
 
 jobs:
+  # Create the GitHub Release ONCE, up front. Without this, the three parallel
+  # build jobs each run electron-builder with `releaseType: release`, so they
+  # all POST /releases at nearly the same moment — one wins and the others fail
+  # with HTTP 422 "already_exists", killing that platform's build. Pre-creating
+  # the release means every build just uploads assets into an existing release.
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Create the release if it doesn't exist yet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(node -p "require('./apps/desktop/package.json').version")"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — nothing to create."
+          else
+            # --target is only used if the tag ref doesn't exist yet; on a tag
+            # push the tag already exists and gh attaches the release to it.
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "${TAG#v}" --notes "Build in progress…"
+          fi
+
   build:
+    needs: prepare-release
     strategy:
       fail-fast: false
       matrix:
@@ -64,23 +89,22 @@ jobs:
 
       - name: Build & publish
         env:
-          # electron-builder picks this up to create the Release and
-          # upload assets. Provided automatically by Actions.
+          # electron-builder uploads assets to the pre-created Release.
+          # Provided automatically by Actions.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Skip mac code signing / notarization — open-source MVP runs
           # unsigned. Users get a Gatekeeper warning on first launch.
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: yarn workspace @multizen/desktop ${{ matrix.script }}
 
-  # electron-builder creates the Release with an empty body. After all three
-  # builds finish, generate a grouped changelog from Conventional Commits since
-  # the previous tag and set it as the release notes. Tag pushes only.
+  # The release starts with a placeholder body. Once the builds finish, generate
+  # a grouped changelog from Conventional Commits since the previous tag and set
+  # it as the release notes. Runs on tag pushes even if a build failed (so the
+  # notes + succeeded platforms still land), just not when the run is cancelled.
   release-notes:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
