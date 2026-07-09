@@ -25,7 +25,7 @@ import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
 import { UpdaterService } from "./UpdaterService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
 import { ExtensionsService } from "./extensions/ExtensionsService.ts";
-import { sweepOrphans } from "./extensions/extensionStore.ts";
+import { sweepOrphans, storeEntryDir } from "./extensions/extensionStore.ts";
 import { probeProxyGeo, type ProxyGeoResult } from "./proxyGeo.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -477,7 +477,16 @@ app.whenReady().then(async () => {
         filters: [{ name: "MultiZen archive", extensions: ["mzar"] }],
       });
       if (result.canceled || !result.filePath) return { ok: false, reason: "cancelled" };
-      await exportProfile(profile, passphrase, result.filePath);
+      // Bundle the profile's shared-store extensions so importing on another
+      // machine restores the extension code too, not just a dangling reference.
+      const extensions = (profile.extensions ?? [])
+        .filter((e) => e.scope === "shared")
+        .map((e) => ({
+          id: e.id,
+          version: e.version,
+          dir: storeEntryDir(extensionStoreRoot, e.id, e.version),
+        }));
+      await exportProfile(profile, passphrase, result.filePath, { extensions });
       return { ok: true, path: result.filePath };
     },
   );
@@ -503,6 +512,9 @@ app.whenReady().then(async () => {
         // proxy) and its dataDir points at the restored files.
         const restored = await importProfile(archivePath, passphrase, join(dataRoot, "profiles"), {
           idTaken: (id) => Boolean(profileManager.get(id)),
+          // Restore bundled (v2) extensions into the shared store so they work
+          // on this machine without the user re-adding them.
+          extensionStoreRoot,
         });
         // Insert the row verbatim so the DB entry points at the restored files
         // (the old create()-based path minted a new id/dataDir and orphaned the
