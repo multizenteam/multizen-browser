@@ -25,7 +25,12 @@ import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
 import { UpdaterService } from "./UpdaterService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
 import { ExtensionsService } from "./extensions/ExtensionsService.ts";
-import { sweepOrphans, storeEntryDir } from "./extensions/extensionStore.ts";
+import {
+  sweepOrphans,
+  storeEntryDir,
+  resolveLoadDir,
+  readManifestIcon,
+} from "./extensions/extensionStore.ts";
 import { probeProxyGeo, type ProxyGeoResult } from "./proxyGeo.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -386,6 +391,18 @@ app.whenReady().then(async () => {
   };
 
   ipcMain.handle("extensions:storeEntries", () => extensionsService.storeEntries());
+  // Real icon from an extension's own manifest, as a data URI (or null → the
+  // renderer shows the generic glyph). Lets non-catalog extensions show their
+  // actual icon. Shared entries resolve from the store; profile-scoped ones
+  // need the owning profile's dataDir.
+  ipcMain.handle(
+    "extensions:icon",
+    async (_e, ext: ExtensionConfig, profileId: string | null): Promise<string | null> => {
+      const dataDir = profileId ? profileManager.get(profileId)?.dataDir : undefined;
+      if (ext.scope !== "shared" && !dataDir) return null;
+      return readManifestIcon(resolveLoadDir(ext, dataDir ?? "", extensionStoreRoot));
+    },
+  );
   ipcMain.handle("extensions:prepareFromWebStore", async (_e, urlOrId: string) => {
     try {
       return await extensionsService.prepareFromWebStore(urlOrId);

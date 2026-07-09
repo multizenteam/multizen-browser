@@ -108,6 +108,8 @@ export interface MultizenApi {
     prepareFromWebStore: (urlOrId: string) => Promise<ExtensionConfig>;
     prepareFromFile: () => Promise<ExtensionConfig | null>;
     prepareFromFolder: () => Promise<ExtensionConfig | null>;
+    /** Real icon from the extension's manifest, as a data URI (or null). */
+    icon: (ext: ExtensionConfig, profileId: string | null) => Promise<string | null>;
     onInstalled: (cb: (e: ExtensionInstalledEvent) => void) => () => void;
   };
   update: {
