@@ -141,12 +141,29 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
         : reconcileDeviceFamilyToHost(profile.fingerprint);
     if (actualVersion) fp = reconcileVersionInFingerprint(fp, actualVersion);
 
-    // Align fp.timezone to the egress IP's timezone BEFORE we build CLI
-    // args (CloakBrowser's --fingerprint-timezone= is set at spawn time
-    // and reads from fp.timezone at that moment). Detection vendors do
-    // an "IP timezone vs JS timezone" check — a mismatch here is an
-    // instant -10% on creepjs/browserscan. With a proxy we probe via
-    // ipapi.co; without one we use the host system timezone.
+    // Timezone handling BEFORE we build CLI args (CloakBrowser's
+    // --fingerprint-timezone= is set at spawn time and reads fp.timezone
+    // at that moment; CFT applies it later via Emulation.setTimezoneOverride).
+    //
+    // With a proxy: align fp.timezone to the egress IP's timezone. Detection
+    // vendors run an "IP timezone vs JS timezone" check, and attaching a proxy
+    // is an explicit "appear from here" signal, so aligning to the egress is
+    // the intended behavior.
+    //
+    // Without a proxy: honor the profile's persona timezone as configured. We
+    // deliberately do NOT snap it to the host timezone — doing so silently
+    // discarded the user's timezone selection (issue #13), leaving a persona
+    // whose locale/country said one thing and whose clock said another. Running
+    // over a naked host IP is not a genuine evasion mode anyway (the real IP is
+    // already exposed), and the one no-proxy workflow people do run — testing a
+    // persona on webbrowsertools/browserscan — is exactly the case where they
+    // want to see the persona timezone, not the host's.
+    //
+    // Known debt: the with-proxy branch below also overrides an explicitly
+    // chosen fp.timezone with the proxy geo TZ, so a deliberate persona TZ is
+    // silently replaced there too. Fixing that consistently (honor an explicit
+    // user choice on both paths) needs a "user-set" flag on FingerprintConfig
+    // and is out of scope for #13.
     let webrtcSpoofIp: string | null = null;
     let geoCoords: { latitude: number; longitude: number } | null = null;
     if (profile.proxy) {
@@ -174,15 +191,8 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
           (e as Error).message,
         );
       }
-    } else {
-      const hostTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (hostTz && hostTz !== fp.timezone) {
-        console.log(
-          `[multizen] aligning fingerprint timezone ${fp.timezone} → ${hostTz} (host system, no proxy)`,
-        );
-        fp = { ...fp, timezone: hostTz };
-      }
     }
+    // No-proxy: fp.timezone is left as the profile configured it (issue #13).
 
     // Clean up stale SingletonLock left behind by a Chromium that
     // crashed without unlinking its own lock. Without this, the next
