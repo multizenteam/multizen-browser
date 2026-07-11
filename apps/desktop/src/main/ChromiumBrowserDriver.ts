@@ -571,6 +571,27 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
           } catch (e) {
             console.error("[multizen] setUserAgentOverride failed:", e);
           }
+        } else {
+          // CloakBrowser: we skip the CDP UA/timezone overrides above because
+          // those have native --fingerprint-* patches that a CDP layer would
+          // contradict. LOCALE is the exception: CloakBrowser ships NO native
+          // locale switch (its --fingerprint-* set has timezone but no
+          // locale/language — verified against the binary), and macOS ignores
+          // --lang, so nothing otherwise sets the renderer's ICU default locale
+          // and Intl.*.resolvedOptions().locale leaks the host locale (e.g. a
+          // th-TH persona reports en-US). Because there is no native locale
+          // value here, this CDP override fills a gap rather than shadowing a
+          // patch — no cross-layer disagreement. (--lang is stock Chromium, not
+          // a fingerprint patch; CFT already ships this exact override.)
+          // navigator.language(s) come from --accept-lang and stay untouched.
+          try {
+            await send("Emulation.setLocaleOverride", { locale: fp.locale });
+          } catch (e) {
+            const msg = (e as Error).message;
+            if (!/already in effect/i.test(msg)) {
+              console.error("[multizen] setLocaleOverride (cloakbrowser) failed:", e);
+            }
+          }
         }
         // Diagnostic: capture what the page actually sees AFTER overrides.
         // Logs once per session — if browserscan reports "Different browser
@@ -584,6 +605,8 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
               brands: navigator.userAgentData ? navigator.userAgentData.brands : null,
               platform: navigator.platform,
               tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              icuLocale: Intl.DateTimeFormat().resolvedOptions().locale,
+              calendar: Intl.DateTimeFormat().resolvedOptions().calendar,
               lang: navigator.language,
               langs: navigator.languages,
               hasRTCPC: typeof window.RTCPeerConnection !== "undefined",
@@ -950,7 +973,11 @@ function buildCloakBrowserFingerprintArgs(profileId: ProfileId, fp: FingerprintC
   const args = [
     `--fingerprint=${fingerprintSeed(profileId)}`,
     `--fingerprint-platform=${cloakBrowserPlatform(fp)}`,
-    `--fingerprint-locale=${fp.locale}`,
+    // NOTE: CloakBrowser has NO --fingerprint-locale switch (verified against
+    // the binary — its --fingerprint-* set covers timezone/platform/screen/etc
+    // but not locale/language). Locale is applied via CDP
+    // Emulation.setLocaleOverride in the bootstrap step instead; passing a
+    // --fingerprint-locale here would be silently ignored.
     `--fingerprint-timezone=${fp.timezone}`,
     `--fingerprint-screen-width=${fp.screen.width}`,
     `--fingerprint-screen-height=${fp.screen.height}`,
