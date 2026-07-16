@@ -40,6 +40,11 @@ export const CHROME_VERSION_FULL = "147.0.7727.138";
 // Device profiles — real models, real specs.
 // ─────────────────────────────────────────────────────────────────────────
 
+interface WebGlPair {
+  vendor: string;
+  renderer: string;
+}
+
 interface DeviceSpec {
   family: DeviceFamily;
   /** Human-readable label for UI dropdowns */
@@ -61,14 +66,34 @@ interface DeviceSpec {
   /** Device pixel ratio — 2 for Mac Retina, 1 for most Win/Linux */
   dpr: number;
 
-  /** WebGL UNMASKED_* values typical of this device family */
-  webgl: { vendor: string; renderer: string };
+  /** WebGL UNMASKED_* pairs typical of this device family (one picked per generate) */
+  webgl: ReadonlyArray<WebGlPair>;
 
   /** Plausible CPU core counts for this family */
   hardwareConcurrency: ReadonlyArray<number>;
   /** Plausible device memory in GB */
   deviceMemory: ReadonlyArray<number>;
 }
+
+/** Common desktop logical sizes callers pass (doc §3.2) — attached to Win/Linux devices. */
+const COMMON_DESKTOP_SCREENS: ReadonlyArray<{ width: number; height: number; label: string }> = [
+  { width: 1920, height: 1080, label: "1920 × 1080 (FHD)" },
+  { width: 1536, height: 864, label: "1536 × 864" },
+  { width: 1366, height: 768, label: "1366 × 768 (HD)" },
+  { width: 1440, height: 900, label: "1440 × 900" },
+  { width: 1600, height: 900, label: "1600 × 900" },
+  { width: 1280, height: 720, label: "1280 × 720 (HD)" },
+  { width: 2560, height: 1440, label: "2560 × 1440 (QHD)" },
+  { width: 1680, height: 1050, label: "1680 × 1050" },
+];
+
+const WIN_DESKTOP_SCREENS: ReadonlyArray<{ width: number; height: number; label: string }> = [
+  ...COMMON_DESKTOP_SCREENS,
+  { width: 3840, height: 2160, label: "3840 × 2160 (4K)" },
+];
+
+const ALLOWED_HWC_BASE = new Set([4, 6, 8, 12, 16]);
+const ALLOWED_MEM_BASE = new Set([4, 8, 16]);
 
 const DEVICES: ReadonlyArray<DeviceSpec> = [
   {
@@ -80,9 +105,16 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "14.6.0",
     secChUaArch: "arm",
     secChUaBitness: "64",
-    screens: [{ width: 1512, height: 982, label: "1512 × 982 (default)" }],
+    screens: [
+      { width: 1512, height: 982, label: "1512 × 982 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+    ],
     dpr: 2,
-    webgl: { vendor: "Apple Inc.", renderer: "Apple M3" },
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M3" },
+      { vendor: "Apple Inc.", renderer: "Apple M3 (8-core GPU)" },
+    ],
     hardwareConcurrency: [8],
     deviceMemory: [8, 16, 24],
   },
@@ -95,9 +127,16 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "14.6.0",
     secChUaArch: "arm",
     secChUaBitness: "64",
-    screens: [{ width: 1512, height: 982, label: "1512 × 982 (default)" }],
+    screens: [
+      { width: 1512, height: 982, label: "1512 × 982 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+    ],
     dpr: 2,
-    webgl: { vendor: "Apple Inc.", renderer: "Apple M3 Pro" },
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M3 Pro" },
+      { vendor: "Apple Inc.", renderer: "Apple M3 Pro (14-core GPU)" },
+    ],
     hardwareConcurrency: [11, 12],
     deviceMemory: [18, 36],
   },
@@ -110,10 +149,17 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "14.6.0",
     secChUaArch: "arm",
     secChUaBitness: "64",
-    screens: [{ width: 1728, height: 1117, label: "1728 × 1117 (default)" }],
+    screens: [
+      { width: 1728, height: 1117, label: "1728 × 1117 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+    ],
     dpr: 2,
-    webgl: { vendor: "Apple Inc.", renderer: "Apple M3 Pro" },
-    hardwareConcurrency: [11, 12],
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M3 Pro" },
+      { vendor: "Apple Inc.", renderer: "Apple M3 Max" },
+    ],
+    hardwareConcurrency: [11, 12, 16],
     deviceMemory: [18, 36],
   },
   {
@@ -125,9 +171,37 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "14.6.0",
     secChUaArch: "arm",
     secChUaBitness: "64",
-    screens: [{ width: 1440, height: 900, label: "1440 × 900 (default)" }],
+    screens: [
+      { width: 1440, height: 900, label: "1440 × 900 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+    ],
     dpr: 2,
-    webgl: { vendor: "Apple Inc.", renderer: "Apple M3" },
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M3" },
+      { vendor: "Apple Inc.", renderer: "Apple M2" },
+    ],
+    hardwareConcurrency: [8],
+    deviceMemory: [8, 16, 24],
+  },
+  {
+    family: "macbook-air-15-m3",
+    label: "MacBook Air 15″ (M3)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "14.6.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1680, height: 1050, label: "1680 × 1050 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M3" },
+      { vendor: "Apple Inc.", renderer: "Apple M3 (10-core GPU)" },
+    ],
     hardwareConcurrency: [8],
     deviceMemory: [8, 16, 24],
   },
@@ -140,10 +214,38 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "14.6.0",
     secChUaArch: "arm",
     secChUaBitness: "64",
-    screens: [{ width: 2240, height: 1260, label: "2240 × 1260 (4.5K)" }],
+    screens: [
+      { width: 2240, height: 1260, label: "2240 × 1260 (4.5K)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (scaled)" },
+    ],
     dpr: 2,
-    webgl: { vendor: "Apple Inc.", renderer: "Apple M3" },
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M3" },
+      { vendor: "Apple Inc.", renderer: "Apple M3 (10-core GPU)" },
+    ],
     hardwareConcurrency: [8],
+    deviceMemory: [8, 16, 24],
+  },
+  {
+    family: "mac-mini-m2",
+    label: "Mac mini (M2)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "14.6.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1920, height: 1080, label: "1920 × 1080 (FHD)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (QHD)" },
+      { width: 3840, height: 2160, label: "3840 × 2160 (4K)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M2" },
+      { vendor: "Apple Inc.", renderer: "Apple M2 Pro" },
+    ],
+    hardwareConcurrency: [8, 12],
     deviceMemory: [8, 16, 24],
   },
   {
@@ -155,18 +257,78 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "15.0.0",
     secChUaArch: "x86",
     secChUaBitness: "64",
-    screens: [
-      { width: 1366, height: 768, label: "1366 × 768 (HD)" },
-      { width: 1536, height: 864, label: "1536 × 864" },
-      { width: 1920, height: 1080, label: "1920 × 1080 (FHD)" },
-    ],
+    screens: COMMON_DESKTOP_SCREENS,
     dpr: 1,
-    webgl: {
-      vendor: "Google Inc. (Intel)",
-      renderer:
-        "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
-    },
-    hardwareConcurrency: [8, 12],
+    webgl: [
+      {
+        vendor: "Google Inc. (Intel)",
+        renderer:
+          "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (Intel)",
+        renderer:
+          "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [4, 8, 12],
+    deviceMemory: [8, 16],
+  },
+  {
+    family: "windows-laptop-intel-uhd",
+    label: "Windows laptop (Intel UHD)",
+    uaPlatformToken: "Windows NT 10.0; Win64; x64",
+    navigatorPlatform: "Win32",
+    secChUaPlatform: "Windows",
+    secChUaPlatformVersion: "15.0.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      {
+        vendor: "Google Inc. (Intel)",
+        renderer:
+          "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (Intel)",
+        renderer:
+          "ANGLE (Intel, Intel(R) UHD Graphics 770 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (Intel)",
+        renderer:
+          "ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [4, 6, 8],
+    deviceMemory: [4, 8, 16],
+  },
+  {
+    family: "windows-laptop-amd",
+    label: "Windows laptop (AMD Radeon)",
+    uaPlatformToken: "Windows NT 10.0; Win64; x64",
+    navigatorPlatform: "Win32",
+    secChUaPlatform: "Windows",
+    secChUaPlatformVersion: "15.0.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      {
+        vendor: "Google Inc. (AMD)",
+        renderer:
+          "ANGLE (AMD, AMD Radeon RX 7600M XT Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (AMD)",
+        renderer:
+          "ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [6, 8, 12],
     deviceMemory: [8, 16],
   },
   {
@@ -178,18 +340,48 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "15.0.0",
     secChUaArch: "x86",
     secChUaBitness: "64",
-    screens: [
-      { width: 1920, height: 1080, label: "1920 × 1080 (FHD)" },
-      { width: 2560, height: 1440, label: "2560 × 1440 (QHD)" },
-    ],
+    screens: COMMON_DESKTOP_SCREENS,
     dpr: 1,
-    webgl: {
-      vendor: "Google Inc. (NVIDIA)",
-      renderer:
-        "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
-    },
-    hardwareConcurrency: [12, 16],
-    deviceMemory: [16, 32],
+    webgl: [
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Laptop GPU (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [8, 12, 16],
+    deviceMemory: [8, 16, 32],
+  },
+  {
+    family: "windows-laptop-nvidia-4050",
+    label: "Windows laptop (NVIDIA RTX 4050)",
+    uaPlatformToken: "Windows NT 10.0; Win64; x64",
+    navigatorPlatform: "Win32",
+    secChUaPlatform: "Windows",
+    secChUaPlatformVersion: "15.0.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 4050 Laptop GPU (0x000028E1) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 3050 Laptop GPU (0x000025A2) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [6, 8, 12],
+    deviceMemory: [8, 16],
   },
   {
     family: "windows-desktop-nvidia",
@@ -200,19 +392,100 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "15.0.0",
     secChUaArch: "x86",
     secChUaBitness: "64",
-    screens: [
-      { width: 1920, height: 1080, label: "1920 × 1080 (FHD)" },
-      { width: 2560, height: 1440, label: "2560 × 1440 (QHD)" },
-      { width: 3840, height: 2160, label: "3840 × 2160 (4K)" },
-    ],
+    screens: WIN_DESKTOP_SCREENS,
     dpr: 1,
-    webgl: {
-      vendor: "Google Inc. (NVIDIA)",
-      renderer:
-        "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)",
-    },
-    hardwareConcurrency: [16, 24, 32],
+    webgl: [
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002503) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [8, 12, 16, 24, 32],
+    deviceMemory: [16, 32, 64],
+  },
+  {
+    family: "windows-desktop-nvidia-4080",
+    label: "Windows desktop (NVIDIA RTX 4080)",
+    uaPlatformToken: "Windows NT 10.0; Win64; x64",
+    navigatorPlatform: "Win32",
+    secChUaPlatform: "Windows",
+    secChUaPlatformVersion: "15.0.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: WIN_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 (0x00002704) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (NVIDIA)",
+        renderer:
+          "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [12, 16, 24, 32],
     deviceMemory: [32, 64],
+  },
+  {
+    family: "windows-desktop-amd",
+    label: "Windows desktop (AMD Radeon)",
+    uaPlatformToken: "Windows NT 10.0; Win64; x64",
+    navigatorPlatform: "Win32",
+    secChUaPlatform: "Windows",
+    secChUaPlatformVersion: "15.0.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: WIN_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      {
+        vendor: "Google Inc. (AMD)",
+        renderer:
+          "ANGLE (AMD, AMD Radeon RX 7800 XT Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (AMD)",
+        renderer:
+          "ANGLE (AMD, AMD Radeon RX 6700 XT Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [8, 12, 16],
+    deviceMemory: [16, 32],
+  },
+  {
+    family: "windows-desktop-intel",
+    label: "Windows desktop (Intel UHD/Arc)",
+    uaPlatformToken: "Windows NT 10.0; Win64; x64",
+    navigatorPlatform: "Win32",
+    secChUaPlatform: "Windows",
+    secChUaPlatformVersion: "15.0.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: WIN_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      {
+        vendor: "Google Inc. (Intel)",
+        renderer:
+          "ANGLE (Intel, Intel(R) UHD Graphics 770 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+      {
+        vendor: "Google Inc. (Intel)",
+        renderer:
+          "ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      },
+    ],
+    hardwareConcurrency: [6, 8, 12, 16],
+    deviceMemory: [8, 16, 32],
   },
   {
     family: "linux-desktop-intel",
@@ -223,19 +496,108 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "6.6.0",
     secChUaArch: "x86",
     secChUaBitness: "64",
-    screens: [
-      { width: 1920, height: 1080, label: "1920 × 1080 (FHD)" },
-      { width: 2560, height: 1440, label: "2560 × 1440 (QHD)" },
-    ],
+    screens: COMMON_DESKTOP_SCREENS,
     dpr: 1,
-    webgl: {
-      vendor: "Mesa",
-      renderer: "Mesa Intel(R) UHD Graphics 770 (RPL-S)",
-    },
-    hardwareConcurrency: [8, 16],
-    deviceMemory: [16, 32],
+    webgl: [
+      { vendor: "Mesa", renderer: "Mesa Intel(R) UHD Graphics 770 (RPL-S)" },
+      { vendor: "Mesa", renderer: "Mesa Intel(R) Graphics (ADL GT2)" },
+    ],
+    hardwareConcurrency: [4, 8, 16],
+    deviceMemory: [8, 16, 32],
+  },
+  {
+    family: "linux-desktop-amd",
+    label: "Linux desktop (AMD Radeon)",
+    uaPlatformToken: "X11; Linux x86_64",
+    navigatorPlatform: "Linux x86_64",
+    secChUaPlatform: "Linux",
+    secChUaPlatformVersion: "6.6.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      { vendor: "Mesa", renderer: "AMD Radeon RX 7800 XT (radeonsi, navi32, LLVM 17.0.6, DRM 3.57, 6.6.0)" },
+      { vendor: "Mesa", renderer: "AMD Radeon Graphics (radeonsi, renoir, LLVM 17.0.6, DRM 3.57, 6.6.0)" },
+    ],
+    hardwareConcurrency: [6, 8, 12, 16],
+    deviceMemory: [8, 16, 32],
+  },
+  {
+    family: "linux-desktop-nvidia",
+    label: "Linux desktop (NVIDIA)",
+    uaPlatformToken: "X11; Linux x86_64",
+    navigatorPlatform: "Linux x86_64",
+    secChUaPlatform: "Linux",
+    secChUaPlatformVersion: "6.6.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      { vendor: "Mesa", renderer: "NVIDIA GeForce RTX 4070/PCIe/SSE2" },
+      { vendor: "Mesa", renderer: "NV137" },
+    ],
+    hardwareConcurrency: [8, 12, 16, 24],
+    deviceMemory: [16, 32, 64],
   },
 ];
+
+/** Whitelist of screens reconcile will honor (common desktop + every device screen). */
+function buildAllowedDesktopScreens(): Set<string> {
+  const keys = new Set<string>();
+  for (const s of COMMON_DESKTOP_SCREENS) keys.add(`${s.width}x${s.height}`);
+  keys.add("3840x2160");
+  for (const d of DEVICES) {
+    for (const s of d.screens) keys.add(`${s.width}x${s.height}`);
+  }
+  return keys;
+}
+
+const ALLOWED_DESKTOP_SCREENS = buildAllowedDesktopScreens();
+
+function screenKey(s: { width: number; height: number }): string {
+  return `${s.width}x${s.height}`;
+}
+
+function isAllowedHwc(n: number, device: DeviceSpec): boolean {
+  return ALLOWED_HWC_BASE.has(n) || device.hardwareConcurrency.includes(n);
+}
+
+function isAllowedMem(n: number, device: DeviceSpec): boolean {
+  return ALLOWED_MEM_BASE.has(n) || device.deviceMemory.includes(n);
+}
+
+function webglMatches(a: WebGlPair, b: WebGlPair): boolean {
+  return a.vendor === b.vendor && a.renderer === b.renderer;
+}
+
+function resolveWebgl(
+  device: DeviceSpec,
+  preferred: WebGlPair | undefined,
+  rand?: () => number,
+): WebGlPair {
+  if (preferred && device.webgl.some((w) => webglMatches(w, preferred))) {
+    return preferred;
+  }
+  return rand ? pick(device.webgl, rand) : device.webgl[0]!;
+}
+
+/**
+ * Thrown when a caller-supplied fingerprint field is present but invalid.
+ * MCP maps this to INVALID_INPUT — profile must not be created/updated.
+ */
+export class FingerprintReconcileError extends Error {
+  readonly field: string;
+  readonly reason: string;
+
+  constructor(field: string, reason: string) {
+    super(`Invalid fingerprint.${field}: ${reason}`);
+    this.name = "FingerprintReconcileError";
+    this.field = field;
+    this.reason = reason;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Locale groups — geographically coherent locale + timezones + country.
@@ -948,8 +1310,9 @@ export function generateFingerprint(seed?: string): FingerprintConfig {
   const tz = pick(locale.timezones, rand);
   const hwc = pick(device.hardwareConcurrency, rand);
   const mem = pick(device.deviceMemory, rand);
+  const webgl = pick(device.webgl, rand);
 
-  return assemble(device, locale, screen, tz, hwc, mem);
+  return assemble(device, locale, screen, tz, hwc, mem, webgl);
 }
 
 /** Returns "mac" | "windows" | "linux" for the running Node/Electron host. */
@@ -967,7 +1330,7 @@ function deviceMatchesHost(
 ): boolean {
   // Device family naming convention in DEVICES is "<os>-<form>-<gpu>",
   // e.g. "macbook-pro-14-m3", "windows-laptop-intel", "linux-desktop-intel".
-  if (host === "mac") return d.family.startsWith("macbook") || d.family.startsWith("imac");
+  if (host === "mac") return d.family.startsWith("mac") || d.family.startsWith("imac");
   if (host === "windows") return d.family.startsWith("windows");
   return d.family.startsWith("linux");
 }
@@ -998,7 +1361,10 @@ export function reconcileDeviceFamilyToHost(
   const seed = stringHash(fp.userAgent + fp.locale);
   const device = candidates[seed % candidates.length]!;
 
-  const screen = device.screens[0]!;
+  const screen =
+    device.screens.find(
+      (s) => s.width === fp.screen.width && s.height === fp.screen.height,
+    ) ?? device.screens[0]!;
   const locale =
     LOCALES.find((l) => l.locale === fp.locale) ?? LOCALES[0]!;
   const tz = locale.timezones.includes(fp.timezone)
@@ -1010,8 +1376,10 @@ export function reconcileDeviceFamilyToHost(
   const mem = device.deviceMemory.includes(fp.deviceMemory)
     ? fp.deviceMemory
     : device.deviceMemory[0]!;
+  const webgl = resolveWebgl(device, fp.webgl);
 
-  return assemble(device, locale, screen, tz, hwc, mem);
+  const next = assemble(device, locale, screen, tz, hwc, mem, webgl);
+  return fp.seed ? { ...next, seed: fp.seed } : next;
 }
 
 function stringHash(s: string): number {
@@ -1044,39 +1412,162 @@ export function reconcileFingerprint(
     deviceMemory: number;
   }>,
 ): FingerprintConfig {
-  const device =
-    DEVICES.find((d) => d.family === (patch.device ?? current.device)) ??
-    DEVICES[0]!;
-  const locale =
-    LOCALES.find((l) => l.id === patch.localeId) ??
-    LOCALES.find((l) => l.locale === current.locale) ??
-    LOCALES[0]!;
+  const hostFamily = hostPlatformFamily();
 
-  // Screen must belong to the chosen device. If the user passed a screen
-  // that doesn't fit, fall back to the device's first screen.
-  const requestedScreen = patch.screen ?? current.screen;
-  const screen =
-    device.screens.find(
-      (s) => s.width === requestedScreen.width && s.height === requestedScreen.height,
-    ) ?? device.screens[0]!;
+  // ── Locale ──────────────────────────────────────────────────────────
+  let locale: LocaleGroup;
+  if (patch.localeId !== undefined) {
+    const found = LOCALES.find((l) => l.id === patch.localeId);
+    if (!found) {
+      throw new FingerprintReconcileError(
+        "localeId",
+        `unknown localeId '${patch.localeId}' (see list_fingerprint_options)`,
+      );
+    }
+    locale = found;
+  } else {
+    locale =
+      LOCALES.find((l) => l.locale === current.locale) ?? LOCALES[0]!;
+  }
 
-  // Timezone must belong to the locale's group.
-  const requestedTz = patch.timezone ?? current.timezone;
-  const tz = locale.timezones.includes(requestedTz)
-    ? requestedTz
-    : locale.timezones[0]!;
+  // ── Device ──────────────────────────────────────────────────────────
+  let device: DeviceSpec;
+  if (patch.device !== undefined) {
+    const found = DEVICES.find((d) => d.family === patch.device);
+    if (!found) {
+      throw new FingerprintReconcileError(
+        "device",
+        `unknown device family '${patch.device}'`,
+      );
+    }
+    device = found;
+  } else {
+    device =
+      DEVICES.find((d) => d.family === current.device) ??
+      DEVICES.find((d) => deviceMatchesHost(d, hostFamily)) ??
+      DEVICES[0]!;
+  }
 
-  const hwc = patch.hardwareConcurrency ?? current.hardwareConcurrency;
-  const validHwc = device.hardwareConcurrency.includes(hwc)
-    ? hwc
-    : device.hardwareConcurrency[0]!;
+  // ── Screen ──────────────────────────────────────────────────────────
+  let screen: { width: number; height: number };
+  if (patch.screen !== undefined) {
+    const key = screenKey(patch.screen);
+    if (!ALLOWED_DESKTOP_SCREENS.has(key)) {
+      throw new FingerprintReconcileError(
+        "screen",
+        `${patch.screen.width}x${patch.screen.height} is not an allowed desktop size`,
+      );
+    }
+    screen = { width: patch.screen.width, height: patch.screen.height };
+    // Ensure a host-compatible desktop device that owns this screen.
+    const ownsScreen = (d: DeviceSpec) =>
+      d.screens.some((s) => s.width === screen.width && s.height === screen.height);
+    if (!ownsScreen(device)) {
+      const hostCandidates = DEVICES.filter(
+        (d) => deviceMatchesHost(d, hostFamily) && ownsScreen(d),
+      );
+      const anyCandidates = DEVICES.filter(ownsScreen);
+      const next =
+        hostCandidates[0] ??
+        anyCandidates[0] ??
+        null;
+      if (!next) {
+        throw new FingerprintReconcileError(
+          "screen",
+          `${key} accepted but no device can own that screen`,
+        );
+      }
+      // Only auto-switch device when caller did not pin device.
+      if (patch.device === undefined) {
+        device = next;
+      } else {
+        throw new FingerprintReconcileError(
+          "screen",
+          `${key} is not valid for device '${device.family}'`,
+        );
+      }
+    }
+  } else {
+    const requested = current.screen;
+    screen =
+      device.screens.find(
+        (s) => s.width === requested.width && s.height === requested.height,
+      ) ?? device.screens[0]!;
+  }
 
-  const mem = patch.deviceMemory ?? current.deviceMemory;
-  const validMem = device.deviceMemory.includes(mem)
-    ? mem
-    : device.deviceMemory[0]!;
+  // Desktop screen ⇒ desktop UA (all our devices are desktop; assert width).
+  if (screen.width >= 1280) {
+    const mobileUa =
+      /iPhone|Android|Mobile/i.test(device.uaPlatformToken) ||
+      device.navigatorPlatform === ("iPhone" as never);
+    if (mobileUa) {
+      throw new FingerprintReconcileError(
+        "screen",
+        `desktop screen ${screenKey(screen)} is incoherent with mobile device`,
+      );
+    }
+  }
 
-  return assemble(device, locale, screen, tz, validHwc, validMem);
+  // ── Timezone ────────────────────────────────────────────────────────
+  let timezone: string;
+  if (patch.timezone !== undefined) {
+    if (!locale.timezones.includes(patch.timezone)) {
+      throw new FingerprintReconcileError(
+        "timezone",
+        `'${patch.timezone}' is not valid for locale '${locale.id}' (allowed: ${locale.timezones.join(", ")})`,
+      );
+    }
+    timezone = patch.timezone;
+  } else {
+    timezone = locale.timezones.includes(current.timezone)
+      ? current.timezone
+      : locale.timezones[0]!;
+  }
+
+  // ── CPU / RAM ───────────────────────────────────────────────────────
+  let hardwareConcurrency: number;
+  if (patch.hardwareConcurrency !== undefined) {
+    if (!isAllowedHwc(patch.hardwareConcurrency, device)) {
+      throw new FingerprintReconcileError(
+        "hardwareConcurrency",
+        `${patch.hardwareConcurrency} is not an allowed value`,
+      );
+    }
+    hardwareConcurrency = patch.hardwareConcurrency;
+  } else {
+    hardwareConcurrency = device.hardwareConcurrency.includes(
+      current.hardwareConcurrency,
+    )
+      ? current.hardwareConcurrency
+      : device.hardwareConcurrency[0]!;
+  }
+
+  let deviceMemory: number;
+  if (patch.deviceMemory !== undefined) {
+    if (!isAllowedMem(patch.deviceMemory, device)) {
+      throw new FingerprintReconcileError(
+        "deviceMemory",
+        `${patch.deviceMemory} is not an allowed value`,
+      );
+    }
+    deviceMemory = patch.deviceMemory;
+  } else {
+    deviceMemory = device.deviceMemory.includes(current.deviceMemory)
+      ? current.deviceMemory
+      : device.deviceMemory[0]!;
+  }
+
+  const webgl = resolveWebgl(device, current.webgl);
+  const next = assemble(
+    device,
+    locale,
+    screen,
+    timezone,
+    hardwareConcurrency,
+    deviceMemory,
+    webgl,
+  );
+  return current.seed ? { ...next, seed: current.seed } : next;
 }
 
 function assemble(
@@ -1086,6 +1577,7 @@ function assemble(
   timezone: string,
   hardwareConcurrency: number,
   deviceMemory: number,
+  webgl: WebGlPair,
 ): FingerprintConfig {
   const userAgent = buildUserAgent(device);
   const clientHints = buildClientHints(device);
@@ -1104,7 +1596,7 @@ function assemble(
     screen: { width: screen.width, height: screen.height },
     availScreen: defaultAvail(screen, device.navigatorPlatform),
     dpr: device.dpr,
-    webgl: device.webgl,
+    webgl: { vendor: webgl.vendor, renderer: webgl.renderer },
     hardwareConcurrency,
     deviceMemory,
   };

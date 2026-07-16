@@ -3,6 +3,7 @@ export {
   defaultFingerprint,
   generateFingerprint,
   reconcileFingerprint,
+  FingerprintReconcileError,
   reconcileDeviceFamilyToHost,
   hostPlatformFamily,
   deviceCatalog,

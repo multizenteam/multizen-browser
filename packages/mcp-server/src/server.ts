@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { ProfileManager } from "@multizen/profile-manager";
 import {
   reconcileFingerprint,
+  FingerprintReconcileError,
   generateFingerprint,
   deviceCatalog,
   localeCatalog,
@@ -117,11 +118,21 @@ const DEVICE_FAMILIES = [
   "macbook-pro-14-m3-pro",
   "macbook-pro-16-m3-pro",
   "macbook-air-13-m3",
+  "macbook-air-15-m3",
   "imac-24-m3",
+  "mac-mini-m2",
   "windows-laptop-intel",
+  "windows-laptop-intel-uhd",
+  "windows-laptop-amd",
   "windows-laptop-nvidia",
+  "windows-laptop-nvidia-4050",
   "windows-desktop-nvidia",
+  "windows-desktop-nvidia-4080",
+  "windows-desktop-amd",
+  "windows-desktop-intel",
   "linux-desktop-intel",
+  "linux-desktop-amd",
+  "linux-desktop-nvidia",
 ] as const;
 
 const ProxySchema = z.object({
@@ -152,6 +163,8 @@ const FingerprintInputSchema = z
       .optional(),
     hardwareConcurrency: z.number().int().positive().optional(),
     deviceMemory: z.number().positive().optional(),
+    /** Entropy seed for deterministic device/WebGL + CloakBrowser noise. */
+    seed: z.string().min(1).optional(),
   })
   .strict();
 
@@ -161,6 +174,10 @@ const CreateProfileSchema = z.object({
   tags: z.array(z.string()).optional(),
   proxy: ProxySchema.optional(),
   fingerprint: FingerprintInputSchema.optional(),
+  /** Top-level seed wins over fingerprint.seed when both are set. */
+  seed: z.string().min(1).optional(),
+  /** Alias for seed (same semantics). */
+  entropy: z.string().min(1).optional(),
 });
 
 const UpdateProfileSchema = ProfileIdSchema.extend({
@@ -225,7 +242,10 @@ export function createMultizenMcpServer(opts: MultizenMcpServerOptions): Multize
       return ok(result);
     } catch (e) {
       const message = e instanceof z.ZodError ? e.message : e instanceof Error ? e.message : String(e);
-      const code = e instanceof z.ZodError ? "INVALID_INPUT" : "INTERNAL_ERROR";
+      const code =
+        e instanceof z.ZodError || e instanceof FingerprintReconcileError
+          ? "INVALID_INPUT"
+          : "INTERNAL_ERROR";
       activityLog.finish(event, "error", message, startedAt);
       return err(code, message);
     }
@@ -261,13 +281,17 @@ async function dispatch(
         tags: input.tags,
         proxy: input.proxy,
       };
-      if (input.fingerprint) {
-        // Seed from a fresh coherent fingerprint, then apply the caller's
-        // high-level knobs so the result stays internally consistent.
-        createInput.fingerprint = reconcileFingerprint(
-          generateFingerprint(),
-          input.fingerprint,
-        );
+      const seed =
+        input.seed ?? input.entropy ?? input.fingerprint?.seed;
+      if (input.fingerprint || seed) {
+        // Optional seed drives generateFingerprint + CloakBrowser noise.
+        // Top-level seed/entropy wins over fingerprint.seed.
+        const { seed: _fpSeed, ...fingerprintPatch } = input.fingerprint ?? {};
+        void _fpSeed;
+        createInput.fingerprint = {
+          ...reconcileFingerprint(generateFingerprint(seed), fingerprintPatch),
+          ...(seed ? { seed } : {}),
+        };
       }
       const created = profileManager.create(createInput);
       return {
@@ -289,7 +313,12 @@ async function dispatch(
       // `proxy: null` clears it, `proxy: {…}` sets it, omitted leaves as-is.
       if (input.proxy !== undefined) patch.proxy = input.proxy;
       if (input.fingerprint !== undefined) {
-        patch.fingerprint = reconcileFingerprint(existing.fingerprint, input.fingerprint);
+        const { seed: patchSeed, ...fingerprintPatch } = input.fingerprint;
+        const reconciled = reconcileFingerprint(existing.fingerprint, fingerprintPatch);
+        patch.fingerprint = {
+          ...reconciled,
+          seed: patchSeed ?? existing.fingerprint.seed,
+        };
       }
 
       const updated = profileManager.update(input.profile_id, patch);
@@ -501,7 +530,7 @@ const PROXY_JSON_SCHEMA = {
 const FINGERPRINT_JSON_SCHEMA = {
   type: "object",
   description:
-    "High-level fingerprint dimensions. The server derives a coherent UA / Client-Hints / WebGL / locale story from these — raw surfaces cannot be set individually. All fields optional; omitted ones keep their current/coherent value.",
+    "High-level fingerprint dimensions. The server derives a coherent UA / Client-Hints / WebGL / locale story from these — raw surfaces cannot be set individually. All fields optional; omitted ones keep their current/coherent value. Invalid localeId/timezone/screen/hwc/mem reject the request (INVALID_INPUT).",
   properties: {
     device: {
       type: "string",
@@ -510,11 +539,13 @@ const FINGERPRINT_JSON_SCHEMA = {
     },
     localeId: {
       type: "string",
-      description: "Locale group id, e.g. 'en-US', 'de-DE' (see list_fingerprint_options).",
+      description:
+        "Locale group id, e.g. 'en-US', 'en-PK', 'bn-BD' (see list_fingerprint_options). Unknown ids reject the request.",
     },
     timezone: {
       type: "string",
-      description: "IANA timezone; must belong to the chosen locale, else snapped to a valid one.",
+      description:
+        "IANA timezone; must belong to the chosen locale's timezones list or the request fails.",
     },
     screen: {
       type: "object",
@@ -523,9 +554,25 @@ const FINGERPRINT_JSON_SCHEMA = {
         width: { type: "integer", minimum: 1 },
         height: { type: "integer", minimum: 1 },
       },
+      description:
+        "Desktop logical size (e.g. 1920x1080). Must be an allowed desktop size or the request fails.",
     },
-    hardwareConcurrency: { type: "integer", minimum: 1 },
-    deviceMemory: { type: "number", minimum: 1 },
+    hardwareConcurrency: {
+      type: "integer",
+      minimum: 1,
+      description: "Typical values: 4, 6, 8, 12, 16 (plus device-native extras).",
+    },
+    deviceMemory: {
+      type: "number",
+      minimum: 1,
+      description: "Typical values: 4, 8, 16 (plus device-native extras).",
+    },
+    seed: {
+      type: "string",
+      minLength: 1,
+      description:
+        "Entropy seed for deterministic device/WebGL selection and CloakBrowser canvas/audio noise. Same seed → same noise; different seed → different noise.",
+    },
   },
 } as const;
 
@@ -539,7 +586,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "create_profile",
     description:
-      "Create a new browser profile. Only `name` is required; a coherent default fingerprint is generated. Optionally pass a `proxy` and/or high-level `fingerprint` knobs to set them at creation time. Call list_fingerprint_options for valid device families and locale ids.",
+      "Create a new browser profile. Only `name` is required; a coherent default fingerprint is generated. Optionally pass a `proxy` and/or high-level `fingerprint` knobs. Optional top-level `seed` / `entropy` (or `fingerprint.seed`) makes device/WebGL + CloakBrowser noise deterministic — same seed + knobs → same device/WebGL; different seed → different device/noise with high probability. Top-level seed wins over fingerprint.seed. Unknown localeId or invalid timezone/screen/hwc/mem → INVALID_INPUT (profile not created). Call list_fingerprint_options for valid device families and locale ids.",
     inputSchema: {
       type: "object",
       required: ["name"],
@@ -549,6 +596,17 @@ const TOOL_DEFINITIONS = [
         tags: { type: "array", items: { type: "string" } },
         proxy: PROXY_JSON_SCHEMA,
         fingerprint: FINGERPRINT_JSON_SCHEMA,
+        seed: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Entropy seed (wins over fingerprint.seed). Drives generateFingerprint + CloakBrowser --fingerprint noise.",
+        },
+        entropy: {
+          type: "string",
+          minLength: 1,
+          description: "Alias for seed.",
+        },
       },
     },
   },
