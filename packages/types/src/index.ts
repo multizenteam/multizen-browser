@@ -14,11 +14,21 @@ export type DeviceFamily =
   | "macbook-pro-14-m3-pro"
   | "macbook-pro-16-m3-pro"
   | "macbook-air-13-m3"
+  | "macbook-air-15-m3"
   | "imac-24-m3"
+  | "mac-mini-m2"
   | "windows-laptop-intel"
+  | "windows-laptop-intel-uhd"
+  | "windows-laptop-amd"
   | "windows-laptop-nvidia"
+  | "windows-laptop-nvidia-4050"
   | "windows-desktop-nvidia"
-  | "linux-desktop-intel";
+  | "windows-desktop-nvidia-4080"
+  | "windows-desktop-amd"
+  | "windows-desktop-intel"
+  | "linux-desktop-intel"
+  | "linux-desktop-amd"
+  | "linux-desktop-nvidia";
 
 /**
  * Sec-CH-UA Client Hints — what every modern Chromium send as headers AND
@@ -93,6 +103,13 @@ export interface FingerprintConfig {
   // ── CPU / RAM ────────────────────────────────────────────────────
   hardwareConcurrency: number;
   deviceMemory: number;
+
+  /**
+   * Optional entropy seed. When set, drives deterministic generateFingerprint
+   * choices and CloakBrowser `--fingerprint=` noise (canvas/audio/WebGL readback).
+   * Same seed → same noise; different seed → different noise.
+   */
+  seed?: string;
 }
 
 /**

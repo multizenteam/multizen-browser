@@ -976,7 +976,7 @@ function buildFingerprintPreloadScript(
 
 function buildCloakBrowserFingerprintArgs(profileId: ProfileId, fp: FingerprintConfig): string[] {
   const args = [
-    `--fingerprint=${fingerprintSeed(profileId)}`,
+    `--fingerprint=${fingerprintSeed(profileId, fp)}`,
     `--fingerprint-platform=${cloakBrowserPlatform(fp)}`,
     `--fingerprint-locale=${fp.locale}`,
     `--fingerprint-timezone=${fp.timezone}`,
@@ -1017,10 +1017,12 @@ function primaryBrandVersion(ch: ClientHints | undefined): string | null {
   return null;
 }
 
-function fingerprintSeed(profileId: ProfileId): string {
-  // CloakBrowser accepts a stable seed. Keep it numeric and deterministic
-  // so a MultiZen profile keeps the same native fingerprint across launches.
-  const hex = createHash("sha256").update(profileId).digest("hex").slice(0, 8);
+function fingerprintSeed(profileId: ProfileId, fp: FingerprintConfig): string {
+  // CloakBrowser accepts a stable seed. Prefer an explicit fingerprint.seed
+  // (P0-3 / P1-7) so canvas/audio noise can be rotated without changing
+  // profileId; otherwise key by profileId for launch-stable noise.
+  const material = fp.seed ?? profileId;
+  const hex = createHash("sha256").update(material).digest("hex").slice(0, 8);
   return String(10000 + (Number.parseInt(hex, 16) % 90000));
 }
 
@@ -1028,7 +1030,7 @@ function cloakBrowserPlatform(fp: FingerprintConfig): "macos" | "windows" | "lin
   // Derive from the user's chosen device family — CloakBrowser's native
   // C++ patches handle the rest of the cross-platform spoof. Falls back
   // to the host OS if device is somehow unset.
-  if (fp.device.startsWith("macbook") || fp.device.startsWith("imac")) return "macos";
+  if (fp.device.startsWith("mac") || fp.device.startsWith("imac")) return "macos";
   if (fp.device.startsWith("windows")) return "windows";
   if (fp.device.startsWith("linux")) return "linux";
   if (process.platform === "darwin") return "macos";

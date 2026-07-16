@@ -5,7 +5,7 @@ export type PlatformKind = "macos" | "windows" | "linux";
 /** Map a device family id to the platform it represents. */
 export function platformFromDeviceFamily(device?: string): PlatformKind {
   if (!device) return "linux";
-  if (device.startsWith("macbook") || device.startsWith("imac")) return "macos";
+  if (device.startsWith("mac") || device.startsWith("imac")) return "macos";
   if (device.startsWith("windows")) return "windows";
   return "linux";
 }
