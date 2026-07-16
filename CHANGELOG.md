@@ -5,6 +5,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-17
+
+### Added
+
+- **Higher fingerprint entropy and OS/device coherence** so profiles drawn from
+  the pool look more like real hardware combinations and are harder to correlate
+  across accounts.
+- Optional **fingerprint seed** for canvas/audio (and related) noise - rotate
+  spoofed noise without changing the profile id or recreating the profile.
+- Fingerprint entropy verification helpers under `profile-manager` for
+  checking pool uniqueness and coherence.
+
+### Changed
+
+- Mac device families are recognized more broadly (`mac*` / `imac`) for
+  platform icons and CloakBrowser native platform args.
+- MCP profile create/update surfaces accept the expanded fingerprint fields
+  (including seed) so automation stays in sync with the desktop app.
+
 ## [0.5.0] - 2026-07-07
 
 Synced with upstream `multizenteam/multizen-browser` v0.2.12, bringing its
@@ -222,6 +241,7 @@ feature set into the extended fork while keeping the fork's MCP/CDP tooling.
   per-profile SOCKS5 bridge with persona alignment, and the activity log.
 - GitHub Actions release workflow with stable, version-less download URLs.
 
+[0.6.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.3.1...v0.4.0
