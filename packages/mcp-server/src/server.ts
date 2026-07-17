@@ -215,6 +215,8 @@ async function dispatch(
     case "list_profiles": {
       const profiles = profileManager.list().map((p) => ({
         ...p,
+        // Never echo proxy credentials to the agent — redact the summary's proxy.
+        proxy: redactedProxy(p.proxy),
         isRunning: browserDriver.isRunning(p.id),
       }));
       return { profiles };

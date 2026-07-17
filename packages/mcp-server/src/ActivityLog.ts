@@ -73,12 +73,22 @@ export class ActivityLog extends EventEmitter {
 }
 
 function sanitize(args: Record<string, unknown>): Record<string, unknown> {
-  // For now we don't have any obviously secret fields in tool args.
-  // When `type` is added with passwords, redact here.
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args)) {
     if (k === "text" && typeof v === "string" && v.length > 80) {
       out[k] = `${v.slice(0, 60)}…[${v.length} chars]`;
+    } else if (k === "proxy" && v && typeof v === "object") {
+      // create_profile / update_profile args carry proxy username/password in
+      // cleartext. NEVER log them — the activity feed is rendered in the desktop
+      // UI and can be piped to an audit file. Keep only the non-secret shape.
+      const p = v as {
+        type?: unknown;
+        host?: unknown;
+        port?: unknown;
+        username?: unknown;
+        password?: unknown;
+      };
+      out[k] = { type: p.type, host: p.host, port: p.port, hasAuth: Boolean(p.username || p.password) };
     } else {
       out[k] = v;
     }
