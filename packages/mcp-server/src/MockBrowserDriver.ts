@@ -74,4 +74,24 @@ export class MockBrowserDriver implements BrowserDriver {
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
     };
   }
+
+  async cdpSend(
+    profileId: ProfileId,
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+    opts?: { safe?: boolean },
+  ): Promise<unknown> {
+    const r = this.running.get(profileId);
+    if (!r) throw new Error("not running");
+    // Echo the request back so MCP clients can exercise the CDP tool surfaces
+    // end-to-end against the mock without a real browser.
+    return {
+      mock: true,
+      method,
+      params: params ?? {},
+      sessionId: sessionId ?? null,
+      safe: opts?.safe ?? true,
+    };
+  }
 }

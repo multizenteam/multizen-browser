@@ -762,6 +762,17 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     return session.screenshot();
   }
 
+  async cdpSend(
+    profileId: ProfileId,
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+    opts?: { safe?: boolean },
+  ): Promise<unknown> {
+    const session = this.requireSession(profileId);
+    return session.cdpSend(method, params, sessionId, opts);
+  }
+
   async closeAll(): Promise<void> {
     const ids = [...this.running.keys()];
     await Promise.all(ids.map((id) => this.close(id)));

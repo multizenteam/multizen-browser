@@ -37,6 +37,18 @@ export interface BrowserDriver {
   type(profileId: ProfileId, selector: string, text: string): Promise<{ ok: true }>;
   extract(profileId: ProfileId): Promise<{ result: unknown }>;
   screenshot(profileId: ProfileId): Promise<{ pngBase64: string }>;
+  /**
+   * Send a raw CDP command. `opts.safe` (default true) auto-disables any
+   * domain the call had to enable so the stealth baseline is preserved; the
+   * convenience CDP tools compose on top of this single primitive.
+   */
+  cdpSend(
+    profileId: ProfileId,
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+    opts?: { safe?: boolean },
+  ): Promise<unknown>;
 }
 
 export interface MultizenMcpServerOptions {
