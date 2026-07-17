@@ -285,10 +285,13 @@ for (const name of ["wait_for_navigation", "wait_for_load"] as const) {
 for (const method of [
   "IO.read",
   "Storage.getCookies",
+  "Network.getAllCookies", // Network-domain alias of the bulk cookie dump — must also be denied
   "DOMStorage.getDOMStorageItems",
   "IndexedDB.requestData",
   "Browser.close",
   "Storage.clearCookies",
+  "Network.clearBrowserCookies", // Network-domain destructive alias
+  "Network.deleteCookies",
   "Page.getResourceContent",
   "Fetch.enable",
   "Fetch.requestPaused",

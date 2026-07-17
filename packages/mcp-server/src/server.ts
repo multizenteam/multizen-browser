@@ -122,15 +122,21 @@ const CDP_DENY_METHODS = new Set([
   "Page.setDownloadBehavior",
   "Browser.setDownloadBehavior",
   // cross-origin BROWSER-SECRET exfil (reachable only via raw CDP, not from
-  // evaluate_js due to same-origin policy):
+  // evaluate_js due to same-origin policy). NOTE the same capability exists in
+  // BOTH the Storage and Network domains — deny every spelling, exact-match:
   "Storage.getCookies", // ALL cookies incl httpOnly, every origin
+  "Network.getAllCookies", // the classic bulk cookie dumper (Storage.getCookies' predecessor)
   "DOMStorage.getDOMStorageItems", // any origin's localStorage without navigating
   "IndexedDB.requestData", // any origin's IndexedDB
   "CacheStorage.requestEntries",
   "CacheStorage.requestCachedResponse",
-  // destructive-without-a-tool (a prompt-injected agent could wipe/quit):
+  // destructive-without-a-tool (a prompt-injected agent could wipe/quit) —
+  // again both domain spellings:
   "Storage.clearDataForOrigin",
   "Storage.clearCookies",
+  "Network.clearBrowserCookies",
+  "Network.deleteCookies",
+  "Network.clearBrowserCache",
   "Browser.close",
 ]);
 
