@@ -609,6 +609,8 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
               calendar: Intl.DateTimeFormat().resolvedOptions().calendar,
               lang: navigator.language,
               langs: navigator.languages,
+              deviceMemory: navigator.deviceMemory,
+              hardwareConcurrency: navigator.hardwareConcurrency,
               hasRTCPC: typeof window.RTCPeerConnection !== "undefined",
             })`,
             returnByValue: true,
@@ -864,7 +866,7 @@ function buildFingerprintPreloadScript(
   const INCLUDE_WEBGL = ${JSON.stringify(includeWebGl)};
   const PLATFORM = ${JSON.stringify(fp.platform)};
   const HW_CONCURRENCY = ${fp.hardwareConcurrency};
-  const DEVICE_MEMORY = ${fp.deviceMemory};
+  const DEVICE_MEMORY = ${deviceMemoryApiValue(fp.deviceMemory)};
   const GPU_VENDOR = ${JSON.stringify(fp.webgl.vendor)};
   const GPU_RENDERER = ${JSON.stringify(fp.webgl.renderer)};
   const SCREEN_W = ${fp.screen.width};
@@ -982,7 +984,7 @@ function buildCloakBrowserFingerprintArgs(profileId: ProfileId, fp: FingerprintC
     `--fingerprint-screen-width=${fp.screen.width}`,
     `--fingerprint-screen-height=${fp.screen.height}`,
     `--fingerprint-hardware-concurrency=${fp.hardwareConcurrency}`,
-    `--fingerprint-device-memory=${fp.deviceMemory}`,
+    `--fingerprint-device-memory=${deviceMemoryApiValue(fp.deviceMemory)}`,
   ];
   // Explicitly set WebGL vendor/renderer instead of relying on seed-derived
   // auto-generation. Browserscan flags "WebGL exception" when CloakBrowser's
@@ -1014,6 +1016,21 @@ function primaryBrandVersion(ch: ClientHints | undefined): string | null {
     if (!/Chromium|Not[.\s/]?A[.\s/]?Brand/i.test(brand)) return version;
   }
   return null;
+}
+
+/**
+ * The value a real browser reports for `navigator.deviceMemory` / the
+ * `Sec-CH-Device-Memory` hint: physical RAM rounded to the NEAREST power of two
+ * and CAPPED AT 8 — the Device Memory API's spec upper bound. Chrome computes
+ * `2 ** round(log2(gb))` clamped to [0.25, 8] (Blink's `floor(log2+0.5)`), so it
+ * never exposes a value above 8; emitting a persona's raw physical RAM
+ * (16/18/32/64 GB) would be an instant, impossible-value bot tell. The
+ * fingerprint keeps the physical value for the UI and persona coherence; only
+ * the web-facing surfaces get this quantized value.
+ */
+function deviceMemoryApiValue(physicalGb: number): number {
+  if (!(physicalGb > 0)) return 8;
+  return Math.min(8, 2 ** Math.round(Math.log2(physicalGb)));
 }
 
 function fingerprintSeed(profileId: ProfileId, fp: FingerprintConfig): string {
