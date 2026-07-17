@@ -5,7 +5,21 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ProfileManager } from "@multizen/profile-manager";
-import type { LaunchedProfile, ProfileId } from "@multizen/types";
+import {
+  generateFingerprint,
+  reconcileFingerprint,
+  FingerprintReconcileError,
+  deviceCatalog,
+  localeCatalog,
+} from "@multizen/profile-manager";
+import type {
+  LaunchedProfile,
+  ProfileId,
+  CreateProfileInput,
+  UpdateProfileInput,
+  FingerprintConfig,
+  ProxyConfig,
+} from "@multizen/types";
 import { ActivityLog } from "./ActivityLog.js";
 
 /**
@@ -45,10 +59,80 @@ const TypeSchema = ProfileIdSchema.extend({
   text: z.string(),
 });
 const ExtractSchema = ProfileIdSchema;
+/** Real device families a fingerprint can impersonate. MUST stay in lockstep
+ *  with the `DeviceFamily` union in @multizen/types (and the DEVICES catalog);
+ *  call `list_fingerprint_options` for the human-readable catalog. */
+const DEVICE_FAMILIES = [
+  "macbook-pro-14-m3",
+  "macbook-pro-14-m3-pro",
+  "macbook-pro-16-m3-pro",
+  "macbook-air-13-m3",
+  "macbook-air-15-m3",
+  "imac-24-m3",
+  "mac-mini-m2",
+  "windows-laptop-intel",
+  "windows-laptop-intel-uhd",
+  "windows-laptop-amd",
+  "windows-laptop-nvidia",
+  "windows-laptop-nvidia-4050",
+  "windows-desktop-nvidia",
+  "windows-desktop-nvidia-4080",
+  "windows-desktop-amd",
+  "windows-desktop-intel",
+  "linux-desktop-intel",
+  "linux-desktop-amd",
+  "linux-desktop-nvidia",
+] as const;
+
+const ProxySchema = z.object({
+  type: z.enum(["http", "socks5"]),
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  username: z.string().optional(),
+  password: z.string().optional(),
+});
+
+/**
+ * User-facing fingerprint knobs. We deliberately do NOT accept the raw
+ * `FingerprintConfig` (userAgent, clientHints, webgl, …): those surfaces must
+ * stay mutually coherent or detection vendors flag the mismatch. Instead the
+ * caller picks high-level dimensions and `reconcileFingerprint` derives a
+ * coherent config — throwing FingerprintReconcileError (→ INVALID_INPUT) on an
+ * incoherent combination rather than silently substituting a default.
+ */
+const FingerprintInputSchema = z
+  .object({
+    device: z.enum(DEVICE_FAMILIES).optional(),
+    localeId: z.string().min(1).optional(),
+    timezone: z.string().min(1).optional(),
+    screen: z
+      .object({
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+      })
+      .optional(),
+    hardwareConcurrency: z.number().int().positive().optional(),
+    deviceMemory: z.number().positive().optional(),
+  })
+  .strict();
+
 const CreateProfileSchema = z.object({
   name: z.string().min(1),
   notes: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  proxy: ProxySchema.optional(),
+  fingerprint: FingerprintInputSchema.optional(),
+  // Optional entropy seed; rotates CloakBrowser canvas/audio/WebGL noise.
+  seed: z.string().min(1).optional(),
+});
+
+const UpdateProfileSchema = ProfileIdSchema.extend({
+  name: z.string().min(1).optional(),
+  notes: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  // `null` clears the proxy; omitted leaves it untouched.
+  proxy: ProxySchema.nullable().optional(),
+  fingerprint: FingerprintInputSchema.optional(),
 });
 
 /**
@@ -104,7 +188,10 @@ export function createMultizenMcpServer(opts: MultizenMcpServerOptions): Multize
       return ok(result);
     } catch (e) {
       const message = e instanceof z.ZodError ? e.message : e instanceof Error ? e.message : String(e);
-      const code = e instanceof z.ZodError ? "INVALID_INPUT" : "INTERNAL_ERROR";
+      const code =
+        e instanceof z.ZodError || e instanceof FingerprintReconcileError
+          ? "INVALID_INPUT"
+          : "INTERNAL_ERROR";
       activityLog.finish(event, "error", message, startedAt);
       return err(code, message);
     }
@@ -134,8 +221,67 @@ async function dispatch(
     }
     case "create_profile": {
       const input = CreateProfileSchema.parse(args);
-      const created = profileManager.create(input);
-      return { id: created.id, name: created.name };
+      const createInput: CreateProfileInput = {
+        name: input.name,
+        notes: input.notes,
+        tags: input.tags,
+        proxy: input.proxy,
+      };
+      const seed = input.seed;
+      // Build a fingerprint when the caller passes knobs OR a seed. Seed from a
+      // fresh coherent fingerprint, apply the high-level knobs (throws on an
+      // incoherent combination → INVALID_INPUT), then persist the seed.
+      if (input.fingerprint || seed) {
+        const reconciled = reconcileFingerprint(generateFingerprint(seed), input.fingerprint ?? {});
+        createInput.fingerprint = seed ? { ...reconciled, seed } : reconciled;
+      }
+      const created = profileManager.create(createInput);
+      return {
+        id: created.id,
+        name: created.name,
+        proxy: redactedProxy(created.proxy),
+        fingerprint: fingerprintSummary(created.fingerprint),
+      };
+    }
+    case "update_profile": {
+      const input = UpdateProfileSchema.parse(args);
+      const existing = profileManager.get(input.profile_id);
+      if (!existing) throw new Error(`Profile ${input.profile_id} not found`);
+
+      const patch: UpdateProfileInput = {};
+      if (input.name !== undefined) patch.name = input.name;
+      if (input.notes !== undefined) patch.notes = input.notes;
+      if (input.tags !== undefined) patch.tags = input.tags;
+      // `proxy: null` clears it, `proxy: {…}` sets it, omitted leaves as-is.
+      if (input.proxy !== undefined) patch.proxy = input.proxy;
+      if (input.fingerprint !== undefined) {
+        patch.fingerprint = reconcileFingerprint(existing.fingerprint, input.fingerprint);
+      }
+
+      const updated = profileManager.update(input.profile_id, patch);
+      return {
+        id: updated.id,
+        name: updated.name,
+        tags: updated.tags,
+        proxy: redactedProxy(updated.proxy),
+        fingerprint: fingerprintSummary(updated.fingerprint),
+        // Surface the caveat: a live browser keeps the old proxy/fingerprint.
+        appliesOnNextLaunch: browserDriver.isRunning(input.profile_id),
+      };
+    }
+    case "delete_profile": {
+      const { profile_id } = ProfileIdSchema.parse(args);
+      assertProfileExists(profileManager, profile_id);
+      // Close first so Chromium releases the data dir before we remove it
+      // (on Windows a live handle would otherwise block the rmSync).
+      if (browserDriver.isRunning(profile_id)) {
+        await browserDriver.close(profile_id);
+      }
+      profileManager.delete(profile_id);
+      return { deleted: profile_id };
+    }
+    case "list_fingerprint_options": {
+      return { devices: deviceCatalog(), locales: localeCatalog() };
     }
     case "launch_profile": {
       const { profile_id } = ProfileIdSchema.parse(args);
@@ -180,6 +326,50 @@ async function dispatch(
   }
 }
 
+const PROXY_JSON_SCHEMA = {
+  type: "object",
+  description: "Per-profile proxy. DNS is resolved remotely via a local SOCKS5 bridge.",
+  required: ["type", "host", "port"],
+  properties: {
+    type: { type: "string", enum: ["http", "socks5"] },
+    host: { type: "string" },
+    port: { type: "integer", minimum: 1, maximum: 65535 },
+    username: { type: "string" },
+    password: { type: "string" },
+  },
+} as const;
+
+const FINGERPRINT_JSON_SCHEMA = {
+  type: "object",
+  description:
+    "High-level fingerprint dimensions. The server derives a coherent UA / Client-Hints / WebGL / locale story from these — raw surfaces cannot be set individually. All fields optional; an incoherent combination is rejected (INVALID_INPUT).",
+  properties: {
+    device: {
+      type: "string",
+      enum: [...DEVICE_FAMILIES],
+      description: "Device family to impersonate (see list_fingerprint_options).",
+    },
+    localeId: {
+      type: "string",
+      description: "Locale group id, e.g. 'en-US', 'de-DE' (see list_fingerprint_options).",
+    },
+    timezone: {
+      type: "string",
+      description: "IANA timezone; must belong to the chosen locale.",
+    },
+    screen: {
+      type: "object",
+      required: ["width", "height"],
+      properties: {
+        width: { type: "integer", minimum: 1 },
+        height: { type: "integer", minimum: 1 },
+      },
+    },
+    hardwareConcurrency: { type: "integer", minimum: 1 },
+    deviceMemory: { type: "number", minimum: 1 },
+  },
+} as const;
+
 const TOOL_DEFINITIONS = [
   {
     name: "list_profiles",
@@ -189,7 +379,8 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: "create_profile",
-    description: "Create a new browser profile with sensible default fingerprint.",
+    description:
+      "Create a new browser profile. Only `name` is required; a coherent default fingerprint is generated. Optionally pass a `proxy`, high-level `fingerprint` knobs, and/or a `seed` (rotates canvas/audio/WebGL noise). Call list_fingerprint_options for valid device families and locale ids.",
     inputSchema: {
       type: "object",
       required: ["name"],
@@ -197,6 +388,9 @@ const TOOL_DEFINITIONS = [
         name: { type: "string", description: "Human-readable name" },
         notes: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
+        proxy: PROXY_JSON_SCHEMA,
+        fingerprint: FINGERPRINT_JSON_SCHEMA,
+        seed: { type: "string", description: "Optional entropy seed for the native fingerprint noise." },
       },
     },
   },
@@ -281,7 +475,78 @@ const TOOL_DEFINITIONS = [
       properties: { profile_id: { type: "string" } },
     },
   },
+  {
+    name: "update_profile",
+    description:
+      "Update an existing profile's name, notes, tags, proxy, and/or fingerprint. Every field is optional — only the ones you pass change. Set `proxy` to null to remove it. Fingerprint changes are reconciled for coherence. If the profile is running, changes apply on the next launch (response includes appliesOnNextLaunch). Proxy credentials are never echoed back.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        name: { type: "string" },
+        notes: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        proxy: {
+          description: "Proxy object to set, or null to clear. Omit to leave unchanged.",
+          anyOf: [PROXY_JSON_SCHEMA, { type: "null" }],
+        },
+        fingerprint: FINGERPRINT_JSON_SCHEMA,
+      },
+    },
+  },
+  {
+    name: "delete_profile",
+    description:
+      "Permanently delete a profile and its on-disk data (cookies, Chromium state, installed extensions). Closes the browser first if it's running. This cannot be undone.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: { profile_id: { type: "string" } },
+    },
+  },
+  {
+    name: "list_fingerprint_options",
+    description:
+      "List the valid fingerprint building blocks: device families (with their real screen sizes) and locale groups (locale, country, plausible timezones). Use these values for the `device`, `localeId`, `timezone`, and `screen` fields of create_profile / update_profile.",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
+
+/** Coherent, non-secret view of a fingerprint for tool responses. */
+function fingerprintSummary(fp: FingerprintConfig): {
+  device: string;
+  locale: string;
+  timezone: string;
+  screen: { width: number; height: number };
+  userAgent: string;
+} {
+  return {
+    device: fp.device,
+    locale: fp.locale,
+    timezone: fp.timezone,
+    screen: fp.screen,
+    userAgent: fp.userAgent,
+  };
+}
+
+/**
+ * Proxy view safe to return to an MCP caller: NEVER echo username/password.
+ * Redacting the response also defeats the `update_profile {name}`-only
+ * password read-back (a caller must never learn a stored proxy's secret it
+ * didn't itself just set).
+ */
+function redactedProxy(
+  proxy: ProxyConfig | null | undefined,
+): { type: string; host: string; port: number; hasAuth: boolean } | null {
+  if (!proxy) return null;
+  return {
+    type: proxy.type,
+    host: proxy.host,
+    port: proxy.port,
+    hasAuth: Boolean(proxy.username || proxy.password),
+  };
+}
 
 function summarize(result: unknown): string {
   if (typeof result === "string") return result.slice(0, 200);
