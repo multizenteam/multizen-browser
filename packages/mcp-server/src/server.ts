@@ -71,6 +71,27 @@ const TypeSchema = ProfileIdSchema.extend({
   text: z.string(),
 });
 const ExtractSchema = ProfileIdSchema;
+
+// ── CDP convenience tool schemas ────────────────────────────────────────────
+const EvaluateJsSchema = ProfileIdSchema.extend({
+  expression: z.string().min(1),
+  sessionId: z.string().optional(),
+});
+const WaitForSelectorSchema = ProfileIdSchema.extend({
+  selector: z.string().min(1),
+  timeout_ms: z.number().int().positive().optional(),
+  sessionId: z.string().optional(),
+});
+const ListTabsSchema = ProfileIdSchema.extend({ sessionId: z.string().optional() });
+const TabIdSchema = ProfileIdSchema.extend({
+  target_id: z.string().min(1),
+  sessionId: z.string().optional(),
+});
+const WaitForLoadSchema = ProfileIdSchema.extend({
+  timeout_ms: z.number().int().positive().optional(),
+  sessionId: z.string().optional(),
+});
+
 /** Real device families a fingerprint can impersonate. MUST stay in lockstep
  *  with the `DeviceFamily` union in @multizen/types (and the DEVICES catalog);
  *  call `list_fingerprint_options` for the human-readable catalog. */
@@ -335,6 +356,89 @@ async function dispatch(
       assertProfileRunning(browserDriver, profile_id);
       return await browserDriver.screenshot(profile_id);
     }
+    case "evaluate_js": {
+      const { profile_id, expression, sessionId } = EvaluateJsSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // Runtime.evaluate works without Runtime.enable — no domain is enabled.
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Runtime.evaluate",
+        { expression, returnByValue: true },
+        sessionId,
+        { safe: true },
+      );
+    }
+    case "wait_for_selector": {
+      const { profile_id, selector, timeout_ms, sessionId } = WaitForSelectorSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      const expression = `!!document.querySelector(${JSON.stringify(selector)})`;
+      const found = await pollUntil(
+        async () => {
+          const res = (await browserDriver.cdpSend(
+            profile_id,
+            "Runtime.evaluate",
+            { expression, returnByValue: true },
+            sessionId,
+            { safe: true },
+          )) as { result?: { value?: unknown } };
+          return res?.result?.value === true;
+        },
+        timeout_ms ?? 30000,
+      );
+      return { found, selector };
+    }
+    case "list_tabs": {
+      const { profile_id, sessionId } = ListTabsSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(profile_id, "Target.getTargets", {}, sessionId, {
+        safe: true,
+      });
+    }
+    case "activate_tab": {
+      const { profile_id, target_id, sessionId } = TabIdSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Target.activateTarget",
+        { targetId: target_id },
+        sessionId,
+        { safe: true },
+      );
+    }
+    case "close_tab": {
+      const { profile_id, target_id, sessionId } = TabIdSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Target.closeTarget",
+        { targetId: target_id },
+        sessionId,
+        { safe: true },
+      );
+    }
+    case "wait_for_navigation":
+    case "wait_for_load": {
+      const { profile_id, timeout_ms, sessionId } = WaitForLoadSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // `Page` is enabled at connect, but waiting on the loadEventFired event
+      // requires an event subscription the single cdpSend primitive can't
+      // express. Polling document.readyState gives the same readiness signal
+      // purely through Runtime.evaluate (no domain enable).
+      const loaded = await pollUntil(
+        async () => {
+          const res = (await browserDriver.cdpSend(
+            profile_id,
+            "Runtime.evaluate",
+            { expression: "document.readyState", returnByValue: true },
+            sessionId,
+            { safe: true },
+          )) as { result?: { value?: unknown } };
+          return res?.result?.value === "complete";
+        },
+        timeout_ms ?? 30000,
+      );
+      return { loaded };
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -525,6 +629,98 @@ const TOOL_DEFINITIONS = [
       "List the valid fingerprint building blocks: device families (with their real screen sizes) and locale groups (locale, country, plausible timezones). Use these values for the `device`, `localeId`, `timezone`, and `screen` fields of create_profile / update_profile.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "evaluate_js",
+    description:
+      "Evaluate a JavaScript expression in the page and return the result by value. Runs via Runtime.evaluate without enabling the Runtime domain (stealth-safe).",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "expression"],
+      properties: {
+        profile_id: { type: "string" },
+        expression: { type: "string", description: "JavaScript expression to evaluate" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "wait_for_selector",
+    description:
+      "Poll the page until an element matching the CSS selector exists, or the timeout elapses. Returns { found, selector }. Uses Runtime.evaluate polling (no domain enable).",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "selector"],
+      properties: {
+        profile_id: { type: "string" },
+        selector: { type: "string", description: "CSS selector to wait for" },
+        timeout_ms: { type: "integer", minimum: 1, description: "Wait budget in ms (default 30000)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "list_tabs",
+    description: "List open targets (tabs/pages) via Target.getTargets.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: { profile_id: { type: "string" }, sessionId: { type: "string" } },
+    },
+  },
+  {
+    name: "activate_tab",
+    description: "Bring a tab to the foreground via Target.activateTarget.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "target_id"],
+      properties: {
+        profile_id: { type: "string" },
+        target_id: { type: "string", description: "Target id from list_tabs" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "close_tab",
+    description: "Close a tab via Target.closeTarget.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "target_id"],
+      properties: {
+        profile_id: { type: "string" },
+        target_id: { type: "string", description: "Target id from list_tabs" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "wait_for_navigation",
+    description:
+      "Wait until the page finishes loading (document.readyState === 'complete'), or the timeout elapses. Returns { loaded }. Polls via Runtime.evaluate (no domain enable).",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        timeout_ms: { type: "integer", minimum: 1, description: "Wait budget in ms (default 30000)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "wait_for_load",
+    description:
+      "Alias of wait_for_navigation: wait until document.readyState === 'complete' or the timeout elapses. Returns { loaded }.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        timeout_ms: { type: "integer", minimum: 1, description: "Wait budget in ms (default 30000)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
 ];
 
 /** Coherent, non-secret view of a fingerprint for tool responses. */
@@ -597,5 +793,59 @@ function assertProfileExists(pm: ProfileManager, id: string): void {
 function assertProfileRunning(driver: BrowserDriver, id: string): void {
   if (!driver.isRunning(id)) {
     throw new Error(`Profile ${id} is not running. Call launch_profile first.`);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Transient CDP failures raised while a target is mid-navigation: the V8
+ * execution context is torn down and recreated, so an in-flight Runtime.evaluate
+ * can reject even though the page is perfectly fine a moment later. These are
+ * safe to swallow and retry; any other error is a genuine failure (e.g. an
+ * invalid selector expression) and must surface immediately.
+ */
+const TRANSIENT_NAVIGATION_ERROR =
+  /execution context was destroyed|Cannot find context|Inspected target (navigated|closed)|No execution context/i;
+
+function isTransientNavigationError(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return TRANSIENT_NAVIGATION_ERROR.test(message);
+}
+
+/**
+ * Poll `check` on a fixed 150ms backoff until it returns true or the budget is
+ * exhausted. Returns the final boolean rather than throwing so wait_* tools
+ * can report a clean `{ found/loaded: false }` on a normal timeout.
+ *
+ * Scoped retry: transient navigation errors (execution context destroyed while
+ * the page reloads) are swallowed and retried until the budget runs out — never
+ * masking real errors, which propagate immediately. If only transient errors
+ * are seen right up to the deadline, a clear timeout error is thrown so the
+ * caller is not told the page settled when it never did.
+ */
+async function pollUntil(check: () => Promise<boolean>, budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  let lastTransient: Error | undefined;
+  for (;;) {
+    try {
+      if (await check()) return true;
+      lastTransient = undefined; // a clean check ran: not stuck on a transient error
+    } catch (e) {
+      if (!isTransientNavigationError(e)) throw e;
+      lastTransient = e instanceof Error ? e : new Error(String(e));
+    }
+    if (Date.now() >= deadline) {
+      if (lastTransient) {
+        throw new Error(
+          `Timed out after ${budgetMs}ms waiting for the page to settle; ` +
+            `last transient navigation error: ${lastTransient.message}`,
+        );
+      }
+      return false;
+    }
+    await sleep(150);
   }
 }
