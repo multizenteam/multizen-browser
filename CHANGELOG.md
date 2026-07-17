@@ -5,6 +5,40 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-17
+
+### Added
+
+- **Strict-pin launch timezone policy** (`resolveLaunchTimezone`): pinned
+  `fingerprint.timezone` wins by default; proxy geo still feeds WebRTC IP +
+  geolocation. Opt-in profile flags `alignTimezoneToProxy` /
+  `strictGeoCoherence` (MCP create/update + SQLite).
+- **`check-chrome-version`** script + bump notes in
+  [`docs/fingerprint-entropy-verification.md`](docs/fingerprint-entropy-verification.md)
+  to keep `CHROME_VERSION_*` aligned with CloakBrowser/CFT (skips cleanly when
+  no binary is present). Generate-time constants set to **146.0.7680.177** to
+  match the current CloakBrowser cache major (launch still reconciles UA/CH).
+- Expanded **Mac (M2/M3/M4 Pro/Air/mini/iMac)** and **Linux laptop + desktop**
+  device catalogs; entropy thresholds Mac/Linux ≥15 coarse / ≥8 WebGL;
+  `generateFingerprint(seed, { hostFilter: false })` for CloakBrowser-style
+  full-catalog tests.
+- MCP **`probe_fingerprint`**: live UA/platform/languages/hwc/memory/screen/
+  WebGL/timezone (+ canvas hash) vs stored fingerprint → `{ ok, live, expected, drift }`.
+- **`smoke-fingerprint-seed`** script (offline always; live canvas path when
+  MultiZen MCP is reachable).
+
+### Changed
+
+- CI runs fingerprint unit/entropy/version-check scripts, desktop timezone
+  tests, and offline smoke after typecheck.
+- Archived 0.6.0 brief [`docs/multizen-fork-fingerprint-tasks.md`](docs/multizen-fork-fingerprint-tasks.md);
+  verification notes point at the post-0.6 backlog.
+
+### Out of scope (not in 0.7.0)
+
+- F UA/CH build jitter
+- G fonts / speech / mediaDevices / extra client hints
+
 ## [0.6.0] - 2026-07-17
 
 ### Added
@@ -241,6 +275,7 @@ feature set into the extended fork while keeping the fork's MCP/CDP tooling.
   per-profile SOCKS5 bridge with persona alignment, and the activity log.
 - GitHub Actions release workflow with stable, version-less download URLs.
 
+[0.7.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.4.0...v0.4.1

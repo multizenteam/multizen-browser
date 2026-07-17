@@ -1,6 +1,6 @@
 {
   "name": "multizen",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "AI-native browser for agents and operators — desktop app + MCP server with anti-detect Chromium",
   "homepage": "https://getmultizen.com",
@@ -20,6 +20,11 @@
     "lint": "yarn workspaces foreach -A run lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md,astro}\"",
     "mcp:dev": "yarn workspace @multizen/mcp-server dev",
+    "test:fingerprint": "yarn workspace @multizen/mcp-server exec tsx ../profile-manager/scripts/test-fingerprint.ts",
+    "test:fingerprint-entropy": "yarn workspace @multizen/mcp-server exec tsx ../profile-manager/scripts/test-fingerprint-entropy.ts",
+    "check:chrome-version": "yarn workspace @multizen/mcp-server exec tsx ../profile-manager/scripts/check-chrome-version.ts",
+    "smoke:fingerprint-seed": "yarn workspace @multizen/mcp-server exec tsx scripts/smoke-fingerprint-seed.ts",
+    "test:launch-timezone": "yarn workspace @multizen/mcp-server exec tsx --test ../../apps/desktop/src/main/launchTimezone.test.ts",
     "clean": "rm -rf apps/*/dist apps/*/out packages/*/dist node_modules/.cache"
   },
   "devDependencies": {

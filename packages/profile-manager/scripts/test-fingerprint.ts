@@ -192,9 +192,10 @@ function check(fp: FingerprintConfig): InvariantResult[] {
         fp.webgl.vendor !== "Apple Inc." && !fp.webgl.vendor.startsWith("Mesa"),
     });
   } else if (fp.platform === "Linux x86_64") {
+    const linuxVendors = new Set(["Mesa", "AMD", "Intel", "NVIDIA Corporation"]);
     results.push({
-      name: "Linux → WebGL vendor is Mesa",
-      passed: fp.webgl.vendor === "Mesa",
+      name: "Linux → WebGL vendor is Mesa/AMD/Intel/NVIDIA",
+      passed: linuxVendors.has(fp.webgl.vendor) && fp.webgl.vendor !== "Apple Inc.",
       message: fp.webgl.vendor,
     });
   }

@@ -13,5 +13,6 @@ export {
   CHROME_VERSION_MAJOR,
   type DeviceCatalogEntry,
   type LocaleCatalogEntry,
+  type GenerateFingerprintOptions,
 } from "./fingerprint.js";
 export { exportProfile, importProfile } from "./archive.js";

@@ -10,13 +10,22 @@ export interface ProxyConfig {
 
 /** Identifier of a real device family — defines the platform / CPU / GPU class. */
 export type DeviceFamily =
+  | "macbook-pro-14-m2"
   | "macbook-pro-14-m3"
   | "macbook-pro-14-m3-pro"
+  | "macbook-pro-14-m4"
+  | "macbook-pro-16-m3"
   | "macbook-pro-16-m3-pro"
+  | "macbook-pro-16-m4-pro"
+  | "macbook-air-13-m2"
   | "macbook-air-13-m3"
+  | "macbook-air-13-m4"
+  | "macbook-air-15-m2"
   | "macbook-air-15-m3"
   | "imac-24-m3"
+  | "imac-24-m4"
   | "mac-mini-m2"
+  | "mac-mini-m4"
   | "windows-laptop-intel"
   | "windows-laptop-intel-uhd"
   | "windows-laptop-amd"
@@ -26,6 +35,9 @@ export type DeviceFamily =
   | "windows-desktop-nvidia-4080"
   | "windows-desktop-amd"
   | "windows-desktop-intel"
+  | "linux-laptop-intel"
+  | "linux-laptop-amd"
+  | "linux-laptop-nvidia"
   | "linux-desktop-intel"
   | "linux-desktop-amd"
   | "linux-desktop-nvidia";
@@ -175,6 +187,16 @@ export interface Profile {
    *  Used by the GUI to render the country flag — proxy egress trumps the
    *  fingerprint's timezone-derived country, since that's what websites see. */
   proxyCountry?: string;
+  /**
+   * Opt-in: at launch, overwrite fingerprint.timezone with proxy-geo TZ when
+   * that TZ is in the locale's allowlist. Default off (strict pin).
+   */
+  alignTimezoneToProxy?: boolean;
+  /**
+   * When true, launch fails if proxy-geo country ≠ fingerprint.country.
+   * Default off (warn only).
+   */
+  strictGeoCoherence?: boolean;
 }
 
 export interface ProfileSummary {
@@ -207,6 +229,8 @@ export interface CreateProfileInput {
   proxy?: ProxyConfig;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];
+  alignTimezoneToProxy?: boolean;
+  strictGeoCoherence?: boolean;
 }
 
 export interface UpdateProfileInput {
@@ -219,6 +243,8 @@ export interface UpdateProfileInput {
   proxy?: ProxyConfig | null;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];
+  alignTimezoneToProxy?: boolean | null;
+  strictGeoCoherence?: boolean | null;
 }
 
 export interface LaunchedProfile {

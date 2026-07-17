@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/standalone.ts",
     "test": "node --import tsx --test src/HttpTransport.test.ts src/cdpTools.test.ts",
+    "smoke:fingerprint": "tsx scripts/smoke-fingerprint-seed.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

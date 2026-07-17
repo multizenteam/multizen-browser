@@ -1,5 +1,11 @@
 # Задачи на доработку MultiZen (antidetect browser / profile manager)
 
+> **STATUS: Done / archived (shipped in 0.6.0).**  
+> This P0/P1 brief is closed. Follow-on work (0.7.x DoD A–E + H) lives in
+> [`docs/multizen-post-0.6-task.md`](./multizen-post-0.6-task.md) and
+> verification notes in [`docs/fingerprint-entropy-verification.md`](./fingerprint-entropy-verification.md).
+> Kept for historical reference only — do not treat open checkboxes below as active backlog.
+
 > **Продукт:** MultiZen — antidetect browser и profile manager (форк Chromium + MCP profile API).
 > **Аудитория:** разработчики форка MultiZen.
 > **Цель документа:** самодостаточный backlog по fingerprint-энтропии и когерентности.

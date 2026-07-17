@@ -27,14 +27,17 @@ import type {
  * binary can apply them when it ships.
  */
 
-/** Current Chrome stable. Bumped when a new milestone goes stable on
- * https://chromiumdash.appspot.com/schedule. As of May 2026 → Chrome 148. */
-// Must match the Chromium binary we're actually running — detection
-// vendors compare claimed UA version vs. JS-engine feature signatures
-// and flag mismatches ("UA says 148 but supports only 147 features").
-// System Chrome stable as of May 2026 is 147.0.7727.138.
-export const CHROME_VERSION_MAJOR = 147;
-export const CHROME_VERSION_FULL = "147.0.7727.138";
+/**
+ * Generate-time Chrome defaults for UA / Client Hints.
+ * Launch always rewrites these via `reconcileVersionInFingerprint` to the
+ * actual binary major — see docs/chrome-version-bump.md and
+ * `scripts/check-chrome-version.ts`. Bump when shipping a new CloakBrowser/CFT.
+ *
+ * Must stay close to the Chromium binary — detection vendors compare claimed
+ * UA version vs JS-engine feature signatures.
+ */
+export const CHROME_VERSION_MAJOR = 146;
+export const CHROME_VERSION_FULL = "146.0.7680.177";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Device profiles — real models, real specs.
@@ -97,6 +100,28 @@ const ALLOWED_MEM_BASE = new Set([4, 8, 16]);
 
 const DEVICES: ReadonlyArray<DeviceSpec> = [
   {
+    family: "macbook-pro-14-m2",
+    label: "MacBook Pro 14″ (M2)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "14.5.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1512, height: 982, label: "1512 × 982 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M2" },
+      { vendor: "Apple Inc.", renderer: "Apple M2 Pro" },
+    ],
+    hardwareConcurrency: [8, 10],
+    deviceMemory: [8, 16, 32],
+  },
+  {
     family: "macbook-pro-14-m3",
     label: "MacBook Pro 14″ (M3)",
     uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
@@ -117,6 +142,29 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     ],
     hardwareConcurrency: [8],
     deviceMemory: [8, 16, 24],
+  },
+  {
+    family: "macbook-pro-14-m4",
+    label: "MacBook Pro 14″ (M4)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "15.1.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1512, height: 982, label: "1512 × 982 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+      { width: 3024, height: 1964, label: "3024 × 1964 (native Retina)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M4" },
+      { vendor: "Apple Inc.", renderer: "Apple M4 Pro" },
+    ],
+    hardwareConcurrency: [10, 12, 14],
+    deviceMemory: [16, 24, 32, 48],
   },
   {
     family: "macbook-pro-14-m3-pro",
@@ -163,6 +211,71 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     deviceMemory: [18, 36],
   },
   {
+    family: "macbook-pro-16-m3",
+    label: "MacBook Pro 16″ (M3)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "14.6.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1728, height: 1117, label: "1728 × 1117 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M3" },
+      { vendor: "Apple Inc.", renderer: "Apple M3 (10-core GPU)" },
+    ],
+    hardwareConcurrency: [8, 11],
+    deviceMemory: [16, 18, 36],
+  },
+  {
+    family: "macbook-pro-16-m4-pro",
+    label: "MacBook Pro 16″ (M4 Pro)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "15.1.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1728, height: 1117, label: "1728 × 1117 (default)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+      { width: 3840, height: 2160, label: "3840 × 2160 (external 4K)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M4 Pro" },
+      { vendor: "Apple Inc.", renderer: "Apple M4 Max" },
+    ],
+    hardwareConcurrency: [14, 16],
+    deviceMemory: [24, 36, 48, 64],
+  },
+  {
+    family: "macbook-air-13-m2",
+    label: "MacBook Air 13″ (M2)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "14.5.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1440, height: 900, label: "1440 × 900 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M2" },
+      { vendor: "Apple Inc.", renderer: "Apple M2 (8-core GPU)" },
+    ],
+    hardwareConcurrency: [8],
+    deviceMemory: [8, 16, 24],
+  },
+  {
     family: "macbook-air-13-m3",
     label: "MacBook Air 13″ (M3)",
     uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
@@ -179,6 +292,49 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     webgl: [
       { vendor: "Apple Inc.", renderer: "Apple M3" },
       { vendor: "Apple Inc.", renderer: "Apple M2" },
+    ],
+    hardwareConcurrency: [8],
+    deviceMemory: [8, 16, 24],
+  },
+  {
+    family: "macbook-air-13-m4",
+    label: "MacBook Air 13″ (M4)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "15.1.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1440, height: 900, label: "1440 × 900 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (external)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M4" },
+      { vendor: "Apple Inc.", renderer: "Apple M4 (10-core GPU)" },
+    ],
+    hardwareConcurrency: [10],
+    deviceMemory: [16, 24, 32],
+  },
+  {
+    family: "macbook-air-15-m2",
+    label: "MacBook Air 15″ (M2)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "14.5.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1680, height: 1050, label: "1680 × 1050 (default)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (external)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M2" },
+      { vendor: "Apple Inc.", renderer: "Apple M2 (10-core GPU)" },
     ],
     hardwareConcurrency: [8],
     deviceMemory: [8, 16, 24],
@@ -227,6 +383,28 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     deviceMemory: [8, 16, 24],
   },
   {
+    family: "imac-24-m4",
+    label: "iMac 24″ (M4)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "15.1.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 2240, height: 1260, label: "2240 × 1260 (4.5K)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (scaled)" },
+      { width: 1920, height: 1080, label: "1920 × 1080 (scaled)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M4" },
+      { vendor: "Apple Inc.", renderer: "Apple M4 (10-core GPU)" },
+    ],
+    hardwareConcurrency: [10],
+    deviceMemory: [16, 24, 32],
+  },
+  {
     family: "mac-mini-m2",
     label: "Mac mini (M2)",
     uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
@@ -247,6 +425,28 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     ],
     hardwareConcurrency: [8, 12],
     deviceMemory: [8, 16, 24],
+  },
+  {
+    family: "mac-mini-m4",
+    label: "Mac mini (M4)",
+    uaPlatformToken: "Macintosh; Intel Mac OS X 10_15_7",
+    navigatorPlatform: "MacIntel",
+    secChUaPlatform: "macOS",
+    secChUaPlatformVersion: "15.1.0",
+    secChUaArch: "arm",
+    secChUaBitness: "64",
+    screens: [
+      { width: 1920, height: 1080, label: "1920 × 1080 (FHD)" },
+      { width: 2560, height: 1440, label: "2560 × 1440 (QHD)" },
+      { width: 3840, height: 2160, label: "3840 × 2160 (4K)" },
+    ],
+    dpr: 2,
+    webgl: [
+      { vendor: "Apple Inc.", renderer: "Apple M4" },
+      { vendor: "Apple Inc.", renderer: "Apple M4 Pro" },
+    ],
+    hardwareConcurrency: [10, 14],
+    deviceMemory: [16, 24, 32, 64],
   },
   {
     family: "windows-laptop-intel",
@@ -488,21 +688,80 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     deviceMemory: [8, 16, 32],
   },
   {
+    family: "linux-laptop-intel",
+    label: "Linux laptop (Intel Iris Xe)",
+    uaPlatformToken: "X11; Linux x86_64",
+    navigatorPlatform: "Linux x86_64",
+    secChUaPlatform: "Linux",
+    secChUaPlatformVersion: "6.8.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      { vendor: "Mesa", renderer: "Mesa Intel(R) Iris(R) Xe Graphics (TGL GT2)" },
+      { vendor: "Mesa", renderer: "Mesa Intel(R) Graphics (RPL-P)" },
+      { vendor: "Intel", renderer: "Intel(R) Iris(R) Xe Graphics (0x0000A7A0)" },
+    ],
+    hardwareConcurrency: [4, 8, 12],
+    deviceMemory: [8, 16],
+  },
+  {
+    family: "linux-laptop-amd",
+    label: "Linux laptop (AMD Radeon)",
+    uaPlatformToken: "X11; Linux x86_64",
+    navigatorPlatform: "Linux x86_64",
+    secChUaPlatform: "Linux",
+    secChUaPlatformVersion: "6.8.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      { vendor: "Mesa", renderer: "AMD Radeon Graphics (radeonsi, rembrandt, LLVM 17.0.6, DRM 3.57, 6.8.0)" },
+      { vendor: "Mesa", renderer: "AMD Radeon 780M (radeonsi, phoenix, LLVM 17.0.6, DRM 3.57, 6.8.0)" },
+      { vendor: "AMD", renderer: "AMD Radeon RX 7600M XT (radeonsi, navi33, LLVM 17.0.6, DRM 3.57, 6.8.0)" },
+    ],
+    hardwareConcurrency: [6, 8, 12, 16],
+    deviceMemory: [8, 16, 32],
+  },
+  {
+    family: "linux-laptop-nvidia",
+    label: "Linux laptop (NVIDIA)",
+    uaPlatformToken: "X11; Linux x86_64",
+    navigatorPlatform: "Linux x86_64",
+    secChUaPlatform: "Linux",
+    secChUaPlatformVersion: "6.8.0",
+    secChUaArch: "x86",
+    secChUaBitness: "64",
+    screens: COMMON_DESKTOP_SCREENS,
+    dpr: 1,
+    webgl: [
+      { vendor: "NVIDIA Corporation", renderer: "NVIDIA GeForce RTX 4060 Laptop GPU/PCIe/SSE2" },
+      { vendor: "NVIDIA Corporation", renderer: "NVIDIA GeForce RTX 4050 Laptop GPU/PCIe/SSE2" },
+      { vendor: "Mesa", renderer: "NV178" },
+    ],
+    hardwareConcurrency: [8, 12, 16],
+    deviceMemory: [8, 16, 32],
+  },
+  {
     family: "linux-desktop-intel",
-    label: "Linux desktop (Intel UHD)",
+    label: "Linux desktop (Intel UHD/Arc)",
     uaPlatformToken: "X11; Linux x86_64",
     navigatorPlatform: "Linux x86_64",
     secChUaPlatform: "Linux",
     secChUaPlatformVersion: "6.6.0",
     secChUaArch: "x86",
     secChUaBitness: "64",
-    screens: COMMON_DESKTOP_SCREENS,
+    screens: [...COMMON_DESKTOP_SCREENS, { width: 3840, height: 2160, label: "3840 × 2160 (4K)" }],
     dpr: 1,
     webgl: [
       { vendor: "Mesa", renderer: "Mesa Intel(R) UHD Graphics 770 (RPL-S)" },
       { vendor: "Mesa", renderer: "Mesa Intel(R) Graphics (ADL GT2)" },
+      { vendor: "Mesa", renderer: "Mesa Intel(R) Arc(tm) A750 Graphics (DG2)" },
+      { vendor: "Intel", renderer: "Intel(R) Arc(TM) A770 Graphics (0x000056A0)" },
     ],
-    hardwareConcurrency: [4, 8, 16],
+    hardwareConcurrency: [4, 8, 12, 16],
     deviceMemory: [8, 16, 32],
   },
   {
@@ -514,14 +773,16 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "6.6.0",
     secChUaArch: "x86",
     secChUaBitness: "64",
-    screens: COMMON_DESKTOP_SCREENS,
+    screens: [...COMMON_DESKTOP_SCREENS, { width: 3840, height: 2160, label: "3840 × 2160 (4K)" }],
     dpr: 1,
     webgl: [
       { vendor: "Mesa", renderer: "AMD Radeon RX 7800 XT (radeonsi, navi32, LLVM 17.0.6, DRM 3.57, 6.6.0)" },
       { vendor: "Mesa", renderer: "AMD Radeon Graphics (radeonsi, renoir, LLVM 17.0.6, DRM 3.57, 6.6.0)" },
+      { vendor: "Mesa", renderer: "AMD Radeon RX 6700 XT (radeonsi, navi22, LLVM 17.0.6, DRM 3.57, 6.6.0)" },
+      { vendor: "AMD", renderer: "AMD Radeon RX 7900 XTX (radeonsi, navi31, LLVM 17.0.6, DRM 3.57, 6.6.0)" },
     ],
-    hardwareConcurrency: [6, 8, 12, 16],
-    deviceMemory: [8, 16, 32],
+    hardwareConcurrency: [6, 8, 12, 16, 24],
+    deviceMemory: [8, 16, 32, 64],
   },
   {
     family: "linux-desktop-nvidia",
@@ -532,9 +793,11 @@ const DEVICES: ReadonlyArray<DeviceSpec> = [
     secChUaPlatformVersion: "6.6.0",
     secChUaArch: "x86",
     secChUaBitness: "64",
-    screens: COMMON_DESKTOP_SCREENS,
+    screens: [...COMMON_DESKTOP_SCREENS, { width: 3840, height: 2160, label: "3840 × 2160 (4K)" }],
     dpr: 1,
     webgl: [
+      { vendor: "NVIDIA Corporation", renderer: "NVIDIA GeForce RTX 4070/PCIe/SSE2" },
+      { vendor: "NVIDIA Corporation", renderer: "NVIDIA GeForce RTX 3080/PCIe/SSE2" },
       { vendor: "Mesa", renderer: "NVIDIA GeForce RTX 4070/PCIe/SSE2" },
       { vendor: "Mesa", renderer: "NV137" },
     ],
@@ -1289,21 +1552,36 @@ export function localeCatalog(): ReadonlyArray<LocaleCatalogEntry> {
 // Generator
 // ─────────────────────────────────────────────────────────────────────────
 
+export interface GenerateFingerprintOptions {
+  /**
+   * When true (default), restrict the device pool to the host OS family.
+   * Set false for CloakBrowser-style cross-OS spoof tests (full Windows/Mac/Linux
+   * catalog) — CFT still needs hostFilter true at runtime.
+   */
+  hostFilter?: boolean;
+}
+
 /**
  * Generate a coherent fingerprint preset.
  *
  * If `seed` is provided, the result is deterministic — useful so existing
  * profiles get a stable fingerprint on every read.
  */
-export function generateFingerprint(seed?: string): FingerprintConfig {
+export function generateFingerprint(
+  seed?: string,
+  opts: GenerateFingerprintOptions = {},
+): FingerprintConfig {
   const rand = seed ? seededRand(seed) : Math.random;
   // Device family must match the host OS — claiming Windows on a Mac
   // binary is detectable via V8/Blink/CSS-feature signatures (browserscan,
   // FingerprintJS, DataDome all compare actual platform behaviour vs the
-  // claimed UA platform). Cross-platform spoof would require shipping a
-  // separate Chromium binary per target OS, which we don't yet do.
+  // claimed UA platform). CloakBrowser can spoof cross-OS natively; pass
+  // `{ hostFilter: false }` for full-catalog diversity tests.
   const hostFamily = hostPlatformFamily();
-  const candidates = DEVICES.filter((d) => deviceMatchesHost(d, hostFamily));
+  const candidates =
+    opts.hostFilter === false
+      ? DEVICES
+      : DEVICES.filter((d) => deviceMatchesHost(d, hostFamily));
   const device = pick(candidates.length > 0 ? candidates : DEVICES, rand);
   const locale = pick(LOCALES, rand);
   const screen = pick(device.screens, rand);

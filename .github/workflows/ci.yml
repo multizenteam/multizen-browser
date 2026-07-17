@@ -51,3 +51,15 @@ jobs:
 
       - name: Typecheck (all workspaces)
         run: yarn typecheck
+
+      - name: Fingerprint unit scripts
+        run: |
+          yarn test:fingerprint
+          yarn test:fingerprint-entropy
+          yarn check:chrome-version
+
+      - name: Launch timezone unit tests
+        run: yarn test:launch-timezone
+
+      - name: Fingerprint seed smoke (offline; live MCP optional)
+        run: yarn smoke:fingerprint-seed

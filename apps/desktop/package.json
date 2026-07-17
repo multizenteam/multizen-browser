@@ -1,7 +1,7 @@
 {
   "name": "@multizen/desktop",
   "productName": "MultiZen",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -17,7 +17,7 @@
     "build:linux:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --linux --publish always",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "preview": "electron-vite preview",
-    "test": "node --import ../../packages/mcp-server/node_modules/tsx/dist/loader.mjs --test src/main/processTree.test.ts src/main/cdpReadiness.test.ts"
+    "test": "node --import ../../packages/mcp-server/node_modules/tsx/dist/loader.mjs --test src/main/processTree.test.ts src/main/cdpReadiness.test.ts src/main/launchTimezone.test.ts"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
