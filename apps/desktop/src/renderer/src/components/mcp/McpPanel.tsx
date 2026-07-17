@@ -9,6 +9,8 @@ interface Props {
   profiles: ProfileSummary[];
   /** MCP HTTP base URL (e.g. http://127.0.0.1:7777) or null when the server is off. */
   mcpUrl: string | null;
+  /** Bearer token every MCP client must send; null when the server is off. */
+  mcpToken: string | null;
 }
 
 /**
@@ -16,7 +18,7 @@ interface Props {
  * does. Top half = a "Connect an agent" card (endpoint + copy-paste client
  * config); bottom half = the live feed of MCP tool calls.
  */
-export function McpPanel({ events, profiles, mcpUrl }: Props): JSX.Element {
+export function McpPanel({ events, profiles, mcpUrl, mcpToken }: Props): JSX.Element {
   const profilesById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
   const recent = useMemo(() => events.slice().reverse(), [events]);
 
@@ -33,7 +35,7 @@ export function McpPanel({ events, profiles, mcpUrl }: Props): JSX.Element {
           and read pages through it — every tool call streams into the feed below.
         </div>
 
-        <ConnectCard baseUrl={mcpUrl} />
+        <ConnectCard baseUrl={mcpUrl} token={mcpToken} />
 
         {/* Live feed */}
         <div className="flex items-baseline gap-2.5 mt-7 mb-2.5">
@@ -74,31 +76,53 @@ export function McpPanel({ events, profiles, mcpUrl }: Props): JSX.Element {
   );
 }
 
-function ConnectCard({ baseUrl }: { baseUrl: string | null }): JSX.Element {
+function ConnectCard({
+  baseUrl,
+  token,
+}: {
+  baseUrl: string | null;
+  token: string | null;
+}): JSX.Element {
   const off = baseUrl === null;
   const base = (baseUrl ?? "http://127.0.0.1:7777").replace(/\/$/, "");
   const httpUrl = `${base}/mcp`; // Streamable HTTP — the current MCP transport
   const sseUrl = `${base}/sse`; // legacy HTTP+SSE, kept for older clients
+  const bearer = token ?? "<token>"; // placeholder only if the server is off
 
   // Modern clients speak Streamable HTTP directly by URL — no Node bridge.
   // Codex uses TOML; Cursor/Cline/Continue use JSON with a `url`. Stdio-only
   // clients (Claude Desktop) still need the `mcp-remote` bridge (no url field).
+  // The server requires Authorization: Bearer <token>, so every config carries
+  // the header in the shape that client expects.
   const jsonConfig = useMemo(
-    () => JSON.stringify({ mcpServers: { multizen: { url: httpUrl } } }, null, 2),
-    [httpUrl],
+    () =>
+      JSON.stringify(
+        { mcpServers: { multizen: { url: httpUrl, headers: { Authorization: `Bearer ${bearer}` } } } },
+        null,
+        2,
+      ),
+    [httpUrl, bearer],
   );
   const codexConfig = useMemo(
-    () => `[mcp_servers.multizen]\nurl = "${httpUrl}"`,
-    [httpUrl],
+    () =>
+      `[mcp_servers.multizen]\nurl = "${httpUrl}"\nhttp_headers = { Authorization = "Bearer ${bearer}" }`,
+    [httpUrl, bearer],
   );
   const stdioConfig = useMemo(
     () =>
       JSON.stringify(
-        { mcpServers: { multizen: { command: "npx", args: ["mcp-remote", httpUrl] } } },
+        {
+          mcpServers: {
+            multizen: {
+              command: "npx",
+              args: ["mcp-remote", httpUrl, "--header", `Authorization: Bearer ${bearer}`],
+            },
+          },
+        },
         null,
         2,
       ),
-    [httpUrl],
+    [httpUrl, bearer],
   );
 
   // A self-contained instruction the user can paste into any coding agent
@@ -111,17 +135,19 @@ function ConnectCard({ baseUrl }: { baseUrl: string | null }): JSX.Element {
         `It exposes a Streamable HTTP MCP endpoint at: ${httpUrl}`,
         `(A legacy HTTP+SSE endpoint is also available at ${sseUrl} for older clients.)`,
         "",
+        `The server requires an auth token. Send this HTTP header on every request: Authorization: Bearer ${bearer}`,
+        "",
         "Please connect this MCP server to my MCP client:",
         "1. Detect which MCP client I'm using and where its config file lives.",
-        '2. Add a server named "multizen" using the shape that matches my client:',
-        `   - Codex CLI (~/.codex/config.toml):  [mcp_servers.multizen] with  url = "${httpUrl}"`,
-        `   - JSON URL clients (Cursor, Cline, Continue, VS Code):  {"mcpServers":{"multizen":{"url":"${httpUrl}"}}}`,
-        `   - Stdio-only clients (Claude Desktop, no url field) bridge via mcp-remote (needs Node.js):  {"mcpServers":{"multizen":{"command":"npx","args":["mcp-remote","${httpUrl}"]}}}`,
+        '2. Add a server named "multizen" using the shape that matches my client, INCLUDING the Authorization header:',
+        `   - Codex CLI (~/.codex/config.toml):  [mcp_servers.multizen] with  url = "${httpUrl}"  and  http_headers = { Authorization = "Bearer ${bearer}" }`,
+        `   - JSON URL clients (Cursor, Cline, Continue, VS Code):  {"mcpServers":{"multizen":{"url":"${httpUrl}","headers":{"Authorization":"Bearer ${bearer}"}}}}`,
+        `   - Stdio-only clients (Claude Desktop, no url field) bridge via mcp-remote (needs Node.js):  {"mcpServers":{"multizen":{"command":"npx","args":["mcp-remote","${httpUrl}","--header","Authorization: Bearer ${bearer}"]}}}`,
         "3. Merge it into the existing config without overwriting other servers, then tell me to restart/reload the client.",
         "",
         'Once connected, every MultiZen tool is prefixed "multizen." — I\'ll launch a profile in MultiZen and you can drive it.',
       ].join("\n"),
-    [httpUrl, sseUrl],
+    [httpUrl, sseUrl, bearer],
   );
 
   return (
@@ -175,6 +201,17 @@ function ConnectCard({ baseUrl }: { baseUrl: string | null }): JSX.Element {
           <div className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
             Legacy HTTP+SSE endpoint (older clients):{" "}
             <code className="mono text-slate-400">{sseUrl}</code>
+          </div>
+
+          {/* Auth token — every request needs it; each config below embeds it. */}
+          <div className="mt-3 text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">
+            Auth token
+          </div>
+          <CopyRow value={bearer} mono />
+          <div className="mt-1.5 text-[11px] text-slate-500 leading-relaxed">
+            Sent as <code className="mono text-slate-400">Authorization: Bearer …</code> — the
+            configs below already include it. Keep it secret; anyone with it can drive your
+            profiles.
           </div>
 
           {/* Steps */}

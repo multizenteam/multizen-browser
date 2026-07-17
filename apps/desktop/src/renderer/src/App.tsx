@@ -403,7 +403,12 @@ export function App(): JSX.Element {
           )}
 
           {section === "mcp" && (
-            <McpPanel events={events} profiles={profiles} mcpUrl={info?.mcpHttpUrl ?? null} />
+            <McpPanel
+              events={events}
+              profiles={profiles}
+              mcpUrl={info?.mcpHttpUrl ?? null}
+              mcpToken={info?.mcpAuthToken ?? null}
+            />
           )}
 
           {section === "settings" && <Settings onImport={() => setModal({ kind: "import-passphrase" })} />}

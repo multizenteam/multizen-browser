@@ -129,13 +129,21 @@ Each profile is a real Chromium window with persistent state on disk. The MCP se
 
 After installing, the MCP server starts on `127.0.0.1:7777`. It serves the current
 **Streamable HTTP** transport at `http://127.0.0.1:7777/mcp` (plus a legacy HTTP+SSE
-endpoint at `/sse` for older clients). Add it to your client config.
+endpoint at `/sse` for older clients).
+
+The server requires a **bearer token** — it is generated on first run and shown in
+the app under **MCP → Connect an agent** (also written to the `mcp-token` file in
+the app data directory). Every client config below must send it as
+`Authorization: Bearer <token>`. Replace `<token>` with your own. The app's MCP
+panel has a **Copy for LLM** button that hands the whole setup (token included) to
+a coding agent if you'd rather not edit config files by hand.
 
 **Codex CLI** (`~/.codex/config.toml`) — connects to Streamable HTTP directly:
 
 ```toml
 [mcp_servers.multizen]
 url = "http://127.0.0.1:7777/mcp"
+http_headers = { Authorization = "Bearer <token>" }
 ```
 
 **JSON URL clients — Cursor** (`~/.cursor/mcp.json`), Cline, Continue:
@@ -144,7 +152,8 @@ url = "http://127.0.0.1:7777/mcp"
 {
   "mcpServers": {
     "multizen": {
-      "url": "http://127.0.0.1:7777/mcp"
+      "url": "http://127.0.0.1:7777/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
     }
   }
 }
@@ -159,7 +168,7 @@ url = "http://127.0.0.1:7777/mcp"
   "mcpServers": {
     "multizen": {
       "command": "npx",
-      "args": ["mcp-remote", "http://127.0.0.1:7777/mcp"]
+      "args": ["mcp-remote", "http://127.0.0.1:7777/mcp", "--header", "Authorization: Bearer <token>"]
     }
   }
 }

@@ -88,7 +88,7 @@ export function Settings({ onImport }: Props): JSX.Element {
         <Row
           icon={<Zap size={16} strokeWidth={1.5} />}
           title="MCP server"
-          desc="Local HTTP transport that Cursor / Claude Desktop / Cline / any MCP client connects to. Add this URL to your client config."
+          desc="Local HTTP transport that Cursor / Claude Desktop / Cline / any MCP client connects to. Requires the auth token below. The MCP tab has ready-to-paste client configs."
         >
           <div className="flex gap-2 items-center flex-wrap">
             <Pill kind={info?.mcpHttpUrl ? "running" : "idle"} dot={!!info?.mcpHttpUrl}>
