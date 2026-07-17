@@ -8,6 +8,7 @@ import {
   importProfile,
   generateFingerprint,
   reconcileFingerprint,
+  FingerprintReconcileError,
   deviceCatalog,
   localeCatalog,
   findLocaleIdByCountry,
@@ -461,7 +462,24 @@ app.whenReady().then(async () => {
       _e,
       current: Parameters<typeof reconcileFingerprint>[0],
       patch: Parameters<typeof reconcileFingerprint>[1],
-    ) => reconcileFingerprint(current, patch),
+    ) => {
+      // reconcileFingerprint now throws on invalid input (the honest contract
+      // for MCP). GUI patches are all catalog-sourced so this "can't happen"
+      // in normal use, but the renderer calls this as `void reconcile(...)`,
+      // so a throw would surface as an unhandled rejection and silently no-op
+      // the edit. Degrade gracefully: on a reconcile rejection (e.g. a corrupt
+      // or legacy persisted fingerprint) return `current` unchanged; rethrow
+      // anything else.
+      try {
+        return reconcileFingerprint(current, patch);
+      } catch (e) {
+        if (e instanceof FingerprintReconcileError) {
+          console.warn("[multizen] fingerprint reconcile rejected:", e.message);
+          return current;
+        }
+        throw e;
+      }
+    },
   );
 
   // Proxy geo-IP probe — verifies that the profile's locale + timezone are
