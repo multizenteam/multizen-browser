@@ -5,6 +5,8 @@ import {
   Chrome,
   Copy,
   DownloadCloud,
+  Eye,
+  EyeOff,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -22,6 +24,8 @@ export function Settings({ onImport }: Props): JSX.Element {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [copied, setCopied] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [tokenShown, setTokenShown] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [lastChecked, setLastChecked] = useState<number>(0);
 
@@ -55,6 +59,13 @@ export function Settings({ onImport }: Props): JSX.Element {
     navigator.clipboard.writeText(info.mcpHttpUrl);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  function copyMcpToken(): void {
+    if (!info?.mcpAuthToken) return;
+    navigator.clipboard.writeText(info.mcpAuthToken);
+    setTokenCopied(true);
+    window.setTimeout(() => setTokenCopied(false), 1500);
   }
 
   if (!settings) {
@@ -108,6 +119,45 @@ export function Settings({ onImport }: Props): JSX.Element {
               </div>
             )}
           </div>
+
+          {info?.mcpAuthToken && (
+            <div className="mt-2">
+              <div className="text-[11px] text-slate-500 mb-1">
+                Auth token — required. Send as{" "}
+                <span className="mono text-slate-400">Authorization: Bearer &lt;token&gt;</span>. Keep
+                it secret.
+              </div>
+              <div
+                className="flex items-center gap-2"
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.03)",
+                  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
+                }}
+              >
+                <span className="flex-1 mono text-[12px] text-slate-300 truncate">
+                  {tokenShown ? info.mcpAuthToken : "•".repeat(24)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTokenShown((v) => !v)}
+                  className="text-slate-400 hover:text-slate-200 transition-colors"
+                  aria-label={tokenShown ? "Hide token" : "Reveal token"}
+                >
+                  {tokenShown ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={copyMcpToken}
+                  className="text-purple-400 hover:text-purple-300 transition-colors"
+                  aria-label="Copy token"
+                >
+                  {tokenCopied ? <Check size={13} /> : <Copy size={13} />}
+                </button>
+              </div>
+            </div>
+          )}
 
           <label className="flex items-center gap-2.5 mt-3 text-[12px] text-slate-400 cursor-pointer">
             <input

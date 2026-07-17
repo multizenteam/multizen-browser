@@ -50,6 +50,7 @@ import type { AppSettings } from "@multizen/settings-store";
 
 export interface SystemInfo {
   mcpHttpUrl: string | null;
+  mcpAuthToken: string | null;
   appVersion: string;
   platform: string;
 }
