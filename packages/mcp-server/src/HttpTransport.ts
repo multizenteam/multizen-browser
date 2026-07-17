@@ -69,6 +69,16 @@ export class HttpTransport {
   }
 
   async start(createMcp: () => McpServer): Promise<void> {
+    // Guardrail: this server exposes browser-control tools on loopback. It must
+    // never come up unauthenticated. Auth is wired today; warn loudly if a
+    // future change ever starts it without a token rather than failing silently
+    // open. (Empty string counts as "no token" for the check in handle().)
+    if (!this.opts.authToken) {
+      process.stderr.write(
+        "[multizen] WARNING: MCP HTTP transport starting WITHOUT an auth token — " +
+          "the local control port is UNAUTHENTICATED and any local process can drive it.\n",
+      );
+    }
     this.createMcp = createMcp;
     // One long-lived server instance backs the SSE path (behaviour unchanged
     // from when start() took a pre-built server). /mcp builds its own per call.
