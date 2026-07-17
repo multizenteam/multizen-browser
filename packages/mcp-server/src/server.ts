@@ -22,6 +22,128 @@ import type {
 } from "@multizen/types";
 import { ActivityLog } from "./ActivityLog.js";
 
+// ── Security gates (engine-independent, enforced in the MCP dispatch layer) ──
+
+/**
+ * Raised when a CDP call / URL is refused by a security gate (denylisted
+ * method, privileged URL scheme). Mapped to the "FORBIDDEN" audit code in the
+ * dispatch catch — distinct from INVALID_INPUT (bad shape) and INTERNAL_ERROR.
+ */
+class CdpPolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CdpPolicyError";
+  }
+}
+
+/**
+ * URL schemes an MCP-driven navigation must never reach: local files and
+ * privileged browser surfaces. A prompt-injected agent could otherwise read
+ * `file:///…` or drive `chrome://`/`devtools://` internals.
+ */
+const BLOCKED_URL_SCHEMES = ["file:", "chrome:", "devtools:", "view-source:"];
+
+/**
+ * Mirror Chromium's GURL normalization BEFORE the scheme prefix test, or the
+ * scan is trivially bypassed: GURL strips ALL tab/CR/LF from anywhere in the
+ * URL and strips every leading byte <= 0x20 (not just ASCII whitespace). A
+ * plain trimStart()+lowercase prefix test misses `fi\tle:///…` and `file:…`,
+ * both of which still navigate.
+ */
+function normalizeUrlForScan(s: string): string {
+  return s
+    .replace(/[\t\n\r]/g, "") // GURL strips these globally
+    .replace(/^[\x00-\x20]+/, "") // strip ALL leading control chars, not just whitespace
+    .toLowerCase();
+}
+
+function hasBlockedScheme(s: string): boolean {
+  const n = normalizeUrlForScan(s);
+  if (BLOCKED_URL_SCHEMES.some((p) => n.startsWith(p))) return true;
+  // Belt-and-suspenders: where the original string parses as a URL, reject on
+  // its protocol too (handles percent/host-form oddities the prefix scan misses).
+  try {
+    if (BLOCKED_URL_SCHEMES.includes(new URL(s).protocol)) return true;
+  } catch {
+    // unparseable → rely on the prefix scan
+  }
+  return false;
+}
+
+function assertSafeUrl(url: string): void {
+  if (hasBlockedScheme(url)) {
+    throw new CdpPolicyError(
+      `Refusing URL with a blocked scheme: ${url}. ` +
+        `file:/chrome:/devtools:/view-source: are not allowed.`,
+    );
+  }
+}
+
+/**
+ * Recursively scan every string value in a CDP params object (key-agnostic,
+ * so `url`, `urls[]`, nested history-entry urls, … are all covered) and reject
+ * any that carries a blocked scheme.
+ */
+function assertNoBlockedSchemeInParams(params?: Record<string, unknown>): void {
+  if (!params) return;
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") {
+      if (hasBlockedScheme(v)) {
+        throw new CdpPolicyError(`Refusing CDP params containing a blocked URL scheme: ${v}`);
+      }
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) walk(item);
+      return;
+    }
+    if (v && typeof v === "object") {
+      for (const item of Object.values(v as Record<string, unknown>)) walk(item);
+    }
+  };
+  walk(params);
+}
+
+/**
+ * Methods raw `cdp_send` must never invoke. Denylist (not allowlist) because
+ * the escape-hatch's value is breadth. Two classes:
+ *  - host filesystem / response interception (no stealth-safe agent use);
+ *  - cross-origin browser-secret readers an agent CANNOT already reach via
+ *    evaluate_js (same-origin policy), plus destructive-without-a-tool methods.
+ * LIVING list — extend when CDP adds storage/host-reaching methods.
+ */
+const CDP_DENY_METHODS = new Set([
+  // host filesystem / response interception
+  "IO.read",
+  "IO.resolveBlob",
+  "DOM.getFileInfo",
+  "Network.loadNetworkResource",
+  "Page.getResourceContent",
+  "Page.setDownloadBehavior",
+  "Browser.setDownloadBehavior",
+  // cross-origin BROWSER-SECRET exfil (reachable only via raw CDP, not from
+  // evaluate_js due to same-origin policy):
+  "Storage.getCookies", // ALL cookies incl httpOnly, every origin
+  "DOMStorage.getDOMStorageItems", // any origin's localStorage without navigating
+  "IndexedDB.requestData", // any origin's IndexedDB
+  "CacheStorage.requestEntries",
+  "CacheStorage.requestCachedResponse",
+  // destructive-without-a-tool (a prompt-injected agent could wipe/quit):
+  "Storage.clearDataForOrigin",
+  "Storage.clearCookies",
+  "Browser.close",
+]);
+
+function assertCdpMethodAllowed(method: string, params?: Record<string, unknown>): void {
+  if (CDP_DENY_METHODS.has(method) || method.startsWith("Fetch.")) {
+    throw new CdpPolicyError(
+      `CDP method ${method} is denied: it can reach the host filesystem, ` +
+        `intercept traffic, or read cross-origin browser secrets.`,
+    );
+  }
+  assertNoBlockedSchemeInParams(params);
+}
+
 /**
  * BrowserDriver is the surface that the MCP server delegates real
  * browser work to. The desktop app implements it on top of patched
@@ -89,6 +211,27 @@ const TabIdSchema = ProfileIdSchema.extend({
 });
 const WaitForLoadSchema = ProfileIdSchema.extend({
   timeout_ms: z.number().int().positive().optional(),
+  sessionId: z.string().optional(),
+});
+
+// ── Security-gated CDP tool schemas ─────────────────────────────────────────
+const CdpSendSchema = ProfileIdSchema.extend({
+  method: z.string().min(1),
+  params: z.record(z.unknown()).optional(),
+  sessionId: z.string().optional(),
+});
+const GetCookiesSchema = ProfileIdSchema.extend({
+  // Required & non-empty: no dump-all default. Bulk cookie reads must go
+  // through an explicit, scheme-scanned URL scope.
+  urls: z.array(z.string().url()).min(1),
+  sessionId: z.string().optional(),
+});
+const SetCookiesSchema = ProfileIdSchema.extend({
+  cookies: z.array(z.object({ name: z.string(), value: z.string() }).passthrough()).min(1),
+  sessionId: z.string().optional(),
+});
+const NewTabSchema = ProfileIdSchema.extend({
+  url: z.string().optional(),
   sessionId: z.string().optional(),
 });
 
@@ -222,9 +365,11 @@ export function createMultizenMcpServer(opts: MultizenMcpServerOptions): Multize
     } catch (e) {
       const message = e instanceof z.ZodError ? e.message : e instanceof Error ? e.message : String(e);
       const code =
-        e instanceof z.ZodError || e instanceof FingerprintReconcileError
-          ? "INVALID_INPUT"
-          : "INTERNAL_ERROR";
+        e instanceof CdpPolicyError
+          ? "FORBIDDEN"
+          : e instanceof z.ZodError || e instanceof FingerprintReconcileError
+            ? "INVALID_INPUT"
+            : "INTERNAL_ERROR";
       activityLog.finish(event, "error", message, startedAt);
       return err(code, message);
     }
@@ -334,6 +479,8 @@ async function dispatch(
     case "navigate": {
       const { profile_id, url } = NavigateSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
+      // z.string().url() accepts file://; reject privileged schemes here.
+      assertSafeUrl(url);
       return await browserDriver.navigate(profile_id, url);
     }
     case "click": {
@@ -438,6 +585,45 @@ async function dispatch(
         timeout_ms ?? 30000,
       );
       return { loaded };
+    }
+    case "cdp_send": {
+      const { profile_id, method, params, sessionId } = CdpSendSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // Engine-independent gate: denylisted method or blocked URL scheme in any
+      // param → CdpPolicyError (FORBIDDEN), driver never called.
+      assertCdpMethodAllowed(method, params);
+      return await browserDriver.cdpSend(profile_id, method, params, sessionId, { safe: true });
+    }
+    case "get_cookies": {
+      const { profile_id, urls, sessionId } = GetCookiesSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      for (const u of urls) assertSafeUrl(u);
+      // Network.getCookies works without Network.enable; the urls scope is
+      // required (no dump-all) — bulk reads must be explicitly scoped.
+      return await browserDriver.cdpSend(profile_id, "Network.getCookies", { urls }, sessionId, {
+        safe: true,
+      });
+    }
+    case "set_cookies": {
+      const { profile_id, cookies, sessionId } = SetCookiesSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      // Network.setCookies (plural) sets the whole batch in one call without
+      // Network.enable.
+      return await browserDriver.cdpSend(profile_id, "Network.setCookies", { cookies }, sessionId, {
+        safe: true,
+      });
+    }
+    case "new_tab": {
+      const { profile_id, url, sessionId } = NewTabSchema.parse(args);
+      assertProfileRunning(browserDriver, profile_id);
+      if (url) assertSafeUrl(url);
+      return await browserDriver.cdpSend(
+        profile_id,
+        "Target.createTarget",
+        { url: url ?? "about:blank" },
+        sessionId,
+        { safe: true },
+      );
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -717,6 +903,81 @@ const TOOL_DEFINITIONS = [
       properties: {
         profile_id: { type: "string" },
         timeout_ms: { type: "integer", minimum: 1, description: "Wait budget in ms (default 30000)" },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "cdp_send",
+    description:
+      "Send a raw Chrome DevTools Protocol command (stealth-safe). Any domain this call had to enable is auto-disabled afterwards so the anti-detect baseline is preserved; domains enabled at connect (Page) are never touched. On anti-detect engines, enabling a DCHECK-sensitive domain (Runtime/Network) is refused — use the convenience wrappers (evaluate_js, get_cookies, …) which need no enable. For safety, host-reaching and cross-origin-secret methods (IO.read, Fetch.*, Storage.getCookies, …) and privileged/local URL schemes (file:/chrome:/devtools:/view-source:) are rejected.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "method"],
+      properties: {
+        profile_id: { type: "string" },
+        method: { type: "string", description: "CDP method, e.g. 'Runtime.evaluate'" },
+        params: { type: "object", description: "CDP command params" },
+        sessionId: { type: "string", description: "Optional flattened CDP sessionId for a sub-target" },
+      },
+    },
+  },
+  {
+    name: "get_cookies",
+    description:
+      "Get cookies for one or more URLs via Network.getCookies (no Network.enable needed). `urls` is REQUIRED and non-empty — the scope must be explicit; dumping the entire cookie store is not allowed.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "urls"],
+      properties: {
+        profile_id: { type: "string" },
+        urls: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          description: "Required non-empty list of URLs to scope the cookie read to.",
+        },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "set_cookies",
+    description:
+      "Set one or more cookies via Network.setCookies (no Network.enable needed). Each cookie needs at least name and value; CDP fields like url, domain, path, expires, httpOnly, secure, sameSite are also accepted.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id", "cookies"],
+      properties: {
+        profile_id: { type: "string" },
+        cookies: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["name", "value"],
+            properties: {
+              name: { type: "string" },
+              value: { type: "string" },
+              url: { type: "string" },
+              domain: { type: "string" },
+              path: { type: "string" },
+            },
+          },
+        },
+        sessionId: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "new_tab",
+    description:
+      "Open a new tab via Target.createTarget. Defaults to about:blank if no url is given. Rejects file:/chrome:/devtools:/view-source: URLs.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: {
+        profile_id: { type: "string" },
+        url: { type: "string", description: "URL to open (default about:blank)" },
         sessionId: { type: "string" },
       },
     },

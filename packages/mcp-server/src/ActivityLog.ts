@@ -89,6 +89,12 @@ function sanitize(args: Record<string, unknown>): Record<string, unknown> {
         password?: unknown;
       };
       out[k] = { type: p.type, host: p.host, port: p.port, hasAuth: Boolean(p.username || p.password) };
+    } else if (k === "cookies" && Array.isArray(v)) {
+      // set_cookies args carry cookie values (session tokens) in cleartext.
+      // Redact each value in the audit trail; keep name/domain/etc. for context.
+      out[k] = v.map((c) =>
+        c && typeof c === "object" ? { ...(c as Record<string, unknown>), value: "***" } : c,
+      );
     } else {
       out[k] = v;
     }
