@@ -51,3 +51,15 @@ jobs:
 
       - name: Typecheck (all workspaces)
         run: yarn typecheck
+
+      - name: Fingerprint unit scripts
+        run: |
+          npx tsx packages/profile-manager/scripts/test-fingerprint.ts
+          npx tsx packages/profile-manager/scripts/test-fingerprint-entropy.ts
+          npx tsx packages/profile-manager/scripts/check-chrome-version.ts
+
+      - name: Launch timezone unit tests
+        run: npx tsx --test apps/desktop/src/main/launchTimezone.test.ts
+
+      - name: Fingerprint seed smoke (offline; live MCP optional)
+        run: npx tsx packages/mcp-server/scripts/smoke-fingerprint-seed.ts

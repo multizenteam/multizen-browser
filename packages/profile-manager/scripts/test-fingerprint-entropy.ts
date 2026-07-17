@@ -51,10 +51,10 @@ function diversityForLocale(localeId: string): void {
     `${localeId}: ${combos.size} coarse combos / 30 seeds; ${webgls.size} WebGL pairs / 50 seeds (host=${hostPlatformFamily()})`,
   );
 
-  // On Windows host pool we expect high diversity; on Mac/Linux still
-  // require meaningful spread (≥10 combos, ≥5 WebGL) given expanded catalogs.
-  const minCombos = hostPlatformFamily() === "windows" ? 20 : 10;
-  const minWebgl = hostPlatformFamily() === "windows" ? 10 : 5;
+  // Windows host pool stays high; Mac/Linux raised after catalog expansion
+  // (plan E: ≥15 coarse / ≥8 WebGL).
+  const minCombos = hostPlatformFamily() === "windows" ? 20 : 15;
+  const minWebgl = hostPlatformFamily() === "windows" ? 10 : 8;
   assert(
     combos.size >= minCombos,
     `P0-1 FAIL: ${localeId} only ${combos.size} combos (need ≥${minCombos})`,
@@ -158,12 +158,35 @@ function catalogGaps(): void {
   console.log("P0-6 gap locales present in localeCatalog()");
 }
 
+/** CloakBrowser-style: generate without host snap → full cross-OS pool diversity. */
+function noHostFilterDiversity(): void {
+  const platforms = new Set<string>();
+  const combos = new Set<string>();
+  for (let i = 0; i < 40; i++) {
+    const fp = generateFingerprint(`cloak-full-${i}`, { hostFilter: false });
+    platforms.add(fp.platform);
+    combos.add(coarseHash(fp));
+  }
+  assert(
+    platforms.size >= 2,
+    `hostFilter:false must produce ≥2 navigator.platform values (got ${[...platforms].join(",")})`,
+  );
+  assert(
+    combos.size >= 20,
+    `hostFilter:false only ${combos.size} coarse combos / 40 seeds (need ≥20)`,
+  );
+  console.log(
+    `hostFilter:false: ${combos.size} coarse / 40 seeds; platforms=${[...platforms].join("|")}`,
+  );
+}
+
 function run(): void {
   catalogGaps();
   reconcileHonor();
   diversityForLocale("bn-BD");
   diversityForLocale("en-PK");
   seedStability();
+  noHostFilterDiversity();
   console.log("\nAll entropy acceptance checks passed.");
 }
 

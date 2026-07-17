@@ -30,6 +30,8 @@ interface ProfileRow {
   icon: string | null;
   start_url: string | null;
   search_provider: string | null;
+  align_timezone_to_proxy: number | null;
+  strict_geo_coherence: number | null;
 }
 
 export interface ProfileManagerOptions {
@@ -82,6 +84,12 @@ export class ProfileManager {
     }
     if (!cols.some((c) => c.name === "search_provider")) {
       this.db.exec(`ALTER TABLE profiles ADD COLUMN search_provider TEXT`);
+    }
+    if (!cols.some((c) => c.name === "align_timezone_to_proxy")) {
+      this.db.exec(`ALTER TABLE profiles ADD COLUMN align_timezone_to_proxy INTEGER`);
+    }
+    if (!cols.some((c) => c.name === "strict_geo_coherence")) {
+      this.db.exec(`ALTER TABLE profiles ADD COLUMN strict_geo_coherence INTEGER`);
     }
   }
 
@@ -145,13 +153,15 @@ export class ProfileManager {
       dataDir,
       createdAt: now,
       updatedAt: now,
+      alignTimezoneToProxy: input.alignTimezoneToProxy,
+      strictGeoCoherence: input.strictGeoCoherence,
     };
 
     this.db
       .prepare(
         `INSERT INTO profiles
-         (id, name, notes, tags, proxy, fingerprint, extensions, icon, start_url, search_provider, data_dir, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, name, notes, tags, proxy, fingerprint, extensions, icon, start_url, search_provider, data_dir, created_at, updated_at, align_timezone_to_proxy, strict_geo_coherence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         profile.id,
@@ -167,6 +177,8 @@ export class ProfileManager {
         profile.dataDir,
         profile.createdAt,
         profile.updatedAt,
+        profile.alignTimezoneToProxy ? 1 : null,
+        profile.strictGeoCoherence ? 1 : null,
       );
 
     return profile;
@@ -189,8 +201,8 @@ export class ProfileManager {
     this.db
       .prepare(
         `INSERT INTO profiles
-         (id, name, notes, tags, proxy, fingerprint, extensions, icon, start_url, search_provider, data_dir, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, name, notes, tags, proxy, fingerprint, extensions, icon, start_url, search_provider, data_dir, created_at, updated_at, align_timezone_to_proxy, strict_geo_coherence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         profile.id,
@@ -206,6 +218,8 @@ export class ProfileManager {
         profile.dataDir,
         profile.createdAt,
         profile.updatedAt,
+        profile.alignTimezoneToProxy ? 1 : null,
+        profile.strictGeoCoherence ? 1 : null,
       );
     return profile;
   }
@@ -236,6 +250,14 @@ export class ProfileManager {
         patch.searchProvider === null
           ? undefined
           : (patch.searchProvider ?? existing.searchProvider),
+      alignTimezoneToProxy:
+        patch.alignTimezoneToProxy === null
+          ? undefined
+          : (patch.alignTimezoneToProxy ?? existing.alignTimezoneToProxy),
+      strictGeoCoherence:
+        patch.strictGeoCoherence === null
+          ? undefined
+          : (patch.strictGeoCoherence ?? existing.strictGeoCoherence),
       updatedAt: now,
       // Stale country if proxy changed — next launch / Test re-probes.
       proxyCountry: proxyChanged ? undefined : existing.proxyCountry,
@@ -245,7 +267,8 @@ export class ProfileManager {
       .prepare(
         `UPDATE profiles SET
            name = ?, notes = ?, tags = ?, proxy = ?, fingerprint = ?, extensions = ?,
-           icon = ?, start_url = ?, search_provider = ?, updated_at = ?, proxy_country = ?
+           icon = ?, start_url = ?, search_provider = ?, updated_at = ?, proxy_country = ?,
+           align_timezone_to_proxy = ?, strict_geo_coherence = ?
          WHERE id = ?`,
       )
       .run(
@@ -260,6 +283,8 @@ export class ProfileManager {
         merged.searchProvider ?? null,
         merged.updatedAt,
         merged.proxyCountry ?? null,
+        merged.alignTimezoneToProxy ? 1 : null,
+        merged.strictGeoCoherence ? 1 : null,
         id,
       );
 
@@ -333,6 +358,8 @@ export class ProfileManager {
       updatedAt: row.updated_at,
       lastOpenedAt: row.last_opened_at ?? undefined,
       proxyCountry: row.proxy_country ?? undefined,
+      alignTimezoneToProxy: row.align_timezone_to_proxy === 1 ? true : undefined,
+      strictGeoCoherence: row.strict_geo_coherence === 1 ? true : undefined,
     };
   }
 }

@@ -114,13 +114,22 @@ const WaitForLoadSchema = ProfileIdSchema.extend({
  *  `DeviceFamily` union in @multizen/types; call `list_fingerprint_options`
  *  for the human-readable catalog. */
 const DEVICE_FAMILIES = [
+  "macbook-pro-14-m2",
   "macbook-pro-14-m3",
   "macbook-pro-14-m3-pro",
+  "macbook-pro-14-m4",
+  "macbook-pro-16-m3",
   "macbook-pro-16-m3-pro",
+  "macbook-pro-16-m4-pro",
+  "macbook-air-13-m2",
   "macbook-air-13-m3",
+  "macbook-air-13-m4",
+  "macbook-air-15-m2",
   "macbook-air-15-m3",
   "imac-24-m3",
+  "imac-24-m4",
   "mac-mini-m2",
+  "mac-mini-m4",
   "windows-laptop-intel",
   "windows-laptop-intel-uhd",
   "windows-laptop-amd",
@@ -130,6 +139,9 @@ const DEVICE_FAMILIES = [
   "windows-desktop-nvidia-4080",
   "windows-desktop-amd",
   "windows-desktop-intel",
+  "linux-laptop-intel",
+  "linux-laptop-amd",
+  "linux-laptop-nvidia",
   "linux-desktop-intel",
   "linux-desktop-amd",
   "linux-desktop-nvidia",
@@ -178,6 +190,10 @@ const CreateProfileSchema = z.object({
   seed: z.string().min(1).optional(),
   /** Alias for seed (same semantics). */
   entropy: z.string().min(1).optional(),
+  /** Opt-in: apply proxy-geo TZ when it is in the locale allowlist. Default off (strict pin). */
+  alignTimezoneToProxy: z.boolean().optional(),
+  /** When true, launch fails if proxy-geo country ≠ fingerprint.country. */
+  strictGeoCoherence: z.boolean().optional(),
 });
 
 const UpdateProfileSchema = ProfileIdSchema.extend({
@@ -187,6 +203,8 @@ const UpdateProfileSchema = ProfileIdSchema.extend({
   // `null` clears the proxy; omitted leaves it untouched.
   proxy: ProxySchema.nullable().optional(),
   fingerprint: FingerprintInputSchema.optional(),
+  alignTimezoneToProxy: z.boolean().nullable().optional(),
+  strictGeoCoherence: z.boolean().nullable().optional(),
 });
 
 /**
@@ -280,6 +298,8 @@ async function dispatch(
         notes: input.notes,
         tags: input.tags,
         proxy: input.proxy,
+        alignTimezoneToProxy: input.alignTimezoneToProxy,
+        strictGeoCoherence: input.strictGeoCoherence,
       };
       const seed =
         input.seed ?? input.entropy ?? input.fingerprint?.seed;
@@ -312,6 +332,12 @@ async function dispatch(
       if (input.tags !== undefined) patch.tags = input.tags;
       // `proxy: null` clears it, `proxy: {…}` sets it, omitted leaves as-is.
       if (input.proxy !== undefined) patch.proxy = input.proxy;
+      if (input.alignTimezoneToProxy !== undefined) {
+        patch.alignTimezoneToProxy = input.alignTimezoneToProxy;
+      }
+      if (input.strictGeoCoherence !== undefined) {
+        patch.strictGeoCoherence = input.strictGeoCoherence;
+      }
       if (input.fingerprint !== undefined) {
         const { seed: patchSeed, ...fingerprintPatch } = input.fingerprint;
         const reconciled = reconcileFingerprint(existing.fingerprint, fingerprintPatch);
@@ -509,9 +535,136 @@ async function dispatch(
       );
       return { loaded };
     }
+    case "probe_fingerprint": {
+      const { profile_id } = ProfileIdSchema.parse(args);
+      assertProfileExists(profileManager, profile_id);
+      assertProfileRunning(browserDriver, profile_id);
+      const profile = profileManager.get(profile_id)!;
+      const expected = profile.fingerprint;
+
+      const expression = `(() => {
+        const canvasHash = (() => {
+          try {
+            const c = document.createElement("canvas");
+            c.width = 220; c.height = 30;
+            const ctx = c.getContext("2d");
+            if (!ctx) return null;
+            ctx.textBaseline = "top";
+            ctx.font = "14px Arial";
+            ctx.fillStyle = "#f60";
+            ctx.fillRect(125, 1, 62, 20);
+            ctx.fillStyle = "#069";
+            ctx.fillText("MultiZen probe", 2, 15);
+            const data = c.toDataURL();
+            let h = 0;
+            for (let i = 0; i < data.length; i++) h = ((h << 5) - h + data.charCodeAt(i)) | 0;
+            return (h >>> 0).toString(16);
+          } catch { return null; }
+        })();
+        let webgl = { vendor: null, renderer: null };
+        try {
+          const c = document.createElement("canvas");
+          const gl = c.getContext("webgl") || c.getContext("experimental-webgl");
+          if (gl) {
+            const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+            if (dbg) {
+              webgl = {
+                vendor: gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL),
+                renderer: gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL),
+              };
+            }
+          }
+        } catch {}
+        return {
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+          languages: Array.from(navigator.languages || []),
+          hardwareConcurrency: navigator.hardwareConcurrency,
+          deviceMemory: navigator.deviceMemory ?? null,
+          screen: { width: screen.width, height: screen.height },
+          webgl,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          canvasHash,
+        };
+      })()`;
+
+      const res = (await browserDriver.cdpSend(
+        profile_id,
+        "Runtime.evaluate",
+        { expression, returnByValue: true },
+        undefined,
+        { safe: true },
+      )) as { result?: { value?: LiveFingerprintProbe }; exceptionDetails?: unknown };
+
+      if (res.exceptionDetails || !res.result?.value) {
+        throw new Error("probe_fingerprint: Runtime.evaluate failed to collect live surfaces");
+      }
+      const live = res.result.value;
+      const drift: string[] = [];
+      if (live.userAgent !== expected.userAgent) drift.push("userAgent");
+      if (live.platform !== expected.platform) drift.push("platform");
+      if (live.timezone !== expected.timezone) drift.push("timezone");
+      if (live.hardwareConcurrency !== expected.hardwareConcurrency) {
+        drift.push("hardwareConcurrency");
+      }
+      if (
+        live.deviceMemory !== null &&
+        live.deviceMemory !== expected.deviceMemory
+      ) {
+        drift.push("deviceMemory");
+      }
+      if (
+        live.screen.width !== expected.screen.width ||
+        live.screen.height !== expected.screen.height
+      ) {
+        drift.push("screen");
+      }
+      if (
+        live.webgl.vendor !== expected.webgl.vendor ||
+        live.webgl.renderer !== expected.webgl.renderer
+      ) {
+        drift.push("webgl");
+      }
+      const expectedLangs = expected.languages.join(",");
+      const liveLangs = (live.languages ?? []).join(",");
+      if (liveLangs && liveLangs !== expectedLangs) drift.push("languages");
+
+      return {
+        ok: drift.length === 0,
+        live,
+        expected: {
+          userAgent: expected.userAgent,
+          platform: expected.platform,
+          languages: expected.languages,
+          hardwareConcurrency: expected.hardwareConcurrency,
+          deviceMemory: expected.deviceMemory,
+          screen: expected.screen,
+          webgl: expected.webgl,
+          timezone: expected.timezone,
+          seed: expected.seed,
+        },
+        drift,
+        notes: [
+          "CloakBrowser: pinned fields should show drift=[]. canvasHash is informational (seed-driven noise).",
+          "CFT: host-bound surfaces (platform/WebGL/hwc) may drift — stock Chromium cannot fully spoof them.",
+        ],
+      };
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+interface LiveFingerprintProbe {
+  userAgent: string;
+  platform: string;
+  languages: string[];
+  hardwareConcurrency: number;
+  deviceMemory: number | null;
+  screen: { width: number; height: number };
+  webgl: { vendor: string | null; renderer: string | null };
+  timezone: string;
+  canvasHash: string | null;
 }
 
 const PROXY_JSON_SCHEMA = {
@@ -606,6 +759,16 @@ const TOOL_DEFINITIONS = [
           type: "string",
           minLength: 1,
           description: "Alias for seed.",
+        },
+        alignTimezoneToProxy: {
+          type: "boolean",
+          description:
+            "Opt-in: at launch, apply proxy-geo timezone when it is in the locale allowlist. Default false (strict pin — fingerprint.timezone wins).",
+        },
+        strictGeoCoherence: {
+          type: "boolean",
+          description:
+            "When true, launch fails if proxy-geo country ≠ fingerprint.country. Default false (warn only).",
         },
       },
     },
@@ -708,6 +871,16 @@ const TOOL_DEFINITIONS = [
           anyOf: [PROXY_JSON_SCHEMA, { type: "null" }],
         },
         fingerprint: FINGERPRINT_JSON_SCHEMA,
+        alignTimezoneToProxy: {
+          description:
+            "Opt-in strict-pin override: apply proxy-geo TZ when allowlisted. null clears the flag.",
+          anyOf: [{ type: "boolean" }, { type: "null" }],
+        },
+        strictGeoCoherence: {
+          description:
+            "Fail launch on geo/fingerprint country mismatch. null clears the flag.",
+          anyOf: [{ type: "boolean" }, { type: "null" }],
+        },
       },
     },
   },
@@ -726,6 +899,16 @@ const TOOL_DEFINITIONS = [
     description:
       "List the valid fingerprint building blocks: device families (with their real screen sizes) and locale groups (locale, country, plausible timezones). Use these values for the `device`, `localeId`, `timezone`, and `screen` fields of create_profile / update_profile.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "probe_fingerprint",
+    description:
+      "Read back live fingerprint surfaces from a running profile (UA, platform, languages, hwc, deviceMemory, screen, WebGL, timezone, optional canvas hash) and compare to the stored profile.fingerprint. Returns { ok, live, expected, drift[] }. CloakBrowser: pinned fields should have empty drift. CFT: host-bound platform/WebGL/hwc may legitimately drift. Profile must be launched first.",
+    inputSchema: {
+      type: "object",
+      required: ["profile_id"],
+      properties: { profile_id: { type: "string" } },
+    },
   },
   {
     name: "cdp_send",
