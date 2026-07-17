@@ -25,6 +25,7 @@ import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
 import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
 import { UpdaterService } from "./UpdaterService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
+import { loadOrCreateMcpToken } from "./mcpToken.ts";
 import { ExtensionsService } from "./extensions/ExtensionsService.ts";
 import {
   sweepOrphans,
@@ -71,6 +72,7 @@ const recentCompanionInstalls = new Set<string>();
 let activityLog: ActivityLog;
 let settingsStore: SettingsStore;
 let httpTransport: HttpTransport | null = null;
+let mcpAuthToken: string | null = null;
 let cachedSettings: AppSettings | null = null;
 
 function createWindow(): void {
@@ -274,7 +276,14 @@ app.whenReady().then(async () => {
   // Optional embedded HTTP+SSE transport so external Cursor/Claude can connect
   if (cachedSettings.mcpHttpEnabled) {
     try {
-      httpTransport = new HttpTransport({ port: cachedSettings.mcpHttpPort });
+      // Require a bearer token so only clients that hold the locally-stored
+      // secret (not a random local process, not a DNS-rebinding web page) can
+      // drive the browser-control tools. Generated + persisted 0600 on first run.
+      mcpAuthToken = loadOrCreateMcpToken(userData);
+      httpTransport = new HttpTransport({
+        port: cachedSettings.mcpHttpPort,
+        authToken: mcpAuthToken,
+      });
       // Streamable HTTP builds a fresh MCP server per request; give it a factory
       // that reuses the same profileManager/browserDriver AND the shared
       // activityLog, so every transport's tool calls land in the one live feed.
@@ -572,6 +581,9 @@ app.whenReady().then(async () => {
   // System info
   ipcMain.handle("system:info", () => ({
     mcpHttpUrl: httpTransport ? `http://127.0.0.1:${cachedSettings?.mcpHttpPort}` : null,
+    // Bearer token an MCP client must send as `Authorization: Bearer <token>`.
+    // Surfaced so the in-app panel can show a ready-to-paste client config.
+    mcpAuthToken: httpTransport ? mcpAuthToken : null,
     appVersion: app.getVersion(),
     platform: process.platform,
   }));

@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import type { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -95,13 +96,32 @@ export class HttpTransport {
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 
+  /** Constant-time bearer check; false if no/incorrect token when one is required. */
+  private authOk(req: IncomingMessage): boolean {
+    const token = this.opts.authToken;
+    if (!token) return true; // auth disabled
+    const expected = Buffer.from(`Bearer ${token}`);
+    const got = Buffer.from(req.headers.authorization ?? "");
+    // Length check first — timingSafeEqual throws on unequal lengths, and the
+    // length itself isn't the secret.
+    return got.length === expected.length && timingSafeEqual(got, expected);
+  }
+
+  /** Host header must name our own loopback endpoint (DNS-rebinding defence). */
+  private hostAllowed(req: IncomingMessage): boolean {
+    return this.allowedHosts.includes((req.headers.host ?? "").toLowerCase());
+  }
+
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (this.opts.authToken) {
-      const auth = req.headers.authorization ?? "";
-      if (auth !== `Bearer ${this.opts.authToken}`) {
-        res.writeHead(401).end("unauthorized");
-        return;
-      }
+    if (!this.authOk(req)) {
+      res.writeHead(401, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          error: "unauthorized",
+          detail:
+            "Send 'Authorization: Bearer <token>'. The token is shown in MultiZen → Settings → MCP, or in the 'mcp-token' file in the app data directory.",
+        }),
+      );
+      return;
     }
 
     const url = req.url ?? "/";
@@ -127,6 +147,13 @@ export class HttpTransport {
     }
 
     if (req.method === "GET" && url.startsWith("/sse")) {
+      // The Streamable /mcp path validates Host via the SDK transport
+      // (enableDnsRebindingProtection). The legacy SSE path has no such guard,
+      // so enforce the same loopback Host allowlist here explicitly.
+      if (!this.hostAllowed(req)) {
+        res.writeHead(403).end("forbidden host");
+        return;
+      }
       if (!this.sseServer) {
         res.writeHead(503).end("mcp not started");
         return;
@@ -139,6 +166,10 @@ export class HttpTransport {
     }
 
     if (req.method === "POST" && url.startsWith("/messages")) {
+      if (!this.hostAllowed(req)) {
+        res.writeHead(403).end("forbidden host");
+        return;
+      }
       if (!this.sseTransport) {
         res.writeHead(409).end("no SSE stream open");
         return;
