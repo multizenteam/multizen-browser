@@ -13,6 +13,7 @@ import type { BrowserDriver } from "@multizen/mcp-server";
 import type { ProfileManager } from "@multizen/profile-manager";
 import { reconcileDeviceFamilyToHost } from "@multizen/profile-manager";
 import type { ClientHints, FingerprintConfig, LaunchedProfile, ProfileId } from "@multizen/types";
+import { waitForCdpSessionReady } from "./cdpReadiness";
 import type { BrowserEngine } from "@multizen/settings-store";
 import { CdpSession } from "@multizen/cdp-driver";
 import type { ChromiumBootstrap } from "./ChromiumBootstrap";
@@ -427,9 +428,12 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     const startedAt = new Date().toISOString();
     const cdpEndpoint = `http://127.0.0.1:${port}`;
 
-    const session = new CdpSession({ port });
-    await waitForCdpReady(port, 10000);
-    await session.connect();
+    const session = new CdpSession({ port, engine });
+    // Staged readiness: /json/version → a page target exists → connect+attach,
+    // all within one budget. Guarantees the profile is actually drivable before
+    // launch() resolves, so an MCP navigate/extract right after launch can't
+    // race a not-yet-ready CDP endpoint.
+    await waitForCdpSessionReady(port, session, 15000);
 
     // Apply per-target emulation: timezone, locale, Sec-CH-UA via
     // userAgentMetadata (works on stock Chromium — no patches needed!),
@@ -1895,23 +1899,6 @@ async function ensureSessionRestore(dataDir: string): Promise<void> {
   const tmpPath = `${prefsPath}.multizen.tmp`;
   await fsp.writeFile(tmpPath, JSON.stringify(prefs));
   await fsp.rename(tmpPath, prefsPath);
-}
-
-async function waitForCdpReady(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  let lastError: unknown = null;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
-      if (res.ok) return;
-    } catch (e) {
-      lastError = e;
-    }
-    await sleep(150);
-  }
-  throw new Error(
-    `CDP did not become ready on port ${port} within ${timeoutMs}ms: ${String(lastError)}`,
-  );
 }
 
 function sleep(ms: number): Promise<void> {
