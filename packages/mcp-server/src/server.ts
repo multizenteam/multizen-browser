@@ -113,12 +113,14 @@ function assertNoBlockedSchemeInParams(params?: Record<string, unknown>): void {
  * LIVING list — extend when CDP adds storage/host-reaching methods.
  */
 const CDP_DENY_METHODS = new Set([
-  // host filesystem / response interception
+  // host filesystem / response-content read (host FS reach beyond the page):
   "IO.read",
   "IO.resolveBlob",
   "DOM.getFileInfo",
+  "DOM.setFileInputFiles", // reads arbitrary host files (paths) into a page input → exfil
   "Network.loadNetworkResource",
   "Page.getResourceContent",
+  "Page.searchInResource", // line-by-line read of loaded (incl. cross-origin/file://) resource content
   "Page.setDownloadBehavior",
   "Browser.setDownloadBehavior",
   // cross-origin BROWSER-SECRET exfil (reachable only via raw CDP, not from
@@ -130,14 +132,26 @@ const CDP_DENY_METHODS = new Set([
   "IndexedDB.requestData", // any origin's IndexedDB
   "CacheStorage.requestEntries",
   "CacheStorage.requestCachedResponse",
-  // destructive-without-a-tool (a prompt-injected agent could wipe/quit) —
-  // again both domain spellings:
+  // destructive-without-a-tool (a prompt-injected agent could wipe/tamper/quit).
+  // Cross-origin storage WRITE/WIPE siblings of the denied readers above — all
+  // reach another origin's storage without navigating, beyond evaluate_js:
   "Storage.clearDataForOrigin",
   "Storage.clearCookies",
   "Network.clearBrowserCookies",
   "Network.deleteCookies",
   "Network.clearBrowserCache",
+  "DOMStorage.clear",
+  "DOMStorage.setDOMStorageItem",
+  "DOMStorage.removeDOMStorageItem",
+  "IndexedDB.deleteDatabase",
+  "IndexedDB.clearObjectStore",
+  "IndexedDB.deleteObjectStoreEntries",
+  "CacheStorage.deleteCache",
+  "CacheStorage.deleteEntry",
+  // browser lifecycle / DoS:
   "Browser.close",
+  "Browser.crash",
+  "Browser.crashGpuProcess",
 ]);
 
 function assertCdpMethodAllowed(method: string, params?: Record<string, unknown>): void {

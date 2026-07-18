@@ -284,15 +284,21 @@ for (const name of ["wait_for_navigation", "wait_for_load"] as const) {
 
 for (const method of [
   "IO.read",
+  "DOM.setFileInputFiles", // host-FS read via file input — hard blocker
   "Storage.getCookies",
   "Network.getAllCookies", // Network-domain alias of the bulk cookie dump — must also be denied
   "DOMStorage.getDOMStorageItems",
+  "DOMStorage.setDOMStorageItem", // cross-origin storage write/tamper
   "IndexedDB.requestData",
+  "IndexedDB.deleteDatabase", // cross-origin storage wipe
   "Browser.close",
+  "Browser.crash", // DoS
   "Storage.clearCookies",
   "Network.clearBrowserCookies", // Network-domain destructive alias
   "Network.deleteCookies",
+  "Network.clearBrowserCache",
   "Page.getResourceContent",
+  "Page.searchInResource", // resource-content read (no enable needed) — hard blocker
   "Fetch.enable",
   "Fetch.requestPaused",
 ]) {
