@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import extract from "extract-zip";
@@ -271,6 +271,13 @@ export class ChromiumBootstrap extends EventEmitter {
           // because we just verified the signature ourselves.
           await execFileP("xattr", ["-dr", "com.apple.quarantine", appBundle]).catch(() => {
             // xattr may legitimately fail if the attribute is absent.
+          });
+          // Rebrand the bundle so the Dock/menu-bar show "MultiZen" + our icon
+          // instead of the generic "Chromium". Best-effort — never block launch.
+          await this.rebrandMacBundle(appBundle).catch((e: unknown) => {
+            process.stderr.write(
+              `[multizen] engine bundle rebrand skipped: ${(e as Error).message}\n`,
+            );
           });
         }
       }
@@ -607,6 +614,53 @@ export class ChromiumBootstrap extends EventEmitter {
     const subdir = "chrome-linux64";
     const path = join(rootDir, subdir, "chrome");
     return existsSync(path) ? path : null;
+  }
+
+  /**
+   * Rebrand the extracted macOS engine bundle: set the Dock / ⌘-Tab / menu-bar
+   * name to "MultiZen" and swap the app icon for ours, so a launched profile
+   * shows up as MultiZen rather than a generic blue "Chromium".
+   *
+   * Edits Info.plist + Resources/<icon> ONLY — deliberately does NOT re-sign.
+   * The engine bundle is ad-hoc signed; verified empirically that (a) an edited,
+   * now-unsealed ad-hoc bundle still launches fine (no hardened runtime / library
+   * validation enforces the seal at exec), while (b) ANY re-sign — top-level or
+   * `--deep` — breaks Chromium's multi-process launch. So edit-only is correct.
+   * macOS-only; best-effort (caller swallows failures).
+   */
+  private async rebrandMacBundle(appBundle: string): Promise<void> {
+    const plist = join(appBundle, "Contents", "Info.plist");
+    const pb = "/usr/libexec/PlistBuddy";
+    await execFileP(pb, ["-c", "Set :CFBundleName MultiZen", plist]).catch(() =>
+      execFileP(pb, ["-c", "Add :CFBundleName string MultiZen", plist]),
+    );
+    await execFileP(pb, ["-c", "Set :CFBundleDisplayName MultiZen", plist]).catch(() =>
+      execFileP(pb, ["-c", "Add :CFBundleDisplayName string MultiZen", plist]),
+    );
+    const iconFile = await execFileP(pb, ["-c", "Print :CFBundleIconFile", plist])
+      .then((r) => r.stdout.trim())
+      .catch(() => "app.icns");
+    const iconName = iconFile.endsWith(".icns") ? iconFile : `${iconFile}.icns`;
+    const iconSrc = this.resolveIcns();
+    if (iconSrc) {
+      await copyFile(iconSrc, join(appBundle, "Contents", "Resources", iconName));
+    }
+    // No codesign — see the doc comment above (re-signing breaks launch).
+  }
+
+  /** Our .icns for the engine-bundle rebrand — packaged resource vs dev tree. */
+  private resolveIcns(): string | null {
+    const candidates = app.isPackaged
+      ? [join(process.resourcesPath, "icon.icns")]
+      : [
+          join(__dirname, "../../../../build/icon.icns"),
+          join(__dirname, "../../../build/icon.icns"),
+          join(__dirname, "../../build/icon.icns"),
+        ];
+    for (const p of candidates) {
+      if (existsSync(p)) return p;
+    }
+    return null;
   }
 
   private async findAppBundle(rootDir: string): Promise<string | null> {

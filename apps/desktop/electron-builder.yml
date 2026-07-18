@@ -49,6 +49,10 @@ asarUnpack:
 extraResources:
   - from: resources/companion
     to: companion
+  # Shipped so ChromiumBootstrap can rebrand the downloaded engine bundle's icon
+  # (Dock/menu-bar) to MultiZen at runtime — see rebrandMacBundle().
+  - from: ../../build/icon.icns
+    to: icon.icns
 
 # Stable artifact names — no version baked in. The GitHub Releases page
 # still surfaces the version (from package.json) in the release title,
