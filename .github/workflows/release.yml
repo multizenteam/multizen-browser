@@ -50,8 +50,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            script: build:mac:publish
+          # Build each macOS arch on a runner of THAT arch so the native
+          # better-sqlite3 .node is compiled for the right architecture. A single
+          # arm64 runner (macos-latest) building both archs shipped the arm64
+          # binary inside the x64 app → Intel Macs crashed on startup (no window).
+          # macos-15-intel is the last free GitHub-hosted Intel (x86_64) image —
+          # macos-13 was retired 2025-12-04. Intel Actions support ends ~Aug 2027;
+          # after that, revisit (universal2 build / self-hosted / drop Intel).
+          - os: macos-15-intel # Intel runner → x64 native module
+            script: build:mac:x64:publish
+          - os: macos-14 # Apple-silicon runner → arm64 native module
+            script: build:mac:arm64:publish
           - os: windows-latest
             script: build:win:publish
           - os: ubuntu-latest

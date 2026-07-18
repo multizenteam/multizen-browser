@@ -593,6 +593,21 @@ app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((e: unknown) => {
+  // A failure anywhere in the async startup would otherwise reject SILENTLY:
+  // createWindow() is the last step, so the dock icon appears but no window and
+  // no error ever shows. The known trigger is the native better-sqlite3 binding
+  // failing to load when a wrong-arch .node ships (an arm64 binary in the x64
+  // build → crashes on Intel Macs). Surface it as a visible dialog and quit
+  // cleanly instead of a mystery no-window.
+  const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
+  process.stderr.write(`[multizen] fatal startup error:\n${detail}\n`);
+  dialog.showErrorBox(
+    "MultiZen failed to start",
+    `A startup step failed:\n\n${e instanceof Error ? e.message : String(e)}\n\n` +
+      "Please report this on Discord/GitHub with this message.",
+  );
+  app.quit();
 });
 
 app.on("window-all-closed", () => {
