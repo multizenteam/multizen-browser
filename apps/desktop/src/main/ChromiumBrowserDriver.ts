@@ -254,6 +254,25 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       // reliable across stop/launch even after a crash.
       "--restore-last-session",
       "--disable-features=Translate,MediaRouter",
+      // Don't back Chromium's "Safe Storage" key with the OS keychain/keyring.
+      // Two reasons: (1) our engine bundle is ad-hoc signed, so on macOS the
+      // keychain ACL never matches and every launch pops a "Chromium wants to
+      // use your keychain" password prompt (TouchID doesn't apply). (2) A
+      // keychain-derived key is MACHINE-BOUND, which breaks profile portability
+      // — the whole point of .mzar export/import — because cookies/passwords
+      // encrypted on one Mac can't be decrypted after moving. Instead Chromium
+      // uses a profile-local key (the Puppeteer/Playwright default: a fixed
+      // "mock_password"). Trade-off, stated honestly: at-rest cookie/password
+      // encryption becomes obfuscation (a public constant key), not keychain-
+      // protected. This DOES lower the bar for a passive file-read attacker
+      // (an infostealer that can read the profile dir now decrypts without the
+      // keychain-ACL prompt or a memory dump). Accepted here because portability
+      // is the product (.mzar export is useless with a machine-bound key), the
+      // whole anti-detect category does this, and the real threats are covered
+      // elsewhere: FileVault for offline disk theft, .mzar's AES-256-GCM +
+      // passphrase for exports. Rely on disk encryption for at-rest safety.
+      ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
+      ...(process.platform === "linux" ? ["--password-store=basic"] : []),
       // UI language for the Chromium chrome itself
       `--lang=${fp.locale}`,
       // Accept-Language: plain list, Chromium adds q-values.
