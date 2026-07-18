@@ -165,6 +165,23 @@ function assertCdpMethodAllowed(method: string, params?: Record<string, unknown>
 }
 
 /**
+ * Raw `cdp_send` is OPT-IN. By default an agent gets only the curated wrappers
+ * (navigate/click/type/extract/evaluate_js/get_cookies-scoped/tabs/waits), which
+ * use fixed CDP methods and can't be redirected to a dangerous one. Raw protocol
+ * access is the field norm to keep OUT of an autonomous agent's reach (Playwright
+ * MCP / Claude / OpenAI computer-use all curate the surface; OWASP/MCP prescribe
+ * least-privilege + allowlists over denylists). A power user in a trusted context
+ * enables it explicitly. Read the env dynamically so it's togglable per process.
+ */
+function rawCdpEnabled(): boolean {
+  // Fail-closed + unsurprising: only an explicit truthy value enables it, so
+  // `=0` / `=false` / `=` (empty) / unset all stay OFF. (Avoids the `!!env`
+  // footgun where any non-empty string — including "0" — reads as true.)
+  const v = (process.env.MULTIZEN_MCP_ALLOW_RAW_CDP ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+/**
  * BrowserDriver is the surface that the MCP server delegates real
  * browser work to. The desktop app implements it on top of patched
  * Chromium + CDP. The standalone dev mode implements a mock so the
@@ -369,7 +386,11 @@ export function createMultizenMcpServer(opts: MultizenMcpServerOptions): Multize
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOL_DEFINITIONS,
+    // Hide raw cdp_send from the advertised surface unless it's explicitly
+    // enabled — the default agent surface is the curated wrappers only.
+    tools: rawCdpEnabled()
+      ? TOOL_DEFINITIONS
+      : TOOL_DEFINITIONS.filter((t) => t.name !== "cdp_send"),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -607,6 +628,15 @@ async function dispatch(
       return { loaded };
     }
     case "cdp_send": {
+      // Opt-in only: raw CDP is off by default. Reject even a direct call (the
+      // tool is also hidden from tools/list) unless explicitly enabled.
+      if (!rawCdpEnabled()) {
+        throw new CdpPolicyError(
+          "raw cdp_send is disabled. Set MULTIZEN_MCP_ALLOW_RAW_CDP=1 to enable it " +
+            "(power-user / trusted context); the curated tools (evaluate_js, get_cookies, " +
+            "list_tabs, wait_for_*, …) cover normal use.",
+        );
+      }
       const { profile_id, method, params, sessionId } = CdpSendSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
       // Engine-independent gate: denylisted method or blocked URL scheme in any
@@ -930,7 +960,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "cdp_send",
     description:
-      "Send a raw Chrome DevTools Protocol command (stealth-safe). Any domain this call had to enable is auto-disabled afterwards so the anti-detect baseline is preserved; domains enabled at connect (Page) are never touched. On anti-detect engines, enabling a DCHECK-sensitive domain (Runtime/Network) is refused — use the convenience wrappers (evaluate_js, get_cookies, …) which need no enable. For safety, host-reaching and cross-origin-secret methods (IO.read, Fetch.*, Storage.getCookies, …) and privileged/local URL schemes (file:/chrome:/devtools:/view-source:) are rejected.",
+      "OPT-IN (requires MULTIZEN_MCP_ALLOW_RAW_CDP=1; off by default — prefer the curated tools). Send a raw Chrome DevTools Protocol command (stealth-safe). Any domain this call had to enable is auto-disabled afterwards so the anti-detect baseline is preserved; domains enabled at connect (Page) are never touched. On anti-detect engines, enabling a DCHECK-sensitive domain (Runtime/Network) is refused — use the convenience wrappers (evaluate_js, get_cookies, …) which need no enable. For safety, host-reaching and cross-origin-secret methods (IO.read, Fetch.*, Storage.getCookies, …) and privileged/local URL schemes (file:/chrome:/devtools:/view-source:) are rejected.",
     inputSchema: {
       type: "object",
       required: ["profile_id", "method"],

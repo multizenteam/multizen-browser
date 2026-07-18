@@ -18,6 +18,11 @@ import { MockBrowserDriver } from "../src/MockBrowserDriver.ts";
 import type { ProfileManager } from "@multizen/profile-manager";
 import type { LaunchedProfile, ProfileId } from "@multizen/types";
 
+// Raw cdp_send is opt-in (MULTIZEN_MCP_ALLOW_RAW_CDP). Enable it for the bulk of
+// the suite (which exercises cdp_send's gates); the default-OFF behaviour has its
+// own dedicated tests below that toggle it back off.
+process.env.MULTIZEN_MCP_ALLOW_RAW_CDP = "1";
+
 /** The 11 Phase-2 tools. `cdp_send_no_safety` is intentionally NOT here. */
 const NEW_TOOLS = [
   "cdp_send",
@@ -139,6 +144,47 @@ test("tools/list exposes the 11 Phase-2 tools with object input schemas", async 
     assert.equal((tool!.inputSchema as { type?: string }).type, "object");
   }
   await client.close();
+});
+
+test("cdp_send is HIDDEN from tools/list when MULTIZEN_MCP_ALLOW_RAW_CDP is off (opt-in gate)", async () => {
+  const prev = process.env.MULTIZEN_MCP_ALLOW_RAW_CDP;
+  delete process.env.MULTIZEN_MCP_ALLOW_RAW_CDP;
+  try {
+    const client = await connect(new SpyDriver());
+    const { tools } = await client.listTools();
+    const names = new Set(tools.map((t) => t.name));
+    assert.ok(!names.has("cdp_send"), "cdp_send must NOT be listed by default");
+    // The curated wrappers stay available.
+    for (const name of NEW_TOOLS.filter((n) => n !== "cdp_send")) {
+      assert.ok(names.has(name), `curated tool ${name} must still be listed`);
+    }
+    await client.close();
+  } finally {
+    if (prev === undefined) delete process.env.MULTIZEN_MCP_ALLOW_RAW_CDP;
+    else process.env.MULTIZEN_MCP_ALLOW_RAW_CDP = prev;
+  }
+});
+
+test("cdp_send call is REJECTED when MULTIZEN_MCP_ALLOW_RAW_CDP is off (driver not called)", async () => {
+  const prev = process.env.MULTIZEN_MCP_ALLOW_RAW_CDP;
+  delete process.env.MULTIZEN_MCP_ALLOW_RAW_CDP;
+  try {
+    const spy = new SpyDriver();
+    spy.running.add("p1");
+    const client = await connect(spy);
+    const { isError, parsed } = await call(client, "cdp_send", {
+      profile_id: "p1",
+      method: "Runtime.evaluate",
+      params: { expression: "1" },
+    });
+    assert.ok(isError, "cdp_send must error when raw CDP is disabled");
+    assert.equal(parsed.error.code, "FORBIDDEN");
+    assert.equal(spy.calls.length, 0, "driver.cdpSend must not be called");
+    await client.close();
+  } finally {
+    if (prev === undefined) delete process.env.MULTIZEN_MCP_ALLOW_RAW_CDP;
+    else process.env.MULTIZEN_MCP_ALLOW_RAW_CDP = prev;
+  }
 });
 
 test("cdp_send_no_safety is ABSENT from tools/list (gate #1)", async () => {
