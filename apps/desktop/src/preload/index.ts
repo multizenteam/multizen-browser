@@ -13,6 +13,7 @@ import type { AppSettings } from "@multizen/settings-store";
 import type {
   ChromiumStatus,
   DeviceFamily,
+  EngineUpdateStatus,
   ExtensionConfig,
   ProxyConfig,
   UpdateStatus,
@@ -167,6 +168,16 @@ const api = {
       const listener = (_: unknown, status: UpdateStatus): void => cb(status);
       ipcRenderer.on("update:status", listener);
       return () => ipcRenderer.off("update:status", listener);
+    },
+  },
+  engineUpdate: {
+    status: (): Promise<EngineUpdateStatus> => ipcRenderer.invoke("engine-update:status"),
+    check: (): Promise<EngineUpdateStatus> => ipcRenderer.invoke("engine-update:check"),
+    install: (): Promise<EngineUpdateStatus> => ipcRenderer.invoke("engine-update:install"),
+    onStatus: (cb: (status: EngineUpdateStatus) => void): (() => void) => {
+      const listener = (_: unknown, status: EngineUpdateStatus): void => cb(status);
+      ipcRenderer.on("engine-update:status", listener);
+      return () => ipcRenderer.off("engine-update:status", listener);
     },
   },
   fingerprint: {

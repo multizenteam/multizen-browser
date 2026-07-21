@@ -20,10 +20,17 @@ import {
   type ActivityLog,
 } from "@multizen/mcp-server";
 import { SettingsStore, defaultSettingsPath, type AppSettings } from "@multizen/settings-store";
-import type { ChromiumStatus, ExtensionConfig, ProxyConfig, UpdateStatus } from "@multizen/types";
+import type {
+  ChromiumStatus,
+  EngineUpdateStatus,
+  ExtensionConfig,
+  ProxyConfig,
+  UpdateStatus,
+} from "@multizen/types";
 import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
 import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
 import { UpdaterService } from "./UpdaterService.ts";
+import { EngineUpdateService } from "./EngineUpdateService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
 import { loadOrCreateMcpToken } from "./mcpToken.ts";
 import { ExtensionsService } from "./extensions/ExtensionsService.ts";
@@ -65,6 +72,7 @@ let profileManager: ProfileManager;
 let browserDriver: ChromiumBrowserDriver;
 let chromiumBootstrap: ChromiumBootstrap;
 let updater: UpdaterService;
+let engineUpdater: EngineUpdateService;
 let usageReporting: UsageReporting;
 let extensionsService: ExtensionsService;
 /** Recent companion installs, to de-dupe the marker's retry logs. */
@@ -167,6 +175,20 @@ app.whenReady().then(async () => {
   void chromiumBootstrap.ensure().catch((e) => {
     process.stderr.write(`Chromium bootstrap failed: ${String(e)}\n`);
   });
+
+  // Browser-ENGINE update manager. Keeps the downloaded Chromium runtime
+  // (CloakBrowser / CFT) fresh — background check + side-by-side stage that
+  // applies on the next profile launch, never interrupting a running browser.
+  // Reads settings live so the engineAutoUpdate toggle takes effect without
+  // restart. Best-effort: a failed check never blocks a launch.
+  engineUpdater = new EngineUpdateService({
+    bootstrap: chromiumBootstrap,
+    getSettings: () => cachedSettings as AppSettings,
+  });
+  engineUpdater.on("status", (status: EngineUpdateStatus) => {
+    mainWindow?.webContents.send("engine-update:status", status);
+  });
+  engineUpdater.init();
 
   // App self-update (electron-updater). No-op in dev / non-packaged. Reads
   // settings live so the autoUpdate toggle takes effect without restart.
@@ -327,8 +349,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:update", async (_e, patch: Partial<AppSettings>) => {
     cachedSettings = await settingsStore.update(patch);
-    // Let the updater react to an autoUpdate toggle without an app restart.
+    // Let the updaters react to their auto-update toggles without a restart.
     updater?.onSettingsChanged();
+    engineUpdater?.onSettingsChanged();
     return cachedSettings;
   });
 
@@ -456,6 +479,11 @@ app.whenReady().then(async () => {
   ipcMain.handle("update:download", (_e, version: string) =>
     shell.openExternal(updater.downloadUrlFor(version)),
   );
+
+  // Browser-engine update IPC (distinct from the app self-update above).
+  ipcMain.handle("engine-update:status", () => engineUpdater.getStatus());
+  ipcMain.handle("engine-update:check", () => engineUpdater.checkOnly());
+  ipcMain.handle("engine-update:install", () => engineUpdater.updateNow());
 
   // Fingerprint generator IPC — called from create + edit forms when the
   // user hits Regen. Returns a fresh, internally-consistent preset.
