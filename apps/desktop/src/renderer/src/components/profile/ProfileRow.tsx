@@ -314,7 +314,14 @@ function MenuItem({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(e) => {
+        // Stop the click bubbling (through the portal, up the React tree) to the
+        // row's onClick={onOpen}, which would otherwise open Edit Profile on top
+        // of the Export/Delete flow. Grid view's card root has no onClick so it
+        // was unaffected; the List row is clickable, so this leaked. Issue #16.
+        e.stopPropagation();
+        onClick();
+      }}
       className={cn(
         "w-full text-left px-3 py-1.5 text-[12px] cursor-pointer transition-colors hover:bg-white/[0.05]",
         tone === "danger" ? "text-red-400" : "text-slate-200",
