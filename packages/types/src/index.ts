@@ -276,6 +276,30 @@ export type UpdateStatus =
   | { kind: "ready"; version: string }
   | { kind: "error"; message: string };
 
+/**
+ * Browser-ENGINE update lifecycle (the downloaded Chromium runtime —
+ * CloakBrowser / Chrome for Testing — NOT the MultiZen app itself). Drives
+ * the "Browser engine" update UX in Settings. Apply semantics are
+ * "next launch": a newer version is downloaded side-by-side and current.json
+ * is swapped, so the next profile launch picks it up while already-running
+ * browsers stay on the old binary.
+ *   idle           — nothing known yet
+ *   checking       — resolving the latest published version
+ *   up-to-date     — installed engine is already the latest
+ *   available      — a newer version exists (carries the installed `current`)
+ *   downloading    — staging the new version in the background
+ *   staged         — new version installed; applies on the next profile launch
+ *   error          — check/download failed; carries a human message
+ */
+export type EngineUpdateStatus =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "up-to-date"; version: string }
+  | { kind: "available"; version: string; current: string }
+  | { kind: "downloading"; version: string; bytesReceived: number; bytesTotal: number }
+  | { kind: "staged"; version: string }
+  | { kind: "error"; message: string };
+
 export interface ChromiumManifest {
   version: string;
   /** Direct download URL; we recommend our R2 CDN */

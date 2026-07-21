@@ -30,6 +30,13 @@ export interface AppSettings {
    */
   autoUpdate: boolean;
   /**
+   * Automatically check for + stage new versions of the downloaded Chromium
+   * ENGINE (CloakBrowser / Chrome for Testing) in the background. A staged
+   * engine applies on the next profile launch; running browsers are never
+   * interrupted. Manual "Check for updates" works regardless of this flag.
+   */
+  engineAutoUpdate: boolean;
+  /**
    * Opt-in anonymous usage heartbeat. OFF by default — for an anti-detect
    * audience any call-home must be an explicit choice. When on, the app sends
    * at most one ping/day carrying only app version + OS family + an ephemeral
@@ -47,6 +54,7 @@ const DEFAULTS: AppSettings = {
   // available as a compatibility fallback from Settings.
   browserEngine: "cloakbrowser",
   autoUpdate: true,
+  engineAutoUpdate: true,
   // Opt-in. Never phone home unless the user explicitly turns this on.
   usageReporting: false,
 };
@@ -79,6 +87,9 @@ export class SettingsStore {
     }
     if (typeof merged.autoUpdate !== "boolean") {
       merged.autoUpdate = DEFAULTS.autoUpdate;
+    }
+    if (typeof merged.engineAutoUpdate !== "boolean") {
+      merged.engineAutoUpdate = DEFAULTS.engineAutoUpdate;
     }
     if (typeof merged.usageReporting !== "boolean") {
       merged.usageReporting = DEFAULTS.usageReporting;
