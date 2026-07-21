@@ -2,7 +2,7 @@ import { app, net } from "electron";
 import { EventEmitter } from "node:events";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -108,7 +108,7 @@ interface CftRoot {
   channels: Record<string, CftChannelManifest>;
 }
 
-interface BrowserDownloadManifest {
+export interface BrowserDownloadManifest {
   version: string;
   url: string;
   sha256?: string;
@@ -172,6 +172,75 @@ export class ChromiumBootstrap extends EventEmitter {
   }
 
   /**
+   * True when the runtime is a locally-provided system binary (dev mode).
+   * The engine updater must never touch a dev-system engine — there's no
+   * managed download to refresh.
+   */
+  isDevSystem(): boolean {
+    return this.status.kind === "dev-system";
+  }
+
+  /**
+   * The version recorded in `current.json`, or null if nothing is installed
+   * yet (or the metadata is unreadable). Does not touch the network and does
+   * not verify the binary on disk — it's the "what did we last install" marker
+   * the update checker compares the latest remote version against.
+   */
+  getInstalledVersion(): string | null {
+    const manifestPath = join(this.cacheDir, "current.json");
+    if (!existsSync(manifestPath)) return null;
+    try {
+      const raw = readFileSync(manifestPath, "utf8");
+      const cur = JSON.parse(raw) as { version?: unknown };
+      return typeof cur.version === "string" ? cur.version : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resolve the LATEST published version for this engine from the network.
+   * A thin wrapper over the same resolver the install path uses; it does NOT
+   * touch the cache or `current.json`. Returns the version plus the manifest
+   * (download URL + optional checksum) so a caller can hand it straight to
+   * {@link stageVersion} without re-resolving.
+   */
+  async resolveLatestVersion(): Promise<{ version: string; manifest: BrowserDownloadManifest }> {
+    const manifest = await this.fetchManifest();
+    return { version: manifest.version, manifest };
+  }
+
+  /**
+   * Install a new version SIDE-BY-SIDE and switch `current.json` to it, so the
+   * NEXT profile launch picks it up (launch reads `current.json`/`findCached`)
+   * while already-running browsers stay on the old binary until they close.
+   *
+   * Unlike {@link ensure}, this never emits the `ChromiumStatus` stream — a
+   * background update must not flip the launch-readiness status away from
+   * "ready" (that would make a concurrent launch throw). Download progress is
+   * surfaced through the optional `onProgress` callback instead.
+   *
+   * Returns the newly-staged version. Throws on any failure, leaving the
+   * existing `current.json` + binary untouched (installVersion only swaps its
+   * own version dir; current.json is written last, after a successful install).
+   */
+  async stageVersion(
+    manifest: BrowserDownloadManifest,
+    onProgress?: (bytesReceived: number, bytesTotal: number) => void,
+  ): Promise<string> {
+    // Captured before we overwrite current.json so GC keeps the version a
+    // running browser may still be using (safety invariant: never delete an
+    // in-use engine).
+    const prevVersion = this.getInstalledVersion();
+    const installed = await this.installVersion(manifest, (s) => {
+      if (s.kind === "downloading") onProgress?.(s.bytesReceived, s.bytesTotal);
+    });
+    await this.writeCurrentJson(installed.version, installed.binaryPath, installed.sha256);
+    await this.gcOldVersions(installed.version, prevVersion).catch(() => {});
+    return installed.version;
+  }
+
+  /**
    * Resolve the binary path. Throws if the binary isn't ready — the caller
    * must have awaited `ensure()` first and observed a `ready` status.
    */
@@ -205,106 +274,25 @@ export class ChromiumBootstrap extends EventEmitter {
       this.setStatus({ kind: "fetching-manifest" });
       const manifest = await this.fetchManifest();
 
-      const versionDir = join(this.cacheDir, manifest.version);
-      // Preserve the original archive extension (zip / tar.gz) so the
-      // extractor can dispatch on it. CFT ships zip; CloakBrowser ships
-      // tar.gz on Mac/Linux + zip on Windows.
-      const archiveExt = /\.tar\.gz$|\.tgz$/i.test(manifest.url) ? "tar.gz" : "zip";
-      const zipPath = join(this.cacheDir, `${manifest.version}.${archiveExt}.partial`);
+      // The prior installed version (if any) — used as the GC "keep also"
+      // so we never delete a version a running browser may still be on.
+      const prevVersion = this.getInstalledVersion();
 
-      // download() now owns the full integrity story: resumable transfer,
-      // truncation detection, SHA-256 verification against the engine's
-      // published checksum (when one exists), and automatic retries. It
-      // only returns once the file on disk is byte-complete and — for
-      // CloakBrowser, which publishes SHA256SUMS — checksum-verified.
-      // CFT has no canonical published hash, so there the SHA is computed
-      // for record-keeping only and we rely on HTTPS + (macOS) codesign.
-      const sha256 = await this.download(manifest, zipPath);
-
-      this.setStatus({ kind: "verifying", version: manifest.version });
-
-      this.setStatus({ kind: "extracting", version: manifest.version });
-      // Extract into a sibling tmp dir, then atomically rename so a
-      // partial extraction can never end up at the canonical path.
-      const tmpExtract = `${versionDir}.partial`;
-      await rm(tmpExtract, { recursive: true, force: true });
-      await mkdir(tmpExtract, { recursive: true });
-      try {
-        await extractArchive(zipPath, tmpExtract);
-      } catch (e) {
-        // Corrupt or truncated archive (e.g. "ZIP bad CRC"). Scrub both
-        // partial artifacts so the next launch re-downloads from scratch
-        // instead of choking on the same bad file. Re-throw with a
-        // user-actionable message.
-        await rm(zipPath, { force: true });
-        await rm(tmpExtract, { recursive: true, force: true });
-        throw new Error(
-          `Failed to extract the browser archive — the download was likely ` +
-            `corrupted or truncated. It has been cleared; please retry. If it ` +
-            `keeps failing, add MultiZen to your antivirus exclusions or switch ` +
-            `the engine to Chrome for Testing in Settings. (${(e as Error).message})`,
-        );
-      }
-      await rm(zipPath, { force: true });
-
-      const binaryPath = await this.locateBinary(tmpExtract);
-      if (!binaryPath) {
-        throw new Error(
-          "Could not locate Chromium binary in extracted bundle — CFT zip layout changed?",
-        );
-      }
-      // Make executable on POSIX. Chrome for Testing usually preserves
-      // perms in its zip but not always.
-      if (process.platform !== "win32") {
-        await chmod(binaryPath, 0o755);
-      }
-
-      // macOS: verify the bundle is signed by Apple Developer ID
-      // belonging to Google. Refuse to launch if the signature is
-      // missing or invalid (someone replaced the .app on disk).
-      if (process.platform === "darwin") {
-        const appBundle = await this.findAppBundle(tmpExtract);
-        if (appBundle) {
-          await this.verifyMacCodesign(appBundle);
-          // Strip the quarantine xattr so launching doesn't trigger
-          // Gatekeeper's "downloaded from internet" warning. Safe
-          // because we just verified the signature ourselves.
-          await execFileP("xattr", ["-dr", "com.apple.quarantine", appBundle]).catch(() => {
-            // xattr may legitimately fail if the attribute is absent.
-          });
-        }
-      }
-
-      // Atomic rename — only after this point is the version "installed".
-      await rm(versionDir, { recursive: true, force: true });
-      await rename(tmpExtract, versionDir);
+      // installVersion emits the same download/verify/extract ChromiumStatus
+      // sequence the cold-start path always has (we forward its statuses to
+      // setStatus verbatim), so this is behaviour-preserving.
+      const installed = await this.installVersion(manifest, (s) => this.setStatus(s));
 
       // Persist current.json so the next launch picks up the cached copy.
-      await writeFile(
-        join(this.cacheDir, "current.json"),
-        JSON.stringify(
-          {
-            version: manifest.version,
-            binaryRelative: binaryPath.slice(tmpExtract.length + 1),
-            sha256,
-            installedAt: new Date().toISOString(),
-            channel: this.channel,
-          },
-          null,
-          2,
-        ),
-      );
-
-      // Re-resolve binaryPath under the final versionDir.
-      const finalBinary = binaryPath.replace(tmpExtract, versionDir);
+      await this.writeCurrentJson(installed.version, installed.binaryPath, installed.sha256);
 
       // Best-effort GC: keep current + previous, drop everything older.
-      await this.gcOldVersions(manifest.version).catch(() => {});
+      await this.gcOldVersions(installed.version, prevVersion).catch(() => {});
 
       this.setStatus({
         kind: "ready",
-        version: manifest.version,
-        binaryPath: finalBinary,
+        version: installed.version,
+        binaryPath: installed.binaryPath,
       });
       return this.status;
     } catch (e) {
@@ -324,6 +312,130 @@ export class ChromiumBootstrap extends EventEmitter {
   private setStatus(next: ChromiumStatus): void {
     this.status = next;
     this.emit("status", next);
+  }
+
+  /**
+   * The reusable install pipeline: download → verify → extract → locate →
+   * chmod → (macOS) codesign → atomic rename into the canonical version dir.
+   * Returns the installed version, its final absolute binary path, and the
+   * archive SHA-256, WITHOUT writing `current.json` or GC'ing — callers own
+   * that step. Emits its progress through `onStatus` (the cold-start path
+   * forwards these to the ChromiumStatus stream; staging maps only the
+   * `downloading` phase to its own progress callback and drops the rest so a
+   * background update never disturbs launch-readiness).
+   *
+   * On any failure it throws; because it swaps only its OWN `versionDir` and
+   * the caller writes `current.json` last, a failure leaves the existing
+   * installed version + `current.json` intact.
+   */
+  private async installVersion(
+    manifest: BrowserDownloadManifest,
+    onStatus?: (status: ChromiumStatus) => void,
+  ): Promise<{ version: string; binaryPath: string; sha256: string }> {
+    const versionDir = join(this.cacheDir, manifest.version);
+    // Preserve the original archive extension (zip / tar.gz) so the
+    // extractor can dispatch on it. CFT ships zip; CloakBrowser ships
+    // tar.gz on Mac/Linux + zip on Windows.
+    const archiveExt = /\.tar\.gz$|\.tgz$/i.test(manifest.url) ? "tar.gz" : "zip";
+    const zipPath = join(this.cacheDir, `${manifest.version}.${archiveExt}.partial`);
+
+    // download() now owns the full integrity story: resumable transfer,
+    // truncation detection, SHA-256 verification against the engine's
+    // published checksum (when one exists), and automatic retries. It
+    // only returns once the file on disk is byte-complete and — for
+    // CloakBrowser, which publishes SHA256SUMS — checksum-verified.
+    // CFT has no canonical published hash, so there the SHA is computed
+    // for record-keeping only and we rely on HTTPS + (macOS) codesign.
+    const sha256 = await this.download(manifest, zipPath, (bytesReceived, bytesTotal) =>
+      onStatus?.({ kind: "downloading", version: manifest.version, bytesReceived, bytesTotal }),
+    );
+
+    onStatus?.({ kind: "verifying", version: manifest.version });
+
+    onStatus?.({ kind: "extracting", version: manifest.version });
+    // Extract into a sibling tmp dir, then atomically rename so a
+    // partial extraction can never end up at the canonical path.
+    const tmpExtract = `${versionDir}.partial`;
+    await rm(tmpExtract, { recursive: true, force: true });
+    await mkdir(tmpExtract, { recursive: true });
+    try {
+      await extractArchive(zipPath, tmpExtract);
+    } catch (e) {
+      // Corrupt or truncated archive (e.g. "ZIP bad CRC"). Scrub both
+      // partial artifacts so the next launch re-downloads from scratch
+      // instead of choking on the same bad file. Re-throw with a
+      // user-actionable message.
+      await rm(zipPath, { force: true });
+      await rm(tmpExtract, { recursive: true, force: true });
+      throw new Error(
+        `Failed to extract the browser archive — the download was likely ` +
+          `corrupted or truncated. It has been cleared; please retry. If it ` +
+          `keeps failing, add MultiZen to your antivirus exclusions or switch ` +
+          `the engine to Chrome for Testing in Settings. (${(e as Error).message})`,
+      );
+    }
+    await rm(zipPath, { force: true });
+
+    const binaryPath = await this.locateBinary(tmpExtract);
+    if (!binaryPath) {
+      throw new Error(
+        "Could not locate Chromium binary in extracted bundle — CFT zip layout changed?",
+      );
+    }
+    // Make executable on POSIX. Chrome for Testing usually preserves
+    // perms in its zip but not always.
+    if (process.platform !== "win32") {
+      await chmod(binaryPath, 0o755);
+    }
+
+    // macOS: verify the bundle is signed by Apple Developer ID
+    // belonging to Google. Refuse to launch if the signature is
+    // missing or invalid (someone replaced the .app on disk).
+    if (process.platform === "darwin") {
+      const appBundle = await this.findAppBundle(tmpExtract);
+      if (appBundle) {
+        await this.verifyMacCodesign(appBundle);
+        // Strip the quarantine xattr so launching doesn't trigger
+        // Gatekeeper's "downloaded from internet" warning. Safe
+        // because we just verified the signature ourselves.
+        await execFileP("xattr", ["-dr", "com.apple.quarantine", appBundle]).catch(() => {
+          // xattr may legitimately fail if the attribute is absent.
+        });
+      }
+    }
+
+    // Atomic rename — only after this point is the version "installed".
+    // versionDir is keyed by manifest.version, so this only ever removes a
+    // stale partial of the SAME new version, never a different in-use one.
+    await rm(versionDir, { recursive: true, force: true });
+    await rename(tmpExtract, versionDir);
+
+    // Re-resolve binaryPath under the final versionDir.
+    const finalBinary = binaryPath.replace(tmpExtract, versionDir);
+    return { version: manifest.version, binaryPath: finalBinary, sha256 };
+  }
+
+  /** Persist `current.json` pointing at a freshly-installed version. */
+  private async writeCurrentJson(
+    version: string,
+    binaryPath: string,
+    sha256: string,
+  ): Promise<void> {
+    const versionDir = join(this.cacheDir, version);
+    await writeFile(
+      join(this.cacheDir, "current.json"),
+      JSON.stringify(
+        {
+          version,
+          binaryRelative: binaryPath.slice(versionDir.length + 1),
+          sha256,
+          installedAt: new Date().toISOString(),
+          channel: this.channel,
+        },
+        null,
+        2,
+      ),
+    );
   }
 
   private async findCached(): Promise<{ version: string; binaryPath: string } | null> {
@@ -397,7 +509,11 @@ export class ChromiumBootstrap extends EventEmitter {
    *   - Bounded-retry. Up to MAX_ATTEMPTS with backoff before giving up
    *     with an actionable message (switch engine / change network).
    */
-  private async download(manifest: BrowserDownloadManifest, outPath: string): Promise<string> {
+  private async download(
+    manifest: BrowserDownloadManifest,
+    outPath: string,
+    onProgress?: (bytesReceived: number, bytesTotal: number) => void,
+  ): Promise<string> {
     const MAX_ATTEMPTS = 5;
     let lastError: Error | null = null;
 
@@ -406,7 +522,12 @@ export class ChromiumBootstrap extends EventEmitter {
         // attempt 1 always starts clean (also scrubs any stale .partial
         // left by an older build / previous failed run). attempts 2+
         // resume whatever bytes survived on disk.
-        const sha = await this.downloadAttempt(manifest, outPath, /* allowResume */ attempt > 1);
+        const sha = await this.downloadAttempt(
+          manifest,
+          outPath,
+          /* allowResume */ attempt > 1,
+          onProgress,
+        );
 
         if (manifest.sha256 && sha !== manifest.sha256) {
           // Byte-complete but wrong content. Resuming would just append to
@@ -451,6 +572,7 @@ export class ChromiumBootstrap extends EventEmitter {
     manifest: BrowserDownloadManifest,
     outPath: string,
     allowResume: boolean,
+    onProgress?: (bytesReceived: number, bytesTotal: number) => void,
   ): Promise<string> {
     let have = 0;
     if (allowResume && existsSync(outPath)) {
@@ -459,12 +581,7 @@ export class ChromiumBootstrap extends EventEmitter {
       await rm(outPath, { force: true });
     }
 
-    this.setStatus({
-      kind: "downloading",
-      version: manifest.version,
-      bytesReceived: have,
-      bytesTotal: 0,
-    });
+    onProgress?.(have, 0);
 
     const total = await new Promise<number>((resolve, reject) => {
       // Destroyed-on-failure so a late TLS reset / write error can't leak the
@@ -537,12 +654,7 @@ export class ChromiumBootstrap extends EventEmitter {
           const now = Date.now();
           if (now - lastEmit > 100) {
             lastEmit = now;
-            this.setStatus({
-              kind: "downloading",
-              version: manifest.version,
-              bytesReceived: received,
-              bytesTotal: total,
-            });
+            onProgress?.(received, total);
           }
           // Manual backpressure: pause the response while the disk catches up.
           if (!stream.write(chunk) && flow.pause && flow.resume) {
@@ -573,12 +685,7 @@ export class ChromiumBootstrap extends EventEmitter {
       );
     }
 
-    this.setStatus({
-      kind: "downloading",
-      version: manifest.version,
-      bytesReceived: finalSize,
-      bytesTotal: total || finalSize,
-    });
+    onProgress?.(finalSize, total || finalSize);
 
     return sha256File(outPath);
   }
@@ -734,12 +841,20 @@ export class ChromiumBootstrap extends EventEmitter {
     }
   }
 
-  private async gcOldVersions(keep: string): Promise<void> {
+  /**
+   * Best-effort cleanup of old extracted version trees. Keeps the new
+   * `keep` version AND `alsoKeep` — the version `current.json` pointed at
+   * before this install — so a browser that's still running on the previous
+   * engine never has its files deleted out from under it (safety invariant:
+   * never GC an in-use version). Everything older is removed.
+   */
+  private async gcOldVersions(keep: string, alsoKeep?: string | null): Promise<void> {
     const { readdir } = await import("node:fs/promises");
     const entries = await readdir(this.cacheDir, { withFileTypes: true });
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       if (e.name === keep) continue;
+      if (alsoKeep && e.name === alsoKeep) continue;
       // Conservative: only delete directories that look like a CFT
       // version (\d+\.\d+\.\d+\.\d+). Don't nuke arbitrary dirs.
       if (!/^\d+(?:\.\d+){3,4}$/.test(e.name)) continue;
