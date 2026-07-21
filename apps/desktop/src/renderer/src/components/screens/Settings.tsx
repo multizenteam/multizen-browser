@@ -14,7 +14,13 @@ import {
 } from "lucide-react";
 import { Pill } from "../atoms";
 import { relativeTime } from "../../lib/relativeTime";
-import type { AppSettings, SystemInfo, UpdateStatus } from "../../types";
+import type {
+  AppSettings,
+  ChromiumStatus,
+  EngineUpdateStatus,
+  SystemInfo,
+  UpdateStatus,
+} from "../../types";
 
 interface Props {
   onImport: () => void;
@@ -28,6 +34,8 @@ export function Settings({ onImport }: Props): JSX.Element {
   const [tokenShown, setTokenShown] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [lastChecked, setLastChecked] = useState<number>(0);
+  const [chromiumStatus, setChromiumStatus] = useState<ChromiumStatus | null>(null);
+  const [engineUpdateStatus, setEngineUpdateStatus] = useState<EngineUpdateStatus | null>(null);
 
   useEffect(() => {
     if (!window.multizen) return;
@@ -35,12 +43,21 @@ export function Settings({ onImport }: Props): JSX.Element {
     void window.multizen.system.info().then(setInfo);
     void window.multizen.update.status().then(setUpdateStatus);
     void window.multizen.update.lastChecked().then(setLastChecked);
+    void window.multizen.chromium.status().then(setChromiumStatus);
+    void window.multizen.engineUpdate.status().then(setEngineUpdateStatus);
+    const offChromium = window.multizen.chromium.onStatus(setChromiumStatus);
+    const offEngineUpdate = window.multizen.engineUpdate.onStatus(setEngineUpdateStatus);
     // Refresh "last checked" on every status change too, so a background
     // auto-check updates the label live while Settings is open.
-    return window.multizen.update.onStatus((s) => {
+    const offUpdate = window.multizen.update.onStatus((s) => {
       setUpdateStatus(s);
       void window.multizen.update.lastChecked().then(setLastChecked);
     });
+    return () => {
+      offChromium();
+      offEngineUpdate();
+      offUpdate();
+    };
   }, []);
 
   async function patch(p: Partial<AppSettings>): Promise<void> {
@@ -52,6 +69,11 @@ export function Settings({ onImport }: Props): JSX.Element {
   async function checkForUpdates(): Promise<void> {
     await window.multizen.update.check();
     setLastChecked(await window.multizen.update.lastChecked());
+  }
+
+  async function checkEngineForUpdates(): Promise<void> {
+    // install() = check + stage the newer version (applies on next launch).
+    setEngineUpdateStatus(await window.multizen.engineUpdate.install());
   }
 
   function copyMcpUrl(): void {
@@ -202,6 +224,46 @@ export function Settings({ onImport }: Props): JSX.Element {
               );
             })}
           </div>
+
+          <div className="mt-3 flex items-center gap-2.5 flex-wrap">
+            <span className="text-[12px] text-slate-400">
+              {chromiumStatus?.kind === "ready"
+                ? `Installed: v${chromiumStatus.version}`
+                : "Engine not downloaded yet"}
+            </span>
+            <button
+              type="button"
+              className="btn-secondary px-3 py-[7px] text-[12px] rounded-[9px] inline-flex items-center gap-1.5"
+              onClick={() => void checkEngineForUpdates()}
+              disabled={
+                engineUpdateStatus?.kind === "checking" ||
+                engineUpdateStatus?.kind === "downloading"
+              }
+            >
+              <RefreshCw
+                size={12}
+                className={
+                  engineUpdateStatus?.kind === "checking" ||
+                  engineUpdateStatus?.kind === "downloading"
+                    ? "animate-spin"
+                    : ""
+                }
+              />
+              Check for updates
+            </button>
+            <span className="text-[12px] text-slate-400">
+              {engineUpdateLabel(engineUpdateStatus)}
+            </span>
+          </div>
+          <label className="flex items-center gap-2.5 mt-3 text-[12px] text-slate-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.engineAutoUpdate}
+              onChange={(e) => void patch({ engineAutoUpdate: e.target.checked })}
+              className="w-3.5 h-3.5 rounded accent-purple-500"
+            />
+            Automatically keep the browser engine up to date
+          </label>
         </Row>
 
         <Row
@@ -334,6 +396,30 @@ function updateLabel(status: UpdateStatus | null): string {
       return `Downloading v${status.version}… ${status.percent}%`;
     case "ready":
       return `v${status.version} ready — restart to update`;
+    case "error":
+      return `Check failed: ${status.message}`;
+    default:
+      return "";
+  }
+}
+
+function engineUpdateLabel(status: EngineUpdateStatus | null): string {
+  switch (status?.kind) {
+    case "checking":
+      return "Checking…";
+    case "up-to-date":
+      return "Engine is up to date";
+    case "available":
+      return `v${status.version} available`;
+    case "downloading": {
+      const pct =
+        status.bytesTotal > 0
+          ? Math.round((status.bytesReceived / status.bytesTotal) * 100)
+          : 0;
+      return `Downloading v${status.version}… ${pct}%`;
+    }
+    case "staged":
+      return `v${status.version} will apply next time you launch a profile`;
     case "error":
       return `Check failed: ${status.message}`;
     default:

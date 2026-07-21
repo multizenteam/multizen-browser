@@ -10,6 +10,7 @@ import type {
   ChromiumStatus,
   DeviceFamily,
   UpdateStatus,
+  EngineUpdateStatus,
   ExtensionConfig,
 } from "@multizen/types";
 
@@ -121,6 +122,12 @@ export interface MultizenApi {
     download: (version: string) => Promise<void>;
     onStatus: (cb: (s: UpdateStatus) => void) => () => void;
   };
+  engineUpdate: {
+    status: () => Promise<EngineUpdateStatus>;
+    check: () => Promise<EngineUpdateStatus>;
+    install: () => Promise<EngineUpdateStatus>;
+    onStatus: (cb: (s: EngineUpdateStatus) => void) => () => void;
+  };
   fingerprint: {
     generate: () => Promise<FingerprintConfig>;
     devices: () => Promise<ReadonlyArray<DeviceCatalogEntry>>;
@@ -156,6 +163,7 @@ export type {
   ChromiumStatus,
   DeviceFamily,
   UpdateStatus,
+  EngineUpdateStatus,
   ExtensionConfig,
   UpdateProfileInput,
 };
