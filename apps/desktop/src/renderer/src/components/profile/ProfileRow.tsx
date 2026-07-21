@@ -275,6 +275,12 @@ function RowMenu({
             />
             <div
               className="fixed z-[61] w-44 py-1 rounded-md"
+              // Belt-and-suspenders: contain ALL clicks inside the menu panel
+              // (padding, the separator band, future children) so a slight
+              // misclick off a button can't bubble through the portal to the
+              // row's onClick={onOpen} and open Edit. Complements the per-item
+              // guard in MenuItem. Issue #16.
+              onClick={(e) => e.stopPropagation()}
               style={{
                 top: coords.top,
                 right: coords.right,
