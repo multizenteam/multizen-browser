@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Loader2, MoreHorizontal, Play, Square, Zap } from "lucide-react";
+import { ChevronRight, Loader2, MoreHorizontal, Play, RefreshCw, Square, Zap } from "lucide-react";
 import {
   Avatar,
   Flag,
@@ -8,11 +8,14 @@ import {
   Pill,
   countryNameFromCc,
   platformFromDeviceFamily,
-  profileInitials,
+  platformLabel,
 } from "../atoms";
 import { Button } from "../atoms/Button";
 import { relativeTime } from "../../lib/relativeTime";
 import { cn } from "../../lib/cn";
+import { profileEmoji } from "../../lib/profileEmoji";
+import { emojiTint } from "../../lib/emojiTint";
+import { useProxyHealth } from "../../lib/proxyHealth";
 import type { TileData, TileState } from "./ProfileTile";
 import { PROFILE_TABLE_GRID_TEMPLATE } from "./ProfileTable";
 
@@ -44,14 +47,11 @@ export function ProfileRow({
   onExport,
   onDelete,
 }: Props): JSX.Element {
-  const initials = profileInitials(profile.name);
   const isRunning = profile.state !== "idle";
-  // Flag = proxy egress country only. Direct profiles get no flag —
-  // there's no "country" without a proxy.
-  const country = profile.proxy ? profile.proxyCountry : undefined;
-  const proxyLabel = profile.proxy
-    ? (countryNameFromCc(country) ?? `${profile.proxy.host}:${profile.proxy.port}`)
-    : "direct";
+  // Emoji avatar (parity with the grid card): user's custom `icon` if set, else
+  // a classifier-derived default from name/tags/id, on a deterministic tint.
+  const emoji = profileEmoji(profile.icon, profile.name, profile.tags, profile.id);
+  const avatarTint = emojiTint(emoji);
 
   const [pending, setPending] = useState(false);
   useEffect(() => setPending(false), [profile.isRunning]);
@@ -96,7 +96,7 @@ export function ProfileRow({
           className="flex-shrink-0 rounded-[9px] p-[1.5px] transition-colors"
           style={{ background: STATE_RING_COLOR[profile.state] }}
         >
-          <Avatar initials={initials} accent={profile.state === "ai"} size={26} />
+          <Avatar emoji={emoji} tint={avatarTint} accent={profile.state === "ai"} size={26} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -114,6 +114,10 @@ export function ProfileRow({
               size={11}
               className="text-slate-500 flex-shrink-0"
             />
+            <span className="text-slate-500 flex-shrink-0">
+              {platformLabel(platformFromDeviceFamily(profile.device))}
+            </span>
+            <span className="text-slate-700 flex-shrink-0">·</span>
             <span className="truncate">{profile.id.slice(0, 12)}</span>
           </div>
         </div>
@@ -151,11 +155,8 @@ export function ProfileRow({
         {profile.lastOpenedAt ? relativeTime(profile.lastOpenedAt) : "never"}
       </div>
 
-      {/* Proxy */}
-      <div className="flex items-center gap-1.5 mono text-[11px] text-slate-500 min-w-0">
-        <Flag cc={country} />
-        <span className="truncate">{proxyLabel}</span>
-      </div>
+      {/* Proxy — live health (parity with the grid card), compact for the row */}
+      <RowProxyHealth profile={profile} />
 
       {/* Actions — fixed-width column so it doesn't squeeze others; visible on hover or when running */}
       <div
@@ -221,8 +222,77 @@ function PillForState({ profile }: { profile: TileData }): JSX.Element {
   if (profile.state === "running")
     return <Pill kind="running" dot>running</Pill>;
   if (profile.state === "error")
-    return <Pill kind="error">error</Pill>;
+    // Dense row: surface the message as a hover tooltip (the grid card has room
+    // for a full error line; here the status column does not).
+    return (
+      <span title={profile.errorMessage} className="inline-flex min-w-0">
+        <Pill kind="error">error</Pill>
+      </span>
+    );
   return <Pill kind="idle">idle</Pill>;
+}
+
+/**
+ * Compact live proxy-health for the dense row — parity with the grid card's
+ * ProxyHealthRow, trimmed to a flag + short label + a status affordance. Auto-
+ * probes (module-cached via useProxyHealth) and re-checks on click. Direct
+ * profiles show a muted "direct". The click stops propagation so it re-checks
+ * instead of opening the row's Edit.
+ */
+function RowProxyHealth({ profile }: { profile: TileData }): JSX.Element {
+  const { health, recheck } = useProxyHealth(profile.id, profile.proxy, profile.proxyCountry);
+
+  if (health.status === "direct") {
+    return (
+      <div className="flex items-center gap-1.5 mono text-[11px] text-slate-600 min-w-0">
+        <span className="truncate">direct</span>
+      </div>
+    );
+  }
+
+  const cc = health.cc;
+  const isError = health.status === "error";
+  const label =
+    health.status === "ok"
+      ? (health.country ?? countryNameFromCc(cc) ?? "connected")
+      : isError
+        ? "unreachable"
+        : (countryNameFromCc(cc) ?? "checking…");
+  const title = isError
+    ? `${health.error} — click to retry`
+    : health.status === "ok"
+      ? `${label}${cc ? ` · ${cc.toUpperCase()}` : ""} — click to re-check`
+      : "checking proxy…";
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        recheck();
+      }}
+      title={title}
+      className="flex items-center gap-1.5 mono text-[11px] min-w-0 text-left bg-transparent border-0 cursor-pointer"
+    >
+      <span
+        className="inline-flex flex-shrink-0"
+        style={isError ? { filter: "grayscale(1)", opacity: 0.7 } : undefined}
+      >
+        <Flag cc={cc} />
+      </span>
+      <span className={cn("truncate", isError ? "text-red-300" : "text-slate-500")}>{label}</span>
+      {health.status === "ok" && (
+        <span
+          className="w-[6px] h-[6px] rounded-full bg-emerald-500 flex-shrink-0"
+          style={{ animation: "mz-dotpulse 1.6s ease-in-out infinite" }}
+        />
+      )}
+      {health.status === "checking" && (
+        <Loader2 size={11} className="animate-spin text-amber-400 flex-shrink-0" />
+      )}
+      {isError && <RefreshCw size={10} className="text-red-300 flex-shrink-0" />}
+    </button>
+  );
 }
 
 function RowMenu({
