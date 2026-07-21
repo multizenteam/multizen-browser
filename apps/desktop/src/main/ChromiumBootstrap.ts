@@ -232,11 +232,15 @@ export class ChromiumBootstrap extends EventEmitter {
     // running browser may still be using (safety invariant: never delete an
     // in-use engine).
     const prevVersion = this.getInstalledVersion();
+    // The version this session actually launches from (in-memory). Staging never
+    // changes it, so it must survive GC even across a SECOND stage in the same
+    // session (where prevVersion would otherwise have advanced past it).
+    const runningVersion = this.runningVersion();
     const installed = await this.installVersion(manifest, (s) => {
       if (s.kind === "downloading") onProgress?.(s.bytesReceived, s.bytesTotal);
     });
     await this.writeCurrentJson(installed.version, installed.binaryPath, installed.sha256);
-    await this.gcOldVersions(installed.version, prevVersion).catch(() => {});
+    await this.gcOldVersions([installed.version, prevVersion, runningVersion]).catch(() => {});
     return installed.version;
   }
 
@@ -270,12 +274,17 @@ export class ChromiumBootstrap extends EventEmitter {
       return this.status;
     }
 
+    // The version this session may already be running (e.g. a retry() while a
+    // browser is open) — captured BEFORE the status flips off "ready", so GC
+    // can protect it even though current.json may have been cleared.
+    const runningVersion = this.runningVersion();
+
     try {
       this.setStatus({ kind: "fetching-manifest" });
       const manifest = await this.fetchManifest();
 
-      // The prior installed version (if any) — used as the GC "keep also"
-      // so we never delete a version a running browser may still be on.
+      // The prior installed version (if any) — protected from GC so we never
+      // delete a version a running browser may still be on.
       const prevVersion = this.getInstalledVersion();
 
       // installVersion emits the same download/verify/extract ChromiumStatus
@@ -286,8 +295,8 @@ export class ChromiumBootstrap extends EventEmitter {
       // Persist current.json so the next launch picks up the cached copy.
       await this.writeCurrentJson(installed.version, installed.binaryPath, installed.sha256);
 
-      // Best-effort GC: keep current + previous, drop everything older.
-      await this.gcOldVersions(installed.version, prevVersion).catch(() => {});
+      // Best-effort GC: keep the new + previous + any in-use version, drop older.
+      await this.gcOldVersions([installed.version, prevVersion, runningVersion]).catch(() => {});
 
       this.setStatus({
         kind: "ready",
@@ -842,19 +851,34 @@ export class ChromiumBootstrap extends EventEmitter {
   }
 
   /**
-   * Best-effort cleanup of old extracted version trees. Keeps the new
-   * `keep` version AND `alsoKeep` — the version `current.json` pointed at
-   * before this install — so a browser that's still running on the previous
-   * engine never has its files deleted out from under it (safety invariant:
-   * never GC an in-use version). Everything older is removed.
+   * The version the CURRENT session actually launches from — the in-memory
+   * `ready` status, fixed at cold-start `ensure()` and deliberately NOT changed
+   * by staging (a background update must not flip launch-readiness). Running
+   * browsers and every future launch in this session spawn THIS version, so it
+   * must be protected from GC while the session lives.
    */
-  private async gcOldVersions(keep: string, alsoKeep?: string | null): Promise<void> {
+  private runningVersion(): string | null {
+    return this.status.kind === "ready" ? this.status.version : null;
+  }
+
+  /**
+   * Best-effort cleanup of old extracted version trees. Keeps EVERY version in
+   * `keepVersions` (nullish entries ignored): typically the newly-installed
+   * version, the version `current.json` pointed at before, AND the version this
+   * session is actually running — so a browser still on an older engine (or a
+   * second stage in the same session) never has its files deleted out from
+   * under it (safety invariant: never GC an in-use version). Everything else
+   * that looks like a version dir is removed.
+   */
+  private async gcOldVersions(keepVersions: Array<string | null | undefined>): Promise<void> {
+    const keep = new Set(
+      keepVersions.filter((v): v is string => typeof v === "string" && v.length > 0),
+    );
     const { readdir } = await import("node:fs/promises");
     const entries = await readdir(this.cacheDir, { withFileTypes: true });
     for (const e of entries) {
       if (!e.isDirectory()) continue;
-      if (e.name === keep) continue;
-      if (alsoKeep && e.name === alsoKeep) continue;
+      if (keep.has(e.name)) continue;
       // Conservative: only delete directories that look like a CFT
       // version (\d+\.\d+\.\d+\.\d+). Don't nuke arbitrary dirs.
       if (!/^\d+(?:\.\d+){3,4}$/.test(e.name)) continue;
