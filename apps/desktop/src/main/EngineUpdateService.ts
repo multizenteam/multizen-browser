@@ -40,6 +40,9 @@ export class EngineUpdateService extends EventEmitter {
   private inFlight = false;
   private interval: NodeJS.Timeout | null = null;
   private started = false;
+  /** Last-seen engineAutoUpdate, so onSettingsChanged only reacts to a real
+   *  off→on flip of the toggle — not to every unrelated settings write. */
+  private lastAutoUpdate: boolean;
   private readonly bootstrap: ChromiumBootstrap;
   private readonly getSettings: () => AppSettings;
 
@@ -47,6 +50,7 @@ export class EngineUpdateService extends EventEmitter {
     super();
     this.bootstrap = opts.bootstrap;
     this.getSettings = opts.getSettings;
+    this.lastAutoUpdate = opts.getSettings().engineAutoUpdate;
   }
 
   override on<K extends keyof EngineUpdateEvents>(
@@ -93,9 +97,18 @@ export class EngineUpdateService extends EventEmitter {
     return this.status;
   }
 
-  /** Re-evaluate after settings change (e.g. engineAutoUpdate toggled on). */
+  /**
+   * React to a settings change. ONLY a false→true flip of the engineAutoUpdate
+   * toggle triggers a re-check — not every settings write. Previously any
+   * settings:update (e.g. switching the engine dropdown, changing a port) fired
+   * a full engine check, which spammed "checking" and was confusing. Other
+   * changes are no-ops here; the active engine only changes on app restart.
+   */
   onSettingsChanged(): void {
-    if (this.getSettings().engineAutoUpdate) void this.maybeAutoCheck();
+    const now = this.getSettings().engineAutoUpdate;
+    const flippedOn = !this.lastAutoUpdate && now;
+    this.lastAutoUpdate = now;
+    if (flippedOn) void this.maybeAutoCheck();
   }
 
   // ─── internals ──────────────────────────────────────────────────────
