@@ -13,6 +13,8 @@
     "build:win": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --win",
     "build:linux": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --linux",
     "build:mac:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --mac --publish always",
+    "build:mac:x64:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --mac --x64 --publish always",
+    "build:mac:arm64:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --mac --arm64 --publish always",
     "build:win:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --win --publish always",
     "build:linux:publish": "electron-vite build && node ./scripts/strip-workspace-symlinks.cjs && electron-builder --linux --publish always",
     "typecheck": "tsc --noEmit -p tsconfig.json",

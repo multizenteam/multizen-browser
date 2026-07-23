@@ -25,8 +25,9 @@ export function TopBar({ totalCount, runningCount, mcpUrl, onCmdK, onSettings }:
       {/* macOS spacer for native traffic lights (we use titleBarStyle: hiddenInset) */}
       <div style={{ width: 60 }} className="no-drag" aria-hidden />
 
-      {/* Brand */}
-      <div className="flex items-center gap-2 ml-2 no-drag">
+      {/* Brand — non-interactive decoration: pointer-events:none so the label
+          isn't selectable and pointer events fall through to the drag region. */}
+      <div className="flex items-center gap-2 ml-2 pointer-events-none">
         <Cube size={20} />
         <span className="font-bold text-[13px] tracking-tight text-slate-100">MultiZen</span>
       </div>

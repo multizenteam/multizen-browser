@@ -40,13 +40,22 @@
 This repository is a fork of [`multizenteam/multizen-browser`](https://github.com/multizenteam/multizen-browser).
 
 <!-- FORK-BASE: update this version whenever you pull changes from upstream -->
-**Based on upstream release:** `v0.2.10`
+**Based on upstream release:** `v0.3.0`
 
-Fork-specific changes are tracked in [`CHANGELOG.md`](CHANGELOG.md) from `v0.2.11` onward. Whenever you merge changes from the original repository, update the **Based on upstream release** line above to the latest upstream release you synced from.
+**Fork app version:** `0.7.0` (independent semver from upstream).
+
+Fork-specific work (see [`CHANGELOG.md`](CHANGELOG.md)) includes:
+
+- Expanded fingerprint device catalogs (extra Mac M2–M4 SKUs, Linux laptops) and higher entropy thresholds
+- Strict-pin launch timezone policy with opt-in `alignTimezoneToProxy` / `strictGeoCoherence`
+- MCP extras: always-on `cdp_send` / `cdp_send_no_safety`, `probe_fingerprint`, session-stable multi-client HTTP transport
+- Release CI typecheck gate before the multi-OS build matrix
+
+Sync notes for the `v0.3.0` upstream merge: [`docs/upstream-merge-v0.3.0.md`](docs/upstream-merge-v0.3.0.md). Whenever you merge again from the original repository, update the **Based on upstream release** line above.
 
 ## What it is
 
-MultiZen is a desktop app that runs a library of isolated Chromium browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy. A local MCP server on `localhost:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot) to any MCP client.
+MultiZen is a desktop app that runs a library of isolated Chromium browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy. A local MCP server on `127.0.0.1:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot) to any MCP client.
 
 The result: your AI agent in Cursor or Claude Desktop can complete real authenticated workflows. When it hits a 2FA prompt or CAPTCHA, you step in through the same Chromium window. When you are done, the agent picks up where it left off. Cookies and session state survive between launches.
 
@@ -94,7 +103,7 @@ curl -sSL https://getmultizen.com/install.sh | bash
 ```
 +----------------------+         +-----------------------+
 |  Cursor / Claude     |  MCP    |  MultiZen Desktop App |
-|  Desktop / Cline     | <-----> |  localhost:7777       |
+|  Desktop / Cline     | <-----> |  127.0.0.1:7777       |
 +----------------------+         +-----------+-----------+
                                              |
                                              | spawn / drive (CDP)
@@ -136,15 +145,23 @@ Each profile is a real Chromium window with persistent state on disk. The MCP se
 
 ## Connect an agent (Codex, Cursor, Claude Desktop)
 
-After installing, the MCP server starts on `localhost:7777`. It serves the current
-**Streamable HTTP** transport at `http://localhost:7777/mcp` (plus a legacy HTTP+SSE
-endpoint at `/sse` for older clients). Add it to your client config.
+After installing, the MCP server starts on `127.0.0.1:7777`. It serves the current
+**Streamable HTTP** transport at `http://127.0.0.1:7777/mcp` (plus a legacy HTTP+SSE
+endpoint at `/sse` for older clients).
+
+The server requires a **bearer token** — it is generated on first run and shown in
+the app under **MCP → Connect an agent** (also written to the `mcp-token` file in
+the app data directory). Every client config below must send it as
+`Authorization: Bearer <token>`. Replace `<token>` with your own. The app's MCP
+panel has a **Copy for LLM** button that hands the whole setup (token included) to
+a coding agent if you'd rather not edit config files by hand.
 
 **Codex CLI** (`~/.codex/config.toml`) — connects to Streamable HTTP directly:
 
 ```toml
 [mcp_servers.multizen]
-url = "http://localhost:7777/mcp"
+url = "http://127.0.0.1:7777/mcp"
+http_headers = { Authorization = "Bearer <token>" }
 ```
 
 **JSON URL clients — Cursor** (`~/.cursor/mcp.json`), Cline, Continue:
@@ -153,7 +170,8 @@ url = "http://localhost:7777/mcp"
 {
   "mcpServers": {
     "multizen": {
-      "url": "http://localhost:7777/mcp"
+      "url": "http://127.0.0.1:7777/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
     }
   }
 }
@@ -168,7 +186,7 @@ url = "http://localhost:7777/mcp"
   "mcpServers": {
     "multizen": {
       "command": "npx",
-      "args": ["mcp-remote", "http://localhost:7777/mcp"]
+      "args": ["mcp-remote", "http://127.0.0.1:7777/mcp", "--header", "Authorization: Bearer <token>"]
     }
   }
 }

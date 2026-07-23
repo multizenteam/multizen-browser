@@ -97,6 +97,7 @@ function LiveExtensions({ profileId }: { profileId: string }): JSX.Element {
             <ExtRow
               key={ext.id}
               ext={ext}
+              profileId={profileId}
               onToggle={(enabled) =>
                 void run(() => window.multizen.extensions.toggle(profileId, ext.id, enabled))
               }
@@ -212,6 +213,7 @@ function StagingExtensions({
             <ExtRow
               key={ext.id}
               ext={ext}
+              profileId={null}
               onToggle={(enabled) =>
                 onChange((prev) =>
                   prev.map((e) => (e.id === ext.id ? { ...e, enabled } : e)),
@@ -281,7 +283,7 @@ function StagingExtensions({
                   boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
                 }}
               >
-                <ExtIcon id={ext.id} />
+                <ExtIcon id={ext.id} ext={ext} profileId={null} />
                 <span className="flex-1 text-[12px] text-slate-200 truncate">{ext.name}</span>
                 <Plus size={13} className="text-slate-500 shrink-0" />
               </button>
@@ -304,10 +306,12 @@ function StagingExtensions({
 
 function ExtRow({
   ext,
+  profileId,
   onToggle,
   onRemove,
 }: {
   ext: ExtensionConfig;
+  profileId: string | null;
   onToggle: (enabled: boolean) => void;
   onRemove: () => void;
 }): JSX.Element {
@@ -319,7 +323,7 @@ function ExtRow({
         boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
       }}
     >
-      <ExtIcon id={ext.id} />
+      <ExtIcon id={ext.id} ext={ext} profileId={profileId} />
       <span className="flex-1 text-[12px] text-slate-200 truncate">{ext.name}</span>
       <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
         <input

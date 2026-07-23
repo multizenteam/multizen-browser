@@ -4,7 +4,7 @@ import {
   type ServerResponse,
   type Server as HttpServer,
 } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -60,6 +60,7 @@ export class HttpTransport {
   private readonly server: HttpServer;
   private readonly opts: HttpTransportOptions;
   private readonly heartbeatMs: number;
+  private readonly allowedHosts: string[];
   private readonly sseSessions = new Map<string, SseSession>();
   private readonly streamableSessions = new Map<string, StreamableSession>();
   private stopping = false;
@@ -67,6 +68,13 @@ export class HttpTransport {
   constructor(opts: HttpTransportOptions) {
     this.opts = opts;
     this.heartbeatMs = opts.heartbeatMs ?? 15000;
+    const host = opts.host ?? "127.0.0.1";
+    // Only requests whose Host header names our own loopback endpoint are
+    // accepted (DNS-rebinding defence). Pair with authToken — the Host
+    // allowlist alone no longer protects it.
+    this.allowedHosts = Array.from(
+      new Set([`${host}:${opts.port}`, `127.0.0.1:${opts.port}`, `localhost:${opts.port}`]),
+    );
     this.server = createHttpServer((req, res) => {
       void this.handle(req, res).catch((e) => {
         process.stderr.write(`[mcp-http] unhandled request error: ${String(e)}\n`);
@@ -77,6 +85,14 @@ export class HttpTransport {
   }
 
   async start(): Promise<void> {
+    // Guardrail: this server exposes browser-control tools on loopback. Warn
+    // loudly if started without a token rather than failing silently open.
+    if (!this.opts.authToken) {
+      process.stderr.write(
+        "[multizen] WARNING: MCP HTTP transport starting WITHOUT an auth token — " +
+          "the local control port is UNAUTHENTICATED and any local process can drive it.\n",
+      );
+    }
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error): void => {
         this.server.off("listening", onListening);
@@ -122,23 +138,43 @@ export class HttpTransport {
     return { sse: this.sseSessions.size, streamable: this.streamableSessions.size };
   }
 
+  /** Constant-time bearer check; false if no/incorrect token when one is required. */
+  private authOk(req: IncomingMessage): boolean {
+    const token = this.opts.authToken;
+    if (!token) return true; // auth disabled
+    const expected = Buffer.from(`Bearer ${token}`);
+    const got = Buffer.from(req.headers.authorization ?? "");
+    // Length check first — timingSafeEqual throws on unequal lengths, and the
+    // length itself isn't the secret.
+    return got.length === expected.length && timingSafeEqual(got, expected);
+  }
+
+  /** Host header must name our own loopback endpoint (DNS-rebinding defence). */
+  private hostAllowed(req: IncomingMessage): boolean {
+    return this.allowedHosts.includes((req.headers.host ?? "").toLowerCase());
+  }
+
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (this.stopping) {
       res.writeHead(503).end("shutting down");
       return;
     }
 
-    if (this.opts.authToken) {
-      const auth = req.headers.authorization ?? "";
-      if (auth !== `Bearer ${this.opts.authToken}`) {
-        res.writeHead(401).end("unauthorized");
-        return;
-      }
+    if (!this.authOk(req)) {
+      res.writeHead(401, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          error: "unauthorized",
+          detail:
+            "Send 'Authorization: Bearer <token>'. The token is shown in MultiZen → Settings → MCP, or in the 'mcp-token' file in the app data directory.",
+        }),
+      );
+      return;
     }
 
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const pathname = url.pathname;
 
+    // /healthz stays auth-gated above but skips Host checks so local probes work.
     if (pathname === "/healthz") {
       const status = this.status();
       res.writeHead(200, { "content-type": "application/json" }).end(
@@ -153,17 +189,30 @@ export class HttpTransport {
     }
 
     // Streamable HTTP (primary) — single endpoint for GET/POST/DELETE.
+    // DNS-rebinding defence: Host must name our loopback endpoint.
     if (pathname === "/mcp") {
+      if (!this.hostAllowed(req)) {
+        res.writeHead(403).end("forbidden host");
+        return;
+      }
       await this.handleStreamable(req, res);
       return;
     }
 
     // Legacy HTTP+SSE.
     if (pathname === "/sse" && req.method === "GET") {
+      if (!this.hostAllowed(req)) {
+        res.writeHead(403).end("forbidden host");
+        return;
+      }
       await this.handleSseConnect(req, res);
       return;
     }
     if (pathname === "/messages" && req.method === "POST") {
+      if (!this.hostAllowed(req)) {
+        res.writeHead(403).end("forbidden host");
+        return;
+      }
       await this.handleSsePost(req, res, url);
       return;
     }
@@ -210,6 +259,8 @@ export class HttpTransport {
       onsessioninitialized: (sid) => {
         this.streamableSessions.set(sid, { transport, server });
       },
+      enableDnsRebindingProtection: true,
+      allowedHosts: this.allowedHosts,
     });
     // Idempotent teardown. server.close() closes the transport, whose onclose
     // re-enters here — the guard stops that from recursing into a stack

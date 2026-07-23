@@ -147,6 +147,9 @@ const api = {
       ipcRenderer.invoke("extensions:prepareFromFile"),
     prepareFromFolder: (): Promise<ExtensionConfig | null> =>
       ipcRenderer.invoke("extensions:prepareFromFolder"),
+    /** Real icon from the extension's manifest, as a data URI (or null). */
+    icon: (ext: ExtensionConfig, profileId: string | null): Promise<string | null> =>
+      ipcRenderer.invoke("extensions:icon", ext, profileId),
     onInstalled: (cb: (e: ExtensionInstalledEvent) => void): (() => void) => {
       const listener = (_: unknown, e: ExtensionInstalledEvent): void => cb(e);
       ipcRenderer.on("extensions:installed", listener);

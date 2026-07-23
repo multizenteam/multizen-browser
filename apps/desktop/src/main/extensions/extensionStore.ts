@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import type { ExtensionConfig } from "@multizen/types";
 
 /** Don't reclaim a staging dir younger than this — it may be a live install. */
@@ -19,6 +19,64 @@ const STALE_STAGING_MS = 5 * 60 * 1000;
 /** Absolute directory of a shared store entry, keyed by extension id + version. */
 export function storeEntryDir(storeRoot: string, id: string, version: string): string {
   return join(storeRoot, id, version || "0");
+}
+
+/** Icons above this are ignored — a real extension icon is a few KB, so this
+ *  only guards against pathological manifests. */
+const MAX_ICON_BYTES = 512 * 1024;
+
+interface IconManifest {
+  icons?: Record<string, string>;
+  action?: { default_icon?: string | Record<string, string> };
+  browser_action?: { default_icon?: string | Record<string, string> };
+}
+
+/** Largest icon path from an `{ "16": "...", "128": "..." }` map, or null. */
+function largestFromMap(map: string | Record<string, string> | undefined): string | null {
+  if (!map) return null;
+  if (typeof map === "string") return map;
+  const sizes = Object.keys(map)
+    .map((k) => Number(k))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => b - a);
+  const best = sizes[0];
+  return best !== undefined ? (map[String(best)] ?? null) : null;
+}
+
+/**
+ * Read an unpacked extension's largest declared icon and return it as a data
+ * URI, or null if there's no usable icon. Best-effort — any failure (missing
+ * manifest, missing file, oversized, path escape) yields null so the caller
+ * falls back to the generic glyph. Reads only from within `loadDir`.
+ */
+export async function readManifestIcon(loadDir: string): Promise<string | null> {
+  try {
+    const raw = await readFile(join(loadDir, "manifest.json"), "utf8");
+    const manifest = JSON.parse(raw) as IconManifest;
+    const rel =
+      largestFromMap(manifest.icons) ??
+      largestFromMap(manifest.action?.default_icon) ??
+      largestFromMap(manifest.browser_action?.default_icon);
+    if (!rel) return null;
+
+    const base = resolve(loadDir);
+    const abs = resolve(base, rel.replace(/^\/+/, ""));
+    if (abs !== base && !abs.startsWith(base + sep)) return null; // no escaping loadDir
+
+    const buf = await readFile(abs);
+    if (buf.length === 0 || buf.length > MAX_ICON_BYTES) return null;
+    const lower = rel.toLowerCase();
+    const mime = lower.endsWith(".svg")
+      ? "image/svg+xml"
+      : lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+        ? "image/jpeg"
+        : lower.endsWith(".webp")
+          ? "image/webp"
+          : "image/png";
+    return `data:${mime};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 /**

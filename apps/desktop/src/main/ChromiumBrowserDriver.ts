@@ -207,6 +207,7 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
         );
       }
     }
+    // No-proxy: fp.timezone is left as the profile configured it (issue #13).
 
     // Clean up stale SingletonLock left behind by a Chromium that
     // crashed without unlinking its own lock. Without this, the next
@@ -267,6 +268,25 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       // reliable across stop/launch even after a crash.
       "--restore-last-session",
       "--disable-features=Translate,MediaRouter",
+      // Don't back Chromium's "Safe Storage" key with the OS keychain/keyring.
+      // Two reasons: (1) our engine bundle is ad-hoc signed, so on macOS the
+      // keychain ACL never matches and every launch pops a "Chromium wants to
+      // use your keychain" password prompt (TouchID doesn't apply). (2) A
+      // keychain-derived key is MACHINE-BOUND, which breaks profile portability
+      // — the whole point of .mzar export/import — because cookies/passwords
+      // encrypted on one Mac can't be decrypted after moving. Instead Chromium
+      // uses a profile-local key (the Puppeteer/Playwright default: a fixed
+      // "mock_password"). Trade-off, stated honestly: at-rest cookie/password
+      // encryption becomes obfuscation (a public constant key), not keychain-
+      // protected. This DOES lower the bar for a passive file-read attacker
+      // (an infostealer that can read the profile dir now decrypts without the
+      // keychain-ACL prompt or a memory dump). Accepted here because portability
+      // is the product (.mzar export is useless with a machine-bound key), the
+      // whole anti-detect category does this, and the real threats are covered
+      // elsewhere: FileVault for offline disk theft, .mzar's AES-256-GCM +
+      // passphrase for exports. Rely on disk encryption for at-rest safety.
+      ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
+      ...(process.platform === "linux" ? ["--password-store=basic"] : []),
       // UI language for the Chromium chrome itself
       `--lang=${fp.locale}`,
       // Accept-Language: plain list, Chromium adds q-values.
@@ -600,6 +620,27 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
           } catch (e) {
             console.error("[multizen] setUserAgentOverride failed:", e);
           }
+        } else {
+          // CloakBrowser: we skip the CDP UA/timezone overrides above because
+          // those have native --fingerprint-* patches that a CDP layer would
+          // contradict. LOCALE is the exception: CloakBrowser ships NO native
+          // locale switch (its --fingerprint-* set has timezone but no
+          // locale/language — verified against the binary), and macOS ignores
+          // --lang, so nothing otherwise sets the renderer's ICU default locale
+          // and Intl.*.resolvedOptions().locale leaks the host locale (e.g. a
+          // th-TH persona reports en-US). Because there is no native locale
+          // value here, this CDP override fills a gap rather than shadowing a
+          // patch — no cross-layer disagreement. (--lang is stock Chromium, not
+          // a fingerprint patch; CFT already ships this exact override.)
+          // navigator.language(s) come from --accept-lang and stay untouched.
+          try {
+            await send("Emulation.setLocaleOverride", { locale: fp.locale });
+          } catch (e) {
+            const msg = (e as Error).message;
+            if (!/already in effect/i.test(msg)) {
+              console.error("[multizen] setLocaleOverride (cloakbrowser) failed:", e);
+            }
+          }
         }
         // Diagnostic: capture what the page actually sees AFTER overrides.
         // Logs once per session — if browserscan reports "Different browser
@@ -613,8 +654,12 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
               brands: navigator.userAgentData ? navigator.userAgentData.brands : null,
               platform: navigator.platform,
               tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              icuLocale: Intl.DateTimeFormat().resolvedOptions().locale,
+              calendar: Intl.DateTimeFormat().resolvedOptions().calendar,
               lang: navigator.language,
               langs: navigator.languages,
+              deviceMemory: navigator.deviceMemory,
+              hardwareConcurrency: navigator.hardwareConcurrency,
               hasRTCPC: typeof window.RTCPeerConnection !== "undefined",
             })`,
             returnByValue: true,
@@ -877,7 +922,7 @@ function buildFingerprintPreloadScript(
   const INCLUDE_WEBGL = ${JSON.stringify(includeWebGl)};
   const PLATFORM = ${JSON.stringify(fp.platform)};
   const HW_CONCURRENCY = ${fp.hardwareConcurrency};
-  const DEVICE_MEMORY = ${fp.deviceMemory};
+  const DEVICE_MEMORY = ${deviceMemoryApiValue(fp.deviceMemory)};
   const GPU_VENDOR = ${JSON.stringify(fp.webgl.vendor)};
   const GPU_RENDERER = ${JSON.stringify(fp.webgl.renderer)};
   const SCREEN_W = ${fp.screen.width};
@@ -986,12 +1031,16 @@ function buildCloakBrowserFingerprintArgs(profileId: ProfileId, fp: FingerprintC
   const args = [
     `--fingerprint=${fingerprintSeed(profileId, fp)}`,
     `--fingerprint-platform=${cloakBrowserPlatform(fp)}`,
-    `--fingerprint-locale=${fp.locale}`,
+    // NOTE: CloakBrowser has NO --fingerprint-locale switch (verified against
+    // the binary — its --fingerprint-* set covers timezone/platform/screen/etc
+    // but not locale/language). Locale is applied via CDP
+    // Emulation.setLocaleOverride in the bootstrap step instead; passing a
+    // --fingerprint-locale here would be silently ignored.
     `--fingerprint-timezone=${fp.timezone}`,
     `--fingerprint-screen-width=${fp.screen.width}`,
     `--fingerprint-screen-height=${fp.screen.height}`,
     `--fingerprint-hardware-concurrency=${fp.hardwareConcurrency}`,
-    `--fingerprint-device-memory=${fp.deviceMemory}`,
+    `--fingerprint-device-memory=${deviceMemoryApiValue(fp.deviceMemory)}`,
   ];
   // Explicitly set WebGL vendor/renderer instead of relying on seed-derived
   // auto-generation. Browserscan flags "WebGL exception" when CloakBrowser's
@@ -1023,6 +1072,21 @@ function primaryBrandVersion(ch: ClientHints | undefined): string | null {
     if (!/Chromium|Not[.\s/]?A[.\s/]?Brand/i.test(brand)) return version;
   }
   return null;
+}
+
+/**
+ * The value a real browser reports for `navigator.deviceMemory` / the
+ * `Sec-CH-Device-Memory` hint: physical RAM rounded to the NEAREST power of two
+ * and CAPPED AT 8 — the Device Memory API's spec upper bound. Chrome computes
+ * `2 ** round(log2(gb))` clamped to [0.25, 8] (Blink's `floor(log2+0.5)`), so it
+ * never exposes a value above 8; emitting a persona's raw physical RAM
+ * (16/18/32/64 GB) would be an instant, impossible-value bot tell. The
+ * fingerprint keeps the physical value for the UI and persona coherence; only
+ * the web-facing surfaces get this quantized value.
+ */
+function deviceMemoryApiValue(physicalGb: number): number {
+  if (!(physicalGb > 0)) return 8;
+  return Math.min(8, 2 ** Math.round(Math.log2(physicalGb)));
 }
 
 function fingerprintSeed(profileId: ProfileId, fp: FingerprintConfig): string {
@@ -1824,4 +1888,3 @@ async function ensureSessionRestore(dataDir: string): Promise<void> {
   await fsp.writeFile(tmpPath, JSON.stringify(prefs));
   await fsp.rename(tmpPath, prefsPath);
 }
-

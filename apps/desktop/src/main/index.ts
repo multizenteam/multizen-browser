@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from "electron";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import {
@@ -8,6 +8,7 @@ import {
   importProfile,
   generateFingerprint,
   reconcileFingerprint,
+  FingerprintReconcileError,
   deviceCatalog,
   localeCatalog,
   findLocaleIdByCountry,
@@ -24,8 +25,14 @@ import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
 import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
 import { UpdaterService } from "./UpdaterService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
+import { loadOrCreateMcpToken } from "./mcpToken.ts";
 import { ExtensionsService } from "./extensions/ExtensionsService.ts";
-import { sweepOrphans } from "./extensions/extensionStore.ts";
+import {
+  sweepOrphans,
+  storeEntryDir,
+  resolveLoadDir,
+  readManifestIcon,
+} from "./extensions/extensionStore.ts";
 import { probeProxyGeo, type ProxyGeoResult } from "./proxyGeo.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -65,6 +72,7 @@ const recentCompanionInstalls = new Set<string>();
 let activityLog: ActivityLog;
 let settingsStore: SettingsStore;
 let httpTransport: HttpTransport | null = null;
+let mcpAuthToken: string | null = null;
 let cachedSettings: AppSettings | null = null;
 
 function createWindow(): void {
@@ -271,8 +279,14 @@ app.whenReady().then(async () => {
   // factory, all sharing the deps + ActivityLog captured here.
   if (cachedSettings.mcpHttpEnabled) {
     try {
+      // Require a bearer token so only clients that hold the locally-stored
+      // secret (not a random local process, not a DNS-rebinding web page) can
+      // drive the browser-control tools. Generated + persisted 0600 on first run.
+      mcpAuthToken = loadOrCreateMcpToken(userData);
       httpTransport = new HttpTransport({
         port: cachedSettings.mcpHttpPort,
+        authToken: mcpAuthToken,
+        // Each session gets its own MCP server; deps + ActivityLog are shared.
         createServer: () =>
           createMultizenMcpServer({ profileManager, browserDriver, activityLog }).server,
       });
@@ -388,6 +402,25 @@ app.whenReady().then(async () => {
   };
 
   ipcMain.handle("extensions:storeEntries", () => extensionsService.storeEntries());
+  // Real icon from an extension's own manifest, as a data URI (or null → the
+  // renderer shows the generic glyph). Lets non-catalog extensions show their
+  // actual icon. Shared entries resolve from the store; profile-scoped ones
+  // need the owning profile's dataDir.
+  ipcMain.handle(
+    "extensions:icon",
+    async (_e, ext: ExtensionConfig, profileId: string | null): Promise<string | null> => {
+      const dataDir = profileId ? profileManager.get(profileId)?.dataDir : undefined;
+      if (ext.scope !== "shared" && !dataDir) return null;
+      const dir = resolveLoadDir(ext, dataDir ?? "", extensionStoreRoot);
+      // Defense-in-depth: a crafted archive could carry a profile-scope ext.dir
+      // that escapes the profile. Keep the resolved dir inside its expected root
+      // before reading any file from it.
+      const root = resolve(ext.scope === "shared" ? extensionStoreRoot : (dataDir ?? ""));
+      const abs = resolve(dir);
+      if (abs !== root && !abs.startsWith(root + sep)) return null;
+      return readManifestIcon(abs);
+    },
+  );
   ipcMain.handle("extensions:prepareFromWebStore", async (_e, urlOrId: string) => {
     try {
       return await extensionsService.prepareFromWebStore(urlOrId);
@@ -439,7 +472,24 @@ app.whenReady().then(async () => {
       _e,
       current: Parameters<typeof reconcileFingerprint>[0],
       patch: Parameters<typeof reconcileFingerprint>[1],
-    ) => reconcileFingerprint(current, patch),
+    ) => {
+      // reconcileFingerprint now throws on invalid input (the honest contract
+      // for MCP). GUI patches are all catalog-sourced so this "can't happen"
+      // in normal use, but the renderer calls this as `void reconcile(...)`,
+      // so a throw would surface as an unhandled rejection and silently no-op
+      // the edit. Degrade gracefully: on a reconcile rejection (e.g. a corrupt
+      // or legacy persisted fingerprint) return `current` unchanged; rethrow
+      // anything else.
+      try {
+        return reconcileFingerprint(current, patch);
+      } catch (e) {
+        if (e instanceof FingerprintReconcileError) {
+          console.warn("[multizen] fingerprint reconcile rejected:", e.message);
+          return current;
+        }
+        throw e;
+      }
+    },
   );
 
   // Proxy geo-IP probe — verifies that the profile's locale + timezone are
@@ -479,7 +529,16 @@ app.whenReady().then(async () => {
         filters: [{ name: "MultiZen archive", extensions: ["mzar"] }],
       });
       if (result.canceled || !result.filePath) return { ok: false, reason: "cancelled" };
-      await exportProfile(profile, passphrase, result.filePath);
+      // Bundle the profile's shared-store extensions so importing on another
+      // machine restores the extension code too, not just a dangling reference.
+      const extensions = (profile.extensions ?? [])
+        .filter((e) => e.scope === "shared")
+        .map((e) => ({
+          id: e.id,
+          version: e.version,
+          dir: storeEntryDir(extensionStoreRoot, e.id, e.version),
+        }));
+      await exportProfile(profile, passphrase, result.filePath, { extensions });
       return { ok: true, path: result.filePath };
     },
   );
@@ -505,6 +564,9 @@ app.whenReady().then(async () => {
         // proxy) and its dataDir points at the restored files.
         const restored = await importProfile(archivePath, passphrase, join(dataRoot, "profiles"), {
           idTaken: (id) => Boolean(profileManager.get(id)),
+          // Restore bundled (v2) extensions into the shared store so they work
+          // on this machine without the user re-adding them.
+          extensionStoreRoot,
         });
         // Insert the row verbatim so the DB entry points at the restored files
         // (the old create()-based path minted a new id/dataDir and orphaned the
@@ -520,6 +582,9 @@ app.whenReady().then(async () => {
   // System info
   ipcMain.handle("system:info", () => ({
     mcpHttpUrl: httpTransport ? `http://127.0.0.1:${cachedSettings?.mcpHttpPort}` : null,
+    // Bearer token an MCP client must send as `Authorization: Bearer <token>`.
+    // Surfaced so the in-app panel can show a ready-to-paste client config.
+    mcpAuthToken: httpTransport ? mcpAuthToken : null,
     appVersion: app.getVersion(),
     platform: process.platform,
   }));
@@ -529,6 +594,21 @@ app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((e: unknown) => {
+  // A failure anywhere in the async startup would otherwise reject SILENTLY:
+  // createWindow() is the last step, so the dock icon appears but no window and
+  // no error ever shows. The known trigger is the native better-sqlite3 binding
+  // failing to load when a wrong-arch .node ships (an arm64 binary in the x64
+  // build → crashes on Intel Macs). Surface it as a visible dialog and quit
+  // cleanly instead of a mystery no-window.
+  const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
+  process.stderr.write(`[multizen] fatal startup error:\n${detail}\n`);
+  dialog.showErrorBox(
+    "MultiZen failed to start",
+    `A startup step failed:\n\n${e instanceof Error ? e.message : String(e)}\n\n` +
+      "Please report this on Discord/GitHub with this message.",
+  );
+  app.quit();
 });
 
 app.on("window-all-closed", () => {

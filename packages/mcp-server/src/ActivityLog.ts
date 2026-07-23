@@ -78,19 +78,26 @@ function sanitize(args: Record<string, unknown>): Record<string, unknown> {
     if (k === "text" && typeof v === "string" && v.length > 80) {
       out[k] = `${v.slice(0, 60)}…[${v.length} chars]`;
     } else if (k === "proxy" && v && typeof v === "object") {
-      // Proxy credentials are secrets — never let them reach the activity
-      // stream / audit log.
-      out[k] = redactProxy(v as Record<string, unknown>);
+      // create_profile / update_profile args carry proxy username/password in
+      // cleartext. NEVER log them — the activity feed is rendered in the desktop
+      // UI and can be piped to an audit file. Keep only the non-secret shape.
+      const p = v as {
+        type?: unknown;
+        host?: unknown;
+        port?: unknown;
+        username?: unknown;
+        password?: unknown;
+      };
+      out[k] = { type: p.type, host: p.host, port: p.port, hasAuth: Boolean(p.username || p.password) };
+    } else if (k === "cookies" && Array.isArray(v)) {
+      // set_cookies args carry cookie values (session tokens) in cleartext.
+      // Redact each value in the audit trail; keep name/domain/etc. for context.
+      out[k] = v.map((c) =>
+        c && typeof c === "object" ? { ...(c as Record<string, unknown>), value: "***" } : c,
+      );
     } else {
       out[k] = v;
     }
   }
-  return out;
-}
-
-function redactProxy(proxy: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...proxy };
-  if (typeof out.username === "string" && out.username.length > 0) out.username = "***";
-  if (typeof out.password === "string" && out.password.length > 0) out.password = "***";
   return out;
 }
