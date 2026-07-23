@@ -1,6 +1,7 @@
 # Upstream merge status — v0.3.0
 
 **Status:** COMPLETED  
+**Merge commit:** `1739d0c` (`Merge upstream v0.3.0 into fork`)  
 **Date:** 2026-07-24  
 **Remote:** `upstream` → `https://github.com/multizenteam/multizen-browser.git`  
 **Branch merged:** `upstream/master` into local `master`  
