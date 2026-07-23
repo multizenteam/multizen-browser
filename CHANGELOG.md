@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-24
+
+Synced with upstream `multizenteam/multizen-browser` v0.3.0 while keeping this
+fork's MCP/CDP surface (always-on `cdp_send` / `cdp_send_no_safety` /
+`probe_fingerprint`) and strict-pin launch timezone policy.
+
+### Added
+
+- **MCP HTTP bearer auth** — local MCP server requires a token; Settings shows
+  the token and connection docs use it so Cursor / Claude / Codex can authenticate.
+- **Real extension manifest icons** for non-catalog extensions in the profile UI.
+- **Shared extensions bundled into `.mzar` exports** so import restores
+  attached extensions without a separate download step.
+
+### Changed
+
+- Profile **List view** brought to visual parity with grid cards; menu clicks no
+  longer open Edit Profile by accident.
+- Launch uses a **profile-local Safe Storage key** instead of the OS keychain.
+- Top bar brand label is non-selectable (`pointer-events: none`).
+- MCP activity log / `list_profiles` redact proxy credentials (and related
+  sensitive fields) more thoroughly.
+- HTTP MCP transport gains Host allowlist / DNS-rebinding guards alongside the
+  fork's multi-session transport.
+
+### Fixed
+
+- `navigator.deviceMemory` clamped to the API maximum of 8.
+- Profile timezone applied correctly when no proxy is set.
+- Intel Mac builds ship the correct-arch native module; clearer startup errors
+  when the engine fails to load.
+
+### CI
+
+- Release workflow pre-creates the GitHub Release to avoid the 3-way create
+  race across the OS matrix (combined with this fork's validate/typecheck gate).
+
 ## [0.7.0] - 2026-07-17
 
 ### Added
@@ -275,6 +312,7 @@ feature set into the extended fork while keeping the fork's MCP/CDP tooling.
   per-profile SOCKS5 bridge with persona alignment, and the activity log.
 - GitHub Actions release workflow with stable, version-less download URLs.
 
+[0.7.1]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kiserufetch/multizen-browser-extended/compare/v0.4.1...v0.5.0
