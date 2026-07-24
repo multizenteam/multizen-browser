@@ -411,6 +411,25 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       // macOS app bundles need this to find their frameworks.
       DYLD_FALLBACK_FRAMEWORK_PATH: process.env.DYLD_FALLBACK_FRAMEWORK_PATH ?? "",
     };
+
+    // Linux GUI clients must inherit the active desktop session. Without
+    // these values a headful Chromium process cannot connect to X11/Wayland
+    // even though the Electron host window is already running successfully.
+    if (process.platform === "linux") {
+      for (const key of [
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "XAUTHORITY",
+        "XDG_RUNTIME_DIR",
+        "XDG_SESSION_TYPE",
+        "XDG_CURRENT_DESKTOP",
+        "DESKTOP_SESSION",
+        "DBUS_SESSION_BUS_ADDRESS",
+      ]) {
+        const value = process.env[key];
+        if (value !== undefined) cleanEnv[key] = value;
+      }
+    }
     // Start page (positional URL) — only on first run, i.e. when there is no
     // restorable session. With `--restore-last-session` a returning profile
     // reopens its real tabs, so we must NOT stack an extra tab; on first launch
