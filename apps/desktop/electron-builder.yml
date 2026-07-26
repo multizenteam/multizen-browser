@@ -63,15 +63,19 @@ extraResources:
 mac:
   category: public.app-category.developer-tools
   icon: ../../build/icon.icns
+  # NO hardcoded arch here on purpose. The release workflow builds each macOS
+  # arch on a runner of that arch and passes the arch via the CLI
+  # (`electron-builder --mac --x64` / `--arm64`). If we listed `arch: [x64, arm64]`
+  # here, the config would win over the CLI flag and EACH runner would build
+  # BOTH arches into one shared node_modules — the second arch's @electron/rebuild
+  # overwrites the native better-sqlite3 .node, and the first arch's package
+  # (built concurrently) ships the wrong-arch .node. That shipped an arm64
+  # better_sqlite3.node inside the x64 app and crashed every Intel Mac on launch
+  # (issue #19). Leaving arch unset makes the CLI flag select exactly one arch
+  # per runner, so the native module always matches the package.
   target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
-    - target: zip
-      arch:
-        - x64
-        - arm64
+    - dmg
+    - zip
   artifactName: "${productName}-mac-${arch}.${ext}"
   # Open-source unsigned build: skip Apple notarization (would need a
   # $99/yr Developer ID). We use ad-hoc signing (identity "-") so the
