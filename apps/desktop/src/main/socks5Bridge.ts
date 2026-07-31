@@ -38,6 +38,17 @@ interface BridgeHandle {
 
 const byProfile = new Map<ProfileId, BridgeHandle>();
 
+/** Rate-limit the per-request bridge failure logs. A dead/blocked upstream
+ *  proxy fails EVERY CONNECT (e.g. "403 Forbidden"), which floods stderr with
+ *  identical lines. Log each distinct message at most once per 30s. */
+const bridgeWarnAt = new Map<string, number>();
+function warnBridgeThrottled(msg: string): void {
+  const now = Date.now();
+  if (now - (bridgeWarnAt.get(msg) ?? 0) < 30_000) return;
+  bridgeWarnAt.set(msg, now);
+  console.warn("[multizen] socks5 bridge:", msg);
+}
+
 export async function startBridgeForProfile(
   profileId: ProfileId,
   upstream: ProxyConfig,
@@ -84,7 +95,7 @@ async function startBridge(upstream: ProxyConfig): Promise<BridgeHandle> {
         sock.destroy();
         return;
       }
-      console.warn("[multizen] socks5 bridge:", msg);
+      warnBridgeThrottled(msg);
       sock.destroy();
     });
   });
