@@ -46,7 +46,7 @@ export interface CdpSessionOptions {
   /** Optional host override, defaults to localhost */
   host?: string;
   /**
-   * Browser engine identifier (e.g. "cft" | "cloakbrowser"). Lets the safe
+   * Browser engine identifier (e.g. "cloakbrowser"). Lets the safe
    * `cdpSend` layer refuse `*.enable` of DCHECK-sensitive domains on
    * anti-detect forks where enabling — not the paired disable — is what
    * trips the automation tripwire.

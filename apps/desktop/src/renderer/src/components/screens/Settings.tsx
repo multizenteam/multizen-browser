@@ -372,11 +372,6 @@ const engineOptions: Array<{
     label: "CloakBrowser",
     description: "Source-patched Chromium from CloakHQ releases. Primary runtime.",
   },
-  {
-    value: "cft",
-    label: "Chrome for Testing",
-    description: "Compatibility fallback using Google's official automation build.",
-  },
 ];
 
 function electronVersion(): string {
