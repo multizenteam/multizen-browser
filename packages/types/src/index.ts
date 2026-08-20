@@ -178,6 +178,9 @@ export interface Profile {
    *  overrides (verified), so this is deferred to the patched-Chromium build.
    *  The column/field are kept so the feature can land without a migration. */
   searchProvider?: string;
+  /** Browser engine that runs this profile. Unset → the app's default engine
+   *  (settings.browserEngine) is resolved at launch. See {@link BrowserEngine}. */
+  engine?: BrowserEngine;
   dataDir: string;
   createdAt: string;
   updatedAt: string;
@@ -216,6 +219,8 @@ export interface CreateProfileInput {
   icon?: string;
   startUrl?: string;
   searchProvider?: string;
+  /** Engine for the new profile. Unset → the app's default engine. */
+  engine?: BrowserEngine;
   proxy?: ProxyConfig;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];
@@ -228,6 +233,8 @@ export interface UpdateProfileInput {
   icon?: string | null;
   startUrl?: string | null;
   searchProvider?: string | null;
+  /** null clears → revert to the app default engine; undefined keeps existing. */
+  engine?: BrowserEngine | null;
   proxy?: ProxyConfig | null;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];
