@@ -21,14 +21,13 @@ import {
 } from "@multizen/mcp-server";
 import { SettingsStore, defaultSettingsPath, type AppSettings } from "@multizen/settings-store";
 import type {
-  ChromiumStatus,
   EngineUpdateStatus,
   ExtensionConfig,
   ProxyConfig,
   UpdateStatus,
 } from "@multizen/types";
 import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
-import { ChromiumBootstrap } from "./ChromiumBootstrap.ts";
+import { EngineRegistry } from "./engineRegistry.ts";
 import { UpdaterService } from "./UpdaterService.ts";
 import { EngineUpdateService } from "./EngineUpdateService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
@@ -70,7 +69,7 @@ function resolveAppIcon(): string | null {
 let mainWindow: BrowserWindow | null = null;
 let profileManager: ProfileManager;
 let browserDriver: ChromiumBrowserDriver;
-let chromiumBootstrap: ChromiumBootstrap;
+let engineRegistry: EngineRegistry;
 let updater: UpdaterService;
 let engineUpdater: EngineUpdateService;
 let usageReporting: UsageReporting;
@@ -161,28 +160,35 @@ app.whenReady().then(async () => {
     })
     .catch(() => {});
 
-  // Chromium bootstrap — picks the engine from user settings (CFT default,
-  // CloakBrowser opt-in for stronger anti-detect), downloads it on first
-  // run, and reports progress to the renderer.
-  chromiumBootstrap = new ChromiumBootstrap({
-    engine: cachedSettings.browserEngine,
+  // Engine registry — owns one Chromium bootstrap per engine, replacing the
+  // former single global bootstrap. It downloads each engine's binary on first
+  // use and re-emits its download/verify status tagged with the engine.
+  // CloakBrowser is the only Chromium engine in this phase; Camoufox arrives
+  // with its own bootstrap later.
+  engineRegistry = new EngineRegistry();
+  engineRegistry.on("status", (engine, status) => {
+    // The renderer's chromium:status channel is single-engine today, so forward
+    // the CloakBrowser stream to keep the existing bootstrap UI working.
+    // Per-engine status fan-out lands with the per-profile picker.
+    if (engine === "cloakbrowser") {
+      mainWindow?.webContents.send("chromium:status", status);
+    }
   });
-  chromiumBootstrap.on("status", (status: ChromiumStatus) => {
-    mainWindow?.webContents.send("chromium:status", status);
-  });
-  // Kick off the ensure() in the background so the UI can render immediately
-  // and show download progress. Profile launches will wait until ready.
-  void chromiumBootstrap.ensure().catch((e) => {
+  // Kick off the default engine's download in the background so the UI can
+  // render immediately and show progress. Profile launches wait until their
+  // engine is ready.
+  void engineRegistry.ensure("cloakbrowser").catch((e) => {
     process.stderr.write(`Chromium bootstrap failed: ${String(e)}\n`);
   });
 
   // Browser-ENGINE update manager. Keeps the downloaded Chromium runtime
-  // (CloakBrowser / CFT) fresh — background check + side-by-side stage that
-  // applies on the next profile launch, never interrupting a running browser.
-  // Reads settings live so the engineAutoUpdate toggle takes effect without
-  // restart. Best-effort: a failed check never blocks a launch.
+  // (CloakBrowser) fresh — background check + side-by-side stage that applies
+  // on the next profile launch, never interrupting a running browser. Reads
+  // settings live so the engineAutoUpdate toggle takes effect without restart.
+  // Best-effort: a failed check never blocks a launch. Bound to CloakBrowser,
+  // the only Chromium engine in this phase.
   engineUpdater = new EngineUpdateService({
-    bootstrap: chromiumBootstrap,
+    bootstrap: engineRegistry.get("cloakbrowser"),
     getSettings: () => cachedSettings as AppSettings,
   });
   engineUpdater.on("status", (status: EngineUpdateStatus) => {
@@ -214,14 +220,16 @@ app.whenReady().then(async () => {
     profileManager,
     extensionStoreRoot,
     engineVersion: () => {
-      const s = chromiumBootstrap.getStatus();
+      // Extensions are Chromium-only, so the Web Store prodversion comes from
+      // the CloakBrowser bootstrap.
+      const s = engineRegistry.get("cloakbrowser").getStatus();
       return s.kind === "ready" ? s.version : "145.0.0.0";
     },
   });
 
   browserDriver = new ChromiumBrowserDriver({
     profileManager,
-    chromiumBootstrap,
+    chromiumBootstrap: engineRegistry.get("cloakbrowser"),
     extensionStoreRoot,
     // The companion's "Add to MultiZen" button routes here (profile-scoped).
     // Confirm natively first: any script on the store page could trigger the
@@ -359,8 +367,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("activity:recent", () => activityLog.recent());
 
   // Chromium bootstrap IPC
-  ipcMain.handle("chromium:status", () => chromiumBootstrap.getStatus());
-  ipcMain.handle("chromium:retry", () => chromiumBootstrap.ensure());
+  ipcMain.handle("chromium:status", () => engineRegistry.get("cloakbrowser").getStatus());
+  ipcMain.handle("chromium:retry", () => engineRegistry.get("cloakbrowser").ensure());
 
   // Extensions IPC (per-profile)
   ipcMain.handle("extensions:list", (_e, profileId: string) =>
