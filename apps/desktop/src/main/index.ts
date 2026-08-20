@@ -334,7 +334,11 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle("profiles:get", (_e, id: string) => profileManager.get(id));
   ipcMain.handle("profiles:create", (_e, input: Parameters<ProfileManager["create"]>[0]) =>
-    profileManager.create(input),
+    profileManager.create({
+      ...input,
+      // New profiles inherit the app-wide default engine unless one was picked.
+      engine: input.engine ?? cachedSettings?.browserEngine ?? "cloakbrowser",
+    }),
   );
   ipcMain.handle(
     "profiles:update",
