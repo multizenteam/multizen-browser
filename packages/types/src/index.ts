@@ -25,6 +25,16 @@ export function resolveEngine(
   return profileEngine ?? defaultEngine ?? "cloakbrowser";
 }
 
+/** The engines this build can run — the runtime companion to {@link BrowserEngine}. */
+export const BROWSER_ENGINES = ["cloakbrowser", "camoufox"] as const;
+
+/** Runtime guard: is `value` an engine this build knows how to run? Used on the
+ *  import path to reject a stored engine that isn't in the current roster (e.g.
+ *  a legacy "cft" export, or a newer engine) so it can fall back to the default. */
+export function isBrowserEngine(value: unknown): value is BrowserEngine {
+  return typeof value === "string" && (BROWSER_ENGINES as readonly string[]).includes(value);
+}
+
 export interface ProxyConfig {
   type: "http" | "socks5";
   host: string;

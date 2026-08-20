@@ -26,7 +26,7 @@ import type {
   ProxyConfig,
   UpdateStatus,
 } from "@multizen/types";
-import { resolveEngine } from "@multizen/types";
+import { isBrowserEngine, resolveEngine } from "@multizen/types";
 import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
 import { EngineRegistry } from "./engineRegistry.ts";
 import { UpdaterService } from "./UpdaterService.ts";
@@ -621,6 +621,19 @@ app.whenReady().then(async () => {
           // on this machine without the user re-adding them.
           extensionStoreRoot,
         });
+        // If the archive recorded an engine this build can't run (a legacy
+        // "cft" export, or a newer engine), clear it so the profile resolves to
+        // the app default at launch instead of handing the registry an unknown
+        // engine. Tell the user rather than silently changing their setup.
+        const recordedEngine: unknown = restored.engine;
+        if (recordedEngine !== undefined && !isBrowserEngine(recordedEngine)) {
+          restored.engine = undefined;
+          void dialog.showMessageBox(mainWindow ?? undefined!, {
+            type: "info",
+            message: "Engine not available",
+            detail: `This profile was exported with an engine this version of MultiZen doesn't have (${String(recordedEngine)}). It will run on your default engine instead.`,
+          });
+        }
         // Insert the row verbatim so the DB entry points at the restored files
         // (the old create()-based path minted a new id/dataDir and orphaned the
         // cookies/logins that were just restored).
