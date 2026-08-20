@@ -229,7 +229,8 @@ app.whenReady().then(async () => {
 
   browserDriver = new ChromiumBrowserDriver({
     profileManager,
-    chromiumBootstrap: engineRegistry.get("cloakbrowser"),
+    engineRegistry,
+    getDefaultEngine: () => cachedSettings?.browserEngine ?? "cloakbrowser",
     extensionStoreRoot,
     // The companion's "Add to MultiZen" button routes here (profile-scoped).
     // Confirm natively first: any script on the store page could trigger the

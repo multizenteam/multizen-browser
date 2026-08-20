@@ -12,6 +12,19 @@ export type ProfileId = string;
  */
 export type BrowserEngine = "cloakbrowser" | "camoufox";
 
+/**
+ * Resolve which engine actually runs a profile: the profile's own engine if
+ * set, else the app-wide default (`AppSettings.browserEngine`, i.e. the default
+ * engine for new profiles), else CloakBrowser as the ultimate fallback. Pure,
+ * so both the main process and tests can rely on it.
+ */
+export function resolveEngine(
+  profileEngine: BrowserEngine | null | undefined,
+  defaultEngine: BrowserEngine | null | undefined,
+): BrowserEngine {
+  return profileEngine ?? defaultEngine ?? "cloakbrowser";
+}
+
 export interface ProxyConfig {
   type: "http" | "socks5";
   host: string;

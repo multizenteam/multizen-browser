@@ -13,9 +13,9 @@ import type { BrowserDriver } from "@multizen/mcp-server";
 import type { ProfileManager } from "@multizen/profile-manager";
 import type { ClientHints, FingerprintConfig, LaunchedProfile, ProfileId } from "@multizen/types";
 import { waitForCdpSessionReady } from "./cdpReadiness";
-import type { BrowserEngine } from "@multizen/types";
+import { resolveEngine, type BrowserEngine } from "@multizen/types";
 import { CdpSession } from "@multizen/cdp-driver";
-import type { ChromiumBootstrap } from "./ChromiumBootstrap";
+import { EngineRegistry } from "./engineRegistry.ts";
 import { startBridgeForProfile, stopBridgeForProfile } from "./socks5Bridge";
 import { probeProxyGeo } from "./proxyGeo";
 import { companionDir } from "./extensions/companion";
@@ -38,7 +38,12 @@ interface RunningProcess {
 
 export interface ChromiumBrowserDriverOptions {
   profileManager: ProfileManager;
-  chromiumBootstrap: ChromiumBootstrap;
+  /** Registry that owns the per-engine bootstraps. The driver resolves each
+   *  profile's engine at launch and pulls that engine's binary from here. */
+  engineRegistry: EngineRegistry;
+  /** The app-wide default engine (settings.browserEngine) for profiles that
+   *  haven't pinned one. Read live so a settings change takes effect. */
+  getDefaultEngine: () => BrowserEngine;
   /**
    * Called when the companion extension's "Add to MultiZen" button is clicked
    * inside a running profile. `profileId` is the profile that made the call
@@ -75,14 +80,16 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
   private readonly running = new Map<ProfileId, RunningProcess>();
   private nextPort = 9222;
   private readonly profileManager: ProfileManager;
-  private readonly bootstrap: ChromiumBootstrap;
+  private readonly engineRegistry: EngineRegistry;
+  private readonly getDefaultEngine: () => BrowserEngine;
   private readonly onCompanionInstall?: (profileId: ProfileId, extensionId: string) => void;
   private readonly extensionStoreRoot: string;
 
   constructor(opts: ChromiumBrowserDriverOptions) {
     super();
     this.profileManager = opts.profileManager;
-    this.bootstrap = opts.chromiumBootstrap;
+    this.engineRegistry = opts.engineRegistry;
+    this.getDefaultEngine = opts.getDefaultEngine;
     this.onCompanionInstall = opts.onCompanionInstall;
     this.extensionStoreRoot = opts.extensionStoreRoot;
   }
@@ -118,8 +125,11 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     this.profileManager.markOpened(profileId);
 
     const port = this.allocatePort();
-    const chromiumPath = this.bootstrap.resolveBinaryPath();
-    const engine: BrowserEngine = this.bootstrap.getEngine();
+    // Resolve the profile's engine (its own pin, else the app default, else
+    // CloakBrowser) and drive it from that engine's bootstrap binary.
+    const engine = resolveEngine(profile.engine, this.getDefaultEngine());
+    const bootstrap = this.engineRegistry.get(engine);
+    const chromiumPath = bootstrap.resolveBinaryPath();
     const browserDataDir = browserDataDirForEngine(profile.dataDir, engine);
     // Read the actual Chromium binary's version and reconcile the
     // profile's spoofed UA against it. Detection vendors fingerprint the
