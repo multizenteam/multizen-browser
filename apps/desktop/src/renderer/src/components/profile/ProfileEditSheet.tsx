@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Check, Loader2, TriangleAlert } from "lucide-react";
-import type { FingerprintConfig, Profile, ProxyConfig, UpdateProfileInput } from "../../types";
+import type {
+  BrowserEngine,
+  FingerprintConfig,
+  Profile,
+  ProxyConfig,
+  UpdateProfileInput,
+} from "../../types";
 import { FingerprintForm } from "./FingerprintForm";
 import { ProxyTester } from "./ProxyTester";
 import { ExtensionsSection } from "./ExtensionsSection";
@@ -32,6 +38,8 @@ interface FormState {
   icon: string | undefined;
   /** Start page ("" = app default). */
   startUrl: string;
+  /** Engine that runs this profile. */
+  engine: BrowserEngine;
   proxyEnabled: boolean;
   proxyType: "http" | "socks5";
   proxyHost: string;
@@ -48,6 +56,7 @@ function toForm(p: Profile): FormState {
     tagsRaw: p.tags.join(", "),
     icon: p.icon,
     startUrl: p.startUrl ?? "",
+    engine: p.engine ?? "cloakbrowser",
     proxyEnabled: !!p.proxy,
     proxyType: p.proxy?.type ?? "http",
     proxyHost: p.proxy?.host ?? "",
@@ -81,6 +90,7 @@ function toPatch(f: FormState): UpdateProfileInput {
     tags: f.tagsRaw.split(",").map((s) => s.trim()).filter(Boolean),
     icon: f.icon ?? null, // null clears a custom icon (revert to derived default)
     startUrl: f.startUrl.trim() || null, // null → app default start page
+    engine: f.engine,
     proxy,
     fingerprint: f.fingerprint,
   };
@@ -228,7 +238,12 @@ export function ProfileEditSheet({ profile, onSaved }: Props): JSX.Element {
         )}
 
         {section === "browser" && (
-          <BrowserSection startUrl={form.startUrl} onStartUrl={(v) => update("startUrl", v)} />
+          <BrowserSection
+            startUrl={form.startUrl}
+            onStartUrl={(v) => update("startUrl", v)}
+            engine={form.engine}
+            onEngine={(v) => update("engine", v)}
+          />
         )}
 
         {section === "proxy" && (

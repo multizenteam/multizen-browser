@@ -12,6 +12,7 @@ import type {
   UpdateStatus,
   EngineUpdateStatus,
   ExtensionConfig,
+  BrowserEngine,
 } from "@multizen/types";
 
 /** Payload for the `extensions:installed` push (companion "Add to MultiZen"). */
@@ -166,4 +167,5 @@ export type {
   EngineUpdateStatus,
   ExtensionConfig,
   UpdateProfileInput,
+  BrowserEngine,
 };

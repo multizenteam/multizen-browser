@@ -5,7 +5,7 @@ import { ProxyTester } from "./ProxyTester";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { EmojiField } from "./EmojiField";
 import { BrowserSection, DEFAULT_START_URL } from "./BrowserSection";
-import type { ExtensionConfig, FingerprintConfig, ProxyConfig } from "../../types";
+import type { BrowserEngine, ExtensionConfig, FingerprintConfig, ProxyConfig } from "../../types";
 import { parseProxyString } from "../../lib/parseProxy";
 import {
   Field,
@@ -56,6 +56,9 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
   const [tagsRaw, setTagsRaw] = useState("");
   const [icon, setIcon] = useState<string | undefined>(undefined);
   const [startUrl, setStartUrl] = useState(DEFAULT_START_URL);
+  // New profiles default to CloakBrowser (the app's default engine this phase);
+  // the create IPC also falls back to the default when this is unset.
+  const [engine, setEngine] = useState<BrowserEngine>("cloakbrowser");
   const [proxy, setProxy] = useState<DraftProxy>(EMPTY_PROXY);
   const [notes, setNotes] = useState("");
   const [extensions, setExtensions] = useState<ExtensionConfig[]>([]);
@@ -144,6 +147,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
         icon,
         notes: notes.trim() || undefined,
         startUrl: startUrl.trim() || undefined,
+        engine,
         proxy: built,
         fingerprint: fingerprint ?? undefined,
         extensions: extensions.length > 0 ? extensions : undefined,
@@ -219,7 +223,12 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
           )}
 
           {section === "browser" && (
-            <BrowserSection startUrl={startUrl} onStartUrl={setStartUrl} />
+            <BrowserSection
+              startUrl={startUrl}
+              onStartUrl={setStartUrl}
+              engine={engine}
+              onEngine={setEngine}
+            />
           )}
 
           {section === "proxy" && (

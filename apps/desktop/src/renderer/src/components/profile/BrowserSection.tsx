@@ -1,8 +1,9 @@
 import type { JSX } from "react";
+import type { BrowserEngine } from "../../types";
 
 /**
- * Browser start-page control, shared by the create and edit sheets.
- * Self-contained (own label/input) so both sheets can drop it into their own
+ * Browser engine + start-page controls, shared by the create and edit sheets.
+ * Self-contained (own labels/inputs) so both sheets can drop it into their own
  * "Browser" group.
  *
  * NOTE: a per-profile default-search-engine control lived here too, but ungoogled
@@ -16,15 +17,70 @@ import type { JSX } from "react";
  *  value — the user can select/clear it, not just a placeholder). */
 export const DEFAULT_START_URL = "https://duckduckgo.com/";
 
+/** Engines a user can assign to a profile. CloakBrowser today; Camoufox joins
+ *  once its runtime ships. CFT is intentionally not offered. */
+export const ENGINE_ROSTER: ReadonlyArray<{
+  value: BrowserEngine;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "cloakbrowser",
+    label: "CloakBrowser",
+    description: "Source-patched Chromium. Full anti-detect + agent tools.",
+  },
+];
+
 export function BrowserSection({
   startUrl,
   onStartUrl,
+  engine,
+  onEngine,
+  engineDisabled = false,
+  engineDisabledReason,
 }: {
   startUrl: string;
   onStartUrl: (v: string) => void;
+  engine: BrowserEngine;
+  onEngine: (v: BrowserEngine) => void;
+  /** When true the engine cannot be changed (e.g. the profile is running). */
+  engineDisabled?: boolean;
+  /** Shown under the picker to explain why it's locked. */
+  engineDisabledReason?: string;
 }): JSX.Element {
   return (
     <div className="space-y-2.5">
+      <SectionField label="Engine">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {ENGINE_ROSTER.map((opt) => {
+            const selected = engine === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={engineDisabled}
+                onClick={() => onEngine(opt.value)}
+                className="text-left p-2.5 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  boxShadow: selected
+                    ? "inset 0 0 0 1px rgba(168,85,247,0.45)"
+                    : "inset 0 0 0 1px rgba(255,255,255,0.08)",
+                  background: selected ? "rgba(168,85,247,0.08)" : "rgba(255,255,255,0.025)",
+                }}
+              >
+                <div className="text-[12px] font-medium text-slate-200">{opt.label}</div>
+                <div className="text-[10px] text-slate-500 leading-snug mt-0.5">
+                  {opt.description}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {engineDisabled && engineDisabledReason ? (
+          <p className="text-[10px] text-slate-600 leading-relaxed">{engineDisabledReason}</p>
+        ) : null}
+      </SectionField>
+
       <SectionField label="Start page">
         <input
           type="text"
