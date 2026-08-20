@@ -129,6 +129,14 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     // CloakBrowser) and drive it from that engine's bootstrap binary.
     const engine = resolveEngine(profile.engine, this.getDefaultEngine());
     const bootstrap = this.engineRegistry.get(engine);
+    // Binary-gate the launch on THIS profile's engine: download/verify it if it
+    // isn't cached yet. Idempotent and fast once installed. A not-ready engine
+    // therefore blocks only its own profiles — a different engine's profiles
+    // (and the rest of the app) are unaffected.
+    const engineStatus = await bootstrap.ensure();
+    if (engineStatus.kind !== "ready" && engineStatus.kind !== "dev-system") {
+      throw new Error(`Engine "${engine}" is not ready to launch (status: ${engineStatus.kind}).`);
+    }
     const chromiumPath = bootstrap.resolveBinaryPath();
     const browserDataDir = browserDataDirForEngine(profile.dataDir, engine);
     // Read the actual Chromium binary's version and reconcile the
