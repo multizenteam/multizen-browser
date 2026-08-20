@@ -430,7 +430,11 @@ export function App(): JSX.Element {
         }}
       >
         {editingProfile && (
-          <ProfileEditSheet profile={editingProfile} onSaved={() => void refresh()} />
+          <ProfileEditSheet
+            profile={editingProfile}
+            isRunning={profiles.some((p) => p.id === editingProfile.id && p.isRunning)}
+            onSaved={() => void refresh()}
+          />
         )}
       </Modal>
 

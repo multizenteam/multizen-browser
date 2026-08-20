@@ -105,11 +105,14 @@ const AUTOSAVE_MS = 600;
 
 interface Props {
   profile: Profile;
+  /** Whether the profile is currently running — locks the engine picker,
+   *  since the engine can't change under a live browser. */
+  isRunning?: boolean;
   /** Fired after each successful autosave so the host can refresh the list. */
   onSaved?: () => void;
 }
 
-export function ProfileEditSheet({ profile, onSaved }: Props): JSX.Element {
+export function ProfileEditSheet({ profile, isRunning = false, onSaved }: Props): JSX.Element {
   const [section, setSection] = useState<SectionId>("general");
   const [form, setForm] = useState<FormState>(() => toForm(profile));
   const [status, setStatus] = useState<SaveStatus>({ kind: "saved" });
@@ -243,6 +246,8 @@ export function ProfileEditSheet({ profile, onSaved }: Props): JSX.Element {
             onStartUrl={(v) => update("startUrl", v)}
             engine={form.engine}
             onEngine={(v) => update("engine", v)}
+            engineDisabled={isRunning}
+            engineDisabledReason="Stop the profile to change its engine."
           />
         )}
 

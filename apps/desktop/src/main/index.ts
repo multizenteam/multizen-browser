@@ -26,6 +26,7 @@ import type {
   ProxyConfig,
   UpdateStatus,
 } from "@multizen/types";
+import { resolveEngine } from "@multizen/types";
 import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
 import { EngineRegistry } from "./engineRegistry.ts";
 import { UpdaterService } from "./UpdaterService.ts";
@@ -342,8 +343,20 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(
     "profiles:update",
-    (_e, id: string, patch: Parameters<ProfileManager["update"]>[1]) =>
-      profileManager.update(id, patch),
+    (_e, id: string, patch: Parameters<ProfileManager["update"]>[1]) => {
+      // A profile's engine can't change while it's running — the live browser
+      // is tied to the current engine's binary + user-data-dir. Reject only a
+      // real change (the edit sheet autosaves the whole form, so an unrelated
+      // edit re-sends the unchanged engine, which must still save).
+      if (patch.engine !== undefined && browserDriver.isRunning(id)) {
+        const current = profileManager.get(id);
+        const defaultEngine = cachedSettings?.browserEngine ?? "cloakbrowser";
+        if (resolveEngine(current?.engine, defaultEngine) !== resolveEngine(patch.engine, defaultEngine)) {
+          throw new Error("Stop the profile before changing its engine.");
+        }
+      }
+      return profileManager.update(id, patch);
+    },
   );
   ipcMain.handle("profiles:delete", (_e, id: string) => {
     void browserDriver.close(id).catch(() => {});
