@@ -18,8 +18,8 @@ interface EngineUpdateServiceOptions {
 }
 
 /**
- * Keeps the downloaded Chromium ENGINE (CloakBrowser / Chrome for Testing) up
- * to date, wrapped so the renderer sees a single {@link EngineUpdateStatus}
+ * Keeps the downloaded browser ENGINE (CloakBrowser) up to date,
+ * wrapped so the renderer sees a single {@link EngineUpdateStatus}
  * stream (mirrors {@link ChromiumBootstrap} and {@link UpdaterService}).
  *
  * Distinct from the APP self-update ({@link UpdaterService}): this refreshes

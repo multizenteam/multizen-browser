@@ -319,8 +319,8 @@ export type UpdateStatus =
   | { kind: "error"; message: string };
 
 /**
- * Browser-ENGINE update lifecycle (the downloaded Chromium runtime —
- * CloakBrowser / Chrome for Testing — NOT the MultiZen app itself). Drives
+ * Browser-ENGINE update lifecycle (the downloaded browser runtime —
+ * CloakBrowser / Camoufox — NOT the MultiZen app itself). Drives
  * the "Browser engine" update UX in Settings. Apply semantics are
  * "next launch": a newer version is downloaded side-by-side and current.json
  * is swapped, so the next profile launch picks it up while already-running
