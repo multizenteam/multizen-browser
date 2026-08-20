@@ -13,7 +13,7 @@ import type { BrowserDriver } from "@multizen/mcp-server";
 import type { ProfileManager } from "@multizen/profile-manager";
 import type { ClientHints, FingerprintConfig, LaunchedProfile, ProfileId } from "@multizen/types";
 import { waitForCdpSessionReady } from "./cdpReadiness";
-import type { BrowserEngine } from "@multizen/settings-store";
+import type { BrowserEngine } from "@multizen/types";
 import { CdpSession } from "@multizen/cdp-driver";
 import type { ChromiumBootstrap } from "./ChromiumBootstrap";
 import { startBridgeForProfile, stopBridgeForProfile } from "./socks5Bridge";

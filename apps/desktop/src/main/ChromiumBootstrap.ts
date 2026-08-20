@@ -43,7 +43,7 @@ async function extractArchive(archivePath: string, destDir: string): Promise<voi
 async function extractZipPreservingAttrs(zipPath: string, destDir: string): Promise<void> {
   return extractArchive(zipPath, destDir);
 }
-import type { BrowserEngine } from "@multizen/settings-store";
+import type { BrowserEngine } from "@multizen/types";
 import type { ChromiumStatus } from "@multizen/types";
 
 const execFileP = promisify(execFile);

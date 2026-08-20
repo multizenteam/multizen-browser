@@ -1123,6 +1123,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@multizen/settings-store@workspace:packages/settings-store"
   dependencies:
+    "@multizen/types": "workspace:*"
     "@types/node": "npm:^22.10.0"
   languageName: unknown
   linkType: soft

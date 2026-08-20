@@ -1,5 +1,17 @@
 export type ProfileId = string;
 
+/**
+ * Browser engine that runs a profile.
+ *   - "cloakbrowser": CloakBrowser — Chromium with 50+ source-level stealth
+ *     patches (canvas farbling, WebRTC, CDP traces removed). Primary runtime,
+ *     driven over CDP.
+ *   - "camoufox": Camoufox — a Firefox/Gecko anti-detect build with its own
+ *     BrowserForge fingerprint system, driven over the Firefox protocol.
+ * The engine is chosen per profile; the app setting only picks the default
+ * for newly created profiles.
+ */
+export type BrowserEngine = "cloakbrowser" | "camoufox";
+
 export interface ProxyConfig {
   type: "http" | "socks5";
   host: string;
