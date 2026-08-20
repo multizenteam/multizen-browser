@@ -1111,10 +1111,12 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@multizen/profile-manager@workspace:packages/profile-manager"
   dependencies:
+    "@multizen/settings-store": "workspace:*"
     "@multizen/types": "workspace:*"
     "@types/better-sqlite3": "npm:^7.6.12"
     "@types/uuid": "npm:^10.0.0"
     better-sqlite3: "npm:^11.7.0"
+    tsx: "npm:^4.19.2"
     uuid: "npm:^11.0.5"
   languageName: unknown
   linkType: soft

@@ -18,7 +18,9 @@
     "uuid": "^11.0.5"
   },
   "devDependencies": {
+    "@multizen/settings-store": "workspace:*",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/uuid": "^10.0.0"
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.2"
   }
 }
