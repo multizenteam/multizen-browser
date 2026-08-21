@@ -65,11 +65,22 @@ export async function probeProxyGeo(
   const agent =
     proxy.type === "socks5" ? new SocksProxyAgent(proxyUrl) : new HttpsProxyAgent(proxyUrl);
   const timeoutMs = opts.timeoutMs ?? 10000;
+  // `timeoutMs` bounds the WHOLE probe, not each provider. Each provider gets
+  // only the remaining budget, so a dead/black-holing proxy can't stall the
+  // caller for N× the timeout (this runs synchronously in the launch path).
+  // A provider that fails fast (HTTP error, bad payload) still leaves budget
+  // for the next one, preserving the fallback for the common case.
+  const deadline = Date.now() + timeoutMs;
 
   const errors: string[] = [];
   for (const provider of PROVIDERS) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      errors.push(`${provider.name}: skipped (probe deadline reached)`);
+      break;
+    }
     try {
-      const raw = await fetchJson(provider.url, agent, timeoutMs);
+      const raw = await fetchJson(provider.url, agent, remaining);
       const result = provider.parse(raw);
       if (result) return result;
       errors.push(`${provider.name}: unexpected payload`);
