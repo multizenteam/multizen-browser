@@ -1,0 +1,291 @@
+import { firefox, type BrowserContext, type Page } from "playwright-core";
+import { launchOptions } from "camoufox-js";
+import type { BrowserDriver } from "@multizen/mcp-server";
+import type { LaunchedProfile, Profile, ProfileId } from "@multizen/types";
+import type { ProfileManager } from "@multizen/profile-manager";
+import { startBridgeForProfile, stopBridgeForProfile } from "./socks5Bridge";
+
+/**
+ * BrowserDriver for the Firefox-family engine (Camoufox). Drives the browser
+ * through playwright-core's Firefox and configures its anti-detect fingerprint
+ * via camoufox-js. There is NO CDP here, so `cdpSend` is rejected — the curated
+ * tools work because T16 promoted them to first-class BrowserDriver verbs, which
+ * this driver implements natively via Playwright.
+ *
+ * Security hardening baked in (from the Camoufox review):
+ *   - `executable_path` is always the app-vendored binary, so camoufox-js never
+ *     lazy-downloads a ~600MB browser at launch.
+ *   - `exclude_addons: ["UBO"]` disables camoufox-js's runtime uBlock XPI fetch.
+ *   - the child gets an explicit MINIMAL env (allowlist), never the whole
+ *     process.env — so the main process's secrets can't leak into the browser.
+ *   - proxies go through the same local SOCKS5 bridge as the Chromium engine
+ *     (upstream auth + remote DNS), not raw credentials on the command line.
+ */
+
+interface RunningFirefox {
+  context: BrowserContext;
+  startedAt: string;
+  pid: number;
+  hasProxyBridge: boolean;
+  /** Stable per-tab ids (Firefox has no CDP targetId). */
+  pageIds: Map<Page, string>;
+  nextPageId: number;
+}
+
+export interface FirefoxBrowserDriverOptions {
+  profileManager: ProfileManager;
+  /** Absolute path to the vendored Camoufox binary (from the engine bootstrap).
+   *  Passing it explicitly is what prevents camoufox-js from lazy-downloading. */
+  resolveExecutablePath: () => string;
+  /** The persistent user-data-dir for a profile on this engine
+   *  (e.g. `<profile.dataDir>/engines/camoufox`). */
+  browserDataDir: (profile: Profile) => string;
+  /** T20 seam: map the profile's fingerprint to a Camoufox `launchOptions`
+   *  config. When absent, Camoufox generates its own coherent fingerprint. */
+  buildFingerprintConfig?: (profile: Profile) => Record<string, unknown>;
+}
+
+/** Only these env vars are forwarded to the browser child — deliberately NOT
+ *  the whole process.env, which would leak the main process's secrets/tokens. */
+const ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "DISPLAY",
+  "XAUTHORITY",
+  "SystemRoot",
+  "WINDIR",
+];
+
+function minimalChildEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of ENV_ALLOWLIST) {
+    const v = process.env[key];
+    if (typeof v === "string") out[key] = v;
+  }
+  return out;
+}
+
+export class FirefoxBrowserDriver implements BrowserDriver {
+  private readonly running = new Map<ProfileId, RunningFirefox>();
+  private readonly profileManager: ProfileManager;
+  private readonly resolveExecutablePath: () => string;
+  private readonly browserDataDir: (profile: Profile) => string;
+  private readonly buildFingerprintConfig?: (profile: Profile) => Record<string, unknown>;
+
+  constructor(opts: FirefoxBrowserDriverOptions) {
+    this.profileManager = opts.profileManager;
+    this.resolveExecutablePath = opts.resolveExecutablePath;
+    this.browserDataDir = opts.browserDataDir;
+    this.buildFingerprintConfig = opts.buildFingerprintConfig;
+  }
+
+  async launch(profileId: ProfileId): Promise<LaunchedProfile> {
+    const existing = this.running.get(profileId);
+    if (existing) {
+      return { id: profileId, cdpEndpoint: "", pid: existing.pid, startedAt: existing.startedAt };
+    }
+
+    const profile = this.profileManager.get(profileId);
+    if (!profile) throw new Error(`Profile ${profileId} not found`);
+    this.profileManager.markOpened(profileId);
+
+    const userDataDir = this.browserDataDir(profile);
+
+    // Route a configured proxy through the local SOCKS5 bridge (handles upstream
+    // auth + keeps DNS remote), exactly like the Chromium engine. The browser
+    // then talks to a credential-free localhost endpoint.
+    let proxy: { server: string } | undefined;
+    let hasProxyBridge = false;
+    if (profile.proxy) {
+      const localProxyUrl = await startBridgeForProfile(profileId, profile.proxy);
+      proxy = { server: localProxyUrl };
+      hasProxyBridge = true;
+    }
+
+    // executable_path (app-vendored) + exclude_addons (no runtime uBO fetch) +
+    // explicit minimal env are all app-controlled — never sourced from profile
+    // data. The fingerprint config is the T20 seam.
+    const config: Record<string, unknown> = {
+      executable_path: this.resolveExecutablePath(),
+      headless: false,
+      exclude_addons: ["UBO"],
+      env: minimalChildEnv(),
+      ...(proxy ? { proxy } : {}),
+      ...(this.buildFingerprintConfig ? this.buildFingerprintConfig(profile) : {}),
+    };
+
+    let context: BrowserContext;
+    try {
+      const opts = (await launchOptions(
+        config as Parameters<typeof launchOptions>[0],
+      )) as Parameters<typeof firefox.launchPersistentContext>[1];
+      context = await firefox.launchPersistentContext(userDataDir, opts);
+    } catch (e) {
+      if (hasProxyBridge) stopBridgeForProfile(profileId);
+      throw e;
+    }
+
+    const startedAt = new Date().toISOString();
+    const pageIds = new Map<Page, string>();
+    let nextPageId = 1;
+    const initial = context.pages();
+    if (initial.length === 0) initial.push(await context.newPage());
+    for (const p of initial) pageIds.set(p, String(nextPageId++));
+
+    const record: RunningFirefox = {
+      context,
+      startedAt,
+      // Firefox/Playwright exposes no stable child pid for a persistent context;
+      // pid is informational only, so 0 = unknown.
+      pid: 0,
+      hasProxyBridge,
+      pageIds,
+      nextPageId,
+    };
+    this.running.set(profileId, record);
+
+    // Track tabs opened later so list/activate/close_tab can address them.
+    context.on("page", (p: Page) => {
+      const r = this.running.get(profileId);
+      if (r && !r.pageIds.has(p)) r.pageIds.set(p, String(r.nextPageId++));
+    });
+    context.on("close", () => {
+      if (hasProxyBridge) stopBridgeForProfile(profileId);
+      this.running.delete(profileId);
+    });
+
+    return { id: profileId, cdpEndpoint: "", pid: record.pid, startedAt };
+  }
+
+  async close(profileId: ProfileId): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r) return;
+    // The "close" handler clears the map entry + stops the bridge.
+    await r.context.close().catch(() => {});
+  }
+
+  isRunning(profileId: ProfileId): boolean {
+    return this.running.has(profileId);
+  }
+
+  private require(profileId: ProfileId): RunningFirefox {
+    const r = this.running.get(profileId);
+    if (!r) throw new Error(`Profile ${profileId} is not running`);
+    return r;
+  }
+
+  /** The page a driving command targets: the last opened, else the first. */
+  private activePage(profileId: ProfileId): Page {
+    const r = this.require(profileId);
+    const pages = r.context.pages();
+    if (pages.length === 0) throw new Error(`Profile ${profileId} has no open page`);
+    return pages[pages.length - 1]!;
+  }
+
+  async navigate(profileId: ProfileId, url: string): Promise<{ url: string }> {
+    const page = this.activePage(profileId);
+    await page.goto(url);
+    return { url: page.url() };
+  }
+
+  async click(profileId: ProfileId, selector: string): Promise<{ ok: true }> {
+    await this.activePage(profileId).click(selector);
+    return { ok: true };
+  }
+
+  async type(profileId: ProfileId, selector: string, text: string): Promise<{ ok: true }> {
+    await this.activePage(profileId).fill(selector, text);
+    return { ok: true };
+  }
+
+  async extract(profileId: ProfileId): Promise<{ result: unknown }> {
+    const page = this.activePage(profileId);
+    const result = {
+      url: page.url(),
+      title: await page.title(),
+      text: await page.evaluate("document.body ? document.body.innerText : ''"),
+    };
+    return { result };
+  }
+
+  async screenshot(profileId: ProfileId): Promise<{ pngBase64: string }> {
+    const buf = await this.activePage(profileId).screenshot({ type: "png" });
+    return { pngBase64: Buffer.from(buf).toString("base64") };
+  }
+
+  // ── Engine-neutral curated verbs, implemented natively (no CDP). ────────────
+  async evaluateJs(profileId: ProfileId, expression: string): Promise<unknown> {
+    const value = await this.activePage(profileId).evaluate(expression);
+    // Mirror the Chromium shape so shared consumers (e.g. the wait_for_* polls
+    // that read `result.value`) work identically across engines.
+    return { result: { value } };
+  }
+
+  async getCookies(profileId: ProfileId, urls: string[]): Promise<unknown> {
+    const cookies = await this.require(profileId).context.cookies(urls);
+    return { cookies };
+  }
+
+  async setCookies(profileId: ProfileId, cookies: unknown[]): Promise<unknown> {
+    await this.require(profileId).context.addCookies(
+      cookies as Parameters<BrowserContext["addCookies"]>[0],
+    );
+    return { ok: true };
+  }
+
+  async listTabs(profileId: ProfileId): Promise<unknown> {
+    const r = this.require(profileId);
+    const targetInfos = r.context.pages().map((p) => ({
+      targetId: r.pageIds.get(p) ?? "",
+      type: "page",
+      url: p.url(),
+    }));
+    return { targetInfos };
+  }
+
+  async newTab(profileId: ProfileId, url?: string): Promise<unknown> {
+    const r = this.require(profileId);
+    const page = await r.context.newPage();
+    if (url) await page.goto(url);
+    const targetId = r.pageIds.get(page) ?? String(r.nextPageId++);
+    r.pageIds.set(page, targetId);
+    return { targetId };
+  }
+
+  async activateTab(profileId: ProfileId, targetId: string): Promise<unknown> {
+    const page = this.pageById(profileId, targetId);
+    await page.bringToFront();
+    return { ok: true };
+  }
+
+  async closeTab(profileId: ProfileId, targetId: string): Promise<unknown> {
+    const page = this.pageById(profileId, targetId);
+    await page.close();
+    return { ok: true };
+  }
+
+  private pageById(profileId: ProfileId, targetId: string): Page {
+    const r = this.require(profileId);
+    for (const [page, id] of r.pageIds) {
+      if (id === targetId && !page.isClosed()) return page;
+    }
+    throw new Error(`No tab ${targetId} on profile ${profileId}`);
+  }
+
+  /** Raw CDP is Chromium-only; Camoufox speaks the Firefox protocol (AC6). */
+  async cdpSend(): Promise<unknown> {
+    throw new Error("cdp_send is unsupported on the Firefox (Camoufox) engine");
+  }
+
+  async closeAll(): Promise<void> {
+    const ids = [...this.running.keys()];
+    await Promise.all(ids.map((id) => this.close(id)));
+  }
+}
