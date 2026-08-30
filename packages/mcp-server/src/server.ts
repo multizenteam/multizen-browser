@@ -208,6 +208,17 @@ export interface BrowserDriver {
     sessionId?: string,
     opts?: { safe?: boolean },
   ): Promise<unknown>;
+  // ── Engine-neutral curated verbs. Chromium implements these via CDP; a
+  //    non-CDP engine (Firefox/Camoufox) implements them its own way. The MCP
+  //    tool layer calls these instead of composing CDP, so the curated tools
+  //    run on every engine. (wait_for_* stay composed on evaluateJs above.)
+  evaluateJs(profileId: ProfileId, expression: string, sessionId?: string): Promise<unknown>;
+  getCookies(profileId: ProfileId, urls: string[], sessionId?: string): Promise<unknown>;
+  setCookies(profileId: ProfileId, cookies: unknown[], sessionId?: string): Promise<unknown>;
+  listTabs(profileId: ProfileId, sessionId?: string): Promise<unknown>;
+  newTab(profileId: ProfileId, url?: string, sessionId?: string): Promise<unknown>;
+  activateTab(profileId: ProfileId, targetId: string, sessionId?: string): Promise<unknown>;
+  closeTab(profileId: ProfileId, targetId: string, sessionId?: string): Promise<unknown>;
 }
 
 export interface MultizenMcpServerOptions {
@@ -547,14 +558,7 @@ async function dispatch(
     case "evaluate_js": {
       const { profile_id, expression, sessionId } = EvaluateJsSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
-      // Runtime.evaluate works without Runtime.enable — no domain is enabled.
-      return await browserDriver.cdpSend(
-        profile_id,
-        "Runtime.evaluate",
-        { expression, returnByValue: true },
-        sessionId,
-        { safe: true },
-      );
+      return await browserDriver.evaluateJs(profile_id, expression, sessionId);
     }
     case "wait_for_selector": {
       const { profile_id, selector, timeout_ms, sessionId } = WaitForSelectorSchema.parse(args);
@@ -562,13 +566,9 @@ async function dispatch(
       const expression = `!!document.querySelector(${JSON.stringify(selector)})`;
       const found = await pollUntil(
         async () => {
-          const res = (await browserDriver.cdpSend(
-            profile_id,
-            "Runtime.evaluate",
-            { expression, returnByValue: true },
-            sessionId,
-            { safe: true },
-          )) as { result?: { value?: unknown } };
+          const res = (await browserDriver.evaluateJs(profile_id, expression, sessionId)) as {
+            result?: { value?: unknown };
+          };
           return res?.result?.value === true;
         },
         timeout_ms ?? 30000,
@@ -578,31 +578,17 @@ async function dispatch(
     case "list_tabs": {
       const { profile_id, sessionId } = ListTabsSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
-      return await browserDriver.cdpSend(profile_id, "Target.getTargets", {}, sessionId, {
-        safe: true,
-      });
+      return await browserDriver.listTabs(profile_id, sessionId);
     }
     case "activate_tab": {
       const { profile_id, target_id, sessionId } = TabIdSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
-      return await browserDriver.cdpSend(
-        profile_id,
-        "Target.activateTarget",
-        { targetId: target_id },
-        sessionId,
-        { safe: true },
-      );
+      return await browserDriver.activateTab(profile_id, target_id, sessionId);
     }
     case "close_tab": {
       const { profile_id, target_id, sessionId } = TabIdSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
-      return await browserDriver.cdpSend(
-        profile_id,
-        "Target.closeTarget",
-        { targetId: target_id },
-        sessionId,
-        { safe: true },
-      );
+      return await browserDriver.closeTab(profile_id, target_id, sessionId);
     }
     case "wait_for_navigation":
     case "wait_for_load": {
@@ -614,12 +600,10 @@ async function dispatch(
       // purely through Runtime.evaluate (no domain enable).
       const loaded = await pollUntil(
         async () => {
-          const res = (await browserDriver.cdpSend(
+          const res = (await browserDriver.evaluateJs(
             profile_id,
-            "Runtime.evaluate",
-            { expression: "document.readyState", returnByValue: true },
+            "document.readyState",
             sessionId,
-            { safe: true },
           )) as { result?: { value?: unknown } };
           return res?.result?.value === "complete";
         },
@@ -650,30 +634,20 @@ async function dispatch(
       for (const u of urls) assertSafeUrl(u);
       // Network.getCookies works without Network.enable; the urls scope is
       // required (no dump-all) — bulk reads must be explicitly scoped.
-      return await browserDriver.cdpSend(profile_id, "Network.getCookies", { urls }, sessionId, {
-        safe: true,
-      });
+      return await browserDriver.getCookies(profile_id, urls, sessionId);
     }
     case "set_cookies": {
       const { profile_id, cookies, sessionId } = SetCookiesSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
       // Network.setCookies (plural) sets the whole batch in one call without
       // Network.enable.
-      return await browserDriver.cdpSend(profile_id, "Network.setCookies", { cookies }, sessionId, {
-        safe: true,
-      });
+      return await browserDriver.setCookies(profile_id, cookies, sessionId);
     }
     case "new_tab": {
       const { profile_id, url, sessionId } = NewTabSchema.parse(args);
       assertProfileRunning(browserDriver, profile_id);
       if (url) assertSafeUrl(url);
-      return await browserDriver.cdpSend(
-        profile_id,
-        "Target.createTarget",
-        { url: url ?? "about:blank" },
-        sessionId,
-        { safe: true },
-      );
+      return await browserDriver.newTab(profile_id, url, sessionId);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
