@@ -17,8 +17,7 @@ import type { BrowserEngine } from "../../types";
  *  value — the user can select/clear it, not just a placeholder). */
 export const DEFAULT_START_URL = "https://duckduckgo.com/";
 
-/** Engines a user can assign to a profile. CloakBrowser today; Camoufox joins
- *  once its runtime ships. CFT is intentionally not offered. */
+/** Engines a user can assign to a profile. CFT is intentionally not offered. */
 export const ENGINE_ROSTER: ReadonlyArray<{
   value: BrowserEngine;
   label: string;
@@ -28,6 +27,11 @@ export const ENGINE_ROSTER: ReadonlyArray<{
     value: "cloakbrowser",
     label: "CloakBrowser",
     description: "Source-patched Chromium. Full anti-detect + agent tools.",
+  },
+  {
+    value: "camoufox",
+    label: "Camoufox",
+    description: "Firefox-based anti-detect. A non-Chrome TLS/JS fingerprint.",
   },
 ];
 
