@@ -204,7 +204,7 @@ app.whenReady().then(async () => {
   // Best-effort: a failed check never blocks a launch. Bound to CloakBrowser,
   // the only Chromium engine in this phase.
   engineUpdater = new EngineUpdateService({
-    bootstrap: engineRegistry.get("cloakbrowser"),
+    bootstrap: engineRegistry.getChromiumBootstrap("cloakbrowser"),
     getSettings: () => cachedSettings as AppSettings,
   });
   engineUpdater.on("status", (status: EngineUpdateStatus) => {
