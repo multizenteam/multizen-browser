@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { app } from "electron";
 import type { ChromiumStatus } from "@multizen/types";
 import type { EngineBootstrap } from "./engineRegistry.ts";
 
@@ -14,11 +16,16 @@ import type { EngineBootstrap } from "./engineRegistry.ts";
  * `ensure()` caches the resolved binary path, so `resolveBinaryPath()` stays
  * synchronous (matching the interface) without re-importing camoufox-js.
  *
+ * Hardening applied: the binary is relocated into an app-controlled dir via
+ * CAMOUFOX_INSTALL_DIR (set before camoufox-js first loads), not camoufox-js's
+ * default per-user cache.
+ *
  * HARDENING STILL TO DO before release (from the Camoufox security review):
- *   - camoufox-js's fetcher downloads the latest version in its supported range,
- *     NOT an exact pinned tag. Pin an exact CI-built daijro/camoufox release.
- *   - relocate the binary into an app-controlled dir and verify a known SHA-256
- *     fail-closed (today it lands in camoufox-js's default per-user cache dir).
+ *   - camoufox-js's fetcher downloads the latest version in its SUPPORTED RANGE
+ *     (constrained to known-good releases), NOT an exact pinned tag. Pinning an
+ *     exact CI-built daijro/camoufox tag needs our own downloader.
+ *   - verify a KNOWN (pre-shipped, out-of-band) SHA-256 fail-closed; camoufox-js
+ *     does no integrity check on the download.
  * Tracked in specs/per-profile-engine/tasks.md (T21 / pre-release hardening).
  */
 type Pkgman = typeof import("camoufox-js/dist/pkgman.js");
@@ -62,6 +69,14 @@ export class CamoufoxBootstrap extends EventEmitter implements EngineBootstrap {
   }
 
   async ensure(): Promise<ChromiumStatus> {
+    // Relocate the binary into an app-controlled dir instead of camoufox-js's
+    // default per-user cache. camoufox-js reads CAMOUFOX_INSTALL_DIR when its
+    // pkgman module first evaluates — which is the dynamic import just below,
+    // so setting it here (before that import) takes effect. Respect an explicit
+    // override if the environment already set one.
+    if (!process.env.CAMOUFOX_INSTALL_DIR) {
+      process.env.CAMOUFOX_INSTALL_DIR = join(app.getPath("userData"), "camoufox");
+    }
     const pkgman: Pkgman = await import("camoufox-js/dist/pkgman.js");
 
     // Already installed? launchPath() throws when nothing is installed yet.

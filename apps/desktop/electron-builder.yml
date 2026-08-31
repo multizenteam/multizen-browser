@@ -33,6 +33,13 @@ extraMetadata:
     socks: "^2.8.3"
     socks-proxy-agent: "^10.0.0"
     uuid: "^11.0.5"
+    # Camoufox (Firefox) engine — lazy-loaded at runtime, so (unlike the inlined
+    # Chromium path) they must be packaged into node_modules. Pinned to the
+    # security-reviewed versions; their transitive native deps (impit,
+    # better-sqlite3@13, adm-zip, …) are pulled in + rebuilt for the Electron ABI
+    # automatically. NOTE: not yet validated in a real electron-builder run.
+    camoufox-js: "0.12.0"
+    playwright-core: "1.60.0"
 
 # Native modules (better-sqlite3 has a .node C++ binding) cannot be
 # loaded from inside an asar archive — Node's require() can't dlopen
@@ -42,6 +49,12 @@ extraMetadata:
 asarUnpack:
   - "**/*.node"
   - "node_modules/better-sqlite3/**/*"
+  # Camoufox (Firefox) engine: playwright-core spawns a driver process and
+  # camoufox-js reads bundled data-files + spawns the browser, so both must live
+  # on the real filesystem, not inside the asar archive. (`**/*.node` above
+  # already covers their native bindings: camoufox-js's better-sqlite3@13 + impit.)
+  - "node_modules/playwright-core/**/*"
+  - "node_modules/camoufox-js/**/*"
 
 # Bundled first-party "companion" extension (injects the "Add to MultiZen"
 # button on Web Store pages). Copied verbatim into <resources>/companion so the
