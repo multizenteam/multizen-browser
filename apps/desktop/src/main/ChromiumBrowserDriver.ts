@@ -808,7 +808,7 @@ function cloakBrowserPlatform(fp: FingerprintConfig): "macos" | "windows" | "lin
   return "linux";
 }
 
-function browserDataDirForEngine(profileDataDir: string, engine: BrowserEngine): string {
+export function browserDataDirForEngine(profileDataDir: string, engine: BrowserEngine): string {
   // Chrome profile data is not safely reusable across different browser
   // engines / major versions, so every engine keeps its browser state in its
   // own named user-data-dir under the logical MultiZen profile

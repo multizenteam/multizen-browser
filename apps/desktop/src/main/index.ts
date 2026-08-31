@@ -29,6 +29,7 @@ import type {
 import { isBrowserEngine, resolveEngine } from "@multizen/types";
 import { ChromiumBrowserDriver } from "./ChromiumBrowserDriver.ts";
 import { EngineRegistry } from "./engineRegistry.ts";
+import { EngineRouter } from "./engineRouter.ts";
 import { UpdaterService } from "./UpdaterService.ts";
 import { EngineUpdateService } from "./EngineUpdateService.ts";
 import { UsageReporting } from "./UsageReporting.ts";
@@ -84,7 +85,7 @@ function sendToRenderer(channel: string, ...args: unknown[]): void {
 }
 
 let profileManager: ProfileManager;
-let browserDriver: ChromiumBrowserDriver;
+let browserDriver: EngineRouter;
 let engineRegistry: EngineRegistry;
 let updater: UpdaterService;
 let engineUpdater: EngineUpdateService;
@@ -243,7 +244,7 @@ app.whenReady().then(async () => {
     },
   });
 
-  browserDriver = new ChromiumBrowserDriver({
+  const chromiumDriver = new ChromiumBrowserDriver({
     profileManager,
     engineRegistry,
     getDefaultEngine: () => cachedSettings?.browserEngine ?? "cloakbrowser",
@@ -296,6 +297,16 @@ app.whenReady().then(async () => {
         }
       })();
     },
+  });
+
+  // Route each profile to its engine's driver. The Chromium driver is built
+  // above (it owns the companion-install wiring); the Firefox driver is created
+  // lazily on the first Camoufox launch, keeping camoufox-js out of startup.
+  browserDriver = new EngineRouter({
+    profileManager,
+    engineRegistry,
+    getDefaultEngine: () => cachedSettings?.browserEngine ?? "cloakbrowser",
+    chromiumDriver,
   });
 
   const mcp = createMultizenMcpServer({ profileManager, browserDriver });

@@ -1,9 +1,11 @@
+import { EventEmitter } from "node:events";
 import { firefox, type BrowserContext, type Page } from "playwright-core";
 import { launchOptions } from "camoufox-js";
 import type { BrowserDriver } from "@multizen/mcp-server";
 import type { LaunchedProfile, Profile, ProfileId } from "@multizen/types";
 import type { ProfileManager } from "@multizen/profile-manager";
 import { startBridgeForProfile, stopBridgeForProfile } from "./socks5Bridge";
+import type { RunningStateChange } from "./ChromiumBrowserDriver.ts";
 
 /**
  * BrowserDriver for the Firefox-family engine (Camoufox). Drives the browser
@@ -27,9 +29,15 @@ interface RunningFirefox {
   startedAt: string;
   pid: number;
   hasProxyBridge: boolean;
+  /** True once close() was called, so the close event reports user-close. */
+  closingByRequest: boolean;
   /** Stable per-tab ids (Firefox has no CDP targetId). */
   pageIds: Map<Page, string>;
   nextPageId: number;
+}
+
+interface FirefoxDriverEvents {
+  "running-changed": (change: RunningStateChange) => void;
 }
 
 export interface FirefoxBrowserDriverOptions {
@@ -72,7 +80,7 @@ function minimalChildEnv(): Record<string, string> {
   return out;
 }
 
-export class FirefoxBrowserDriver implements BrowserDriver {
+export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver {
   private readonly running = new Map<ProfileId, RunningFirefox>();
   private readonly profileManager: ProfileManager;
   private readonly resolveExecutablePath: () => string;
@@ -80,10 +88,22 @@ export class FirefoxBrowserDriver implements BrowserDriver {
   private readonly buildFingerprintConfig?: (profile: Profile) => Record<string, unknown>;
 
   constructor(opts: FirefoxBrowserDriverOptions) {
+    super();
     this.profileManager = opts.profileManager;
     this.resolveExecutablePath = opts.resolveExecutablePath;
     this.browserDataDir = opts.browserDataDir;
     this.buildFingerprintConfig = opts.buildFingerprintConfig;
+  }
+
+  override on<K extends keyof FirefoxDriverEvents>(event: K, listener: FirefoxDriverEvents[K]): this {
+    return super.on(event, listener);
+  }
+
+  override emit<K extends keyof FirefoxDriverEvents>(
+    event: K,
+    ...args: Parameters<FirefoxDriverEvents[K]>
+  ): boolean {
+    return super.emit(event, ...args);
   }
 
   async launch(profileId: ProfileId): Promise<LaunchedProfile> {
@@ -146,6 +166,7 @@ export class FirefoxBrowserDriver implements BrowserDriver {
       // pid is informational only, so 0 = unknown.
       pid: 0,
       hasProxyBridge,
+      closingByRequest: false,
       pageIds,
       nextPageId,
     };
@@ -158,16 +179,25 @@ export class FirefoxBrowserDriver implements BrowserDriver {
     });
     context.on("close", () => {
       if (hasProxyBridge) stopBridgeForProfile(profileId);
+      const wasByRequest = record.closingByRequest;
       this.running.delete(profileId);
+      this.emit("running-changed", {
+        kind: "closed",
+        profileId,
+        reason: wasByRequest ? "user-close" : "external-exit",
+      });
     });
 
+    this.emit("running-changed", { kind: "launched", profileId });
     return { id: profileId, cdpEndpoint: "", pid: record.pid, startedAt };
   }
 
   async close(profileId: ProfileId): Promise<void> {
     const r = this.running.get(profileId);
     if (!r) return;
-    // The "close" handler clears the map entry + stops the bridge.
+    r.closingByRequest = true;
+    // The "close" handler clears the map entry, stops the bridge, and emits the
+    // running-changed "closed" event.
     await r.context.close().catch(() => {});
   }
 
