@@ -10,6 +10,7 @@ import {
   type ChromiumBrowserDriver,
   type RunningStateChange,
 } from "./ChromiumBrowserDriver.ts";
+import { camoufoxConfigForProfile } from "./firefoxFingerprint.ts";
 // Type-only: the concrete module (which statically imports camoufox-js +
 // playwright-core) is loaded lazily, so Chromium-only sessions never pull it in.
 import type { FirefoxBrowserDriver } from "./FirefoxBrowserDriver.ts";
@@ -84,7 +85,7 @@ export class EngineRouter extends EventEmitter implements BrowserDriver {
         profileManager: this.profileManager,
         resolveExecutablePath: () => this.engineRegistry.get("camoufox").resolveBinaryPath(),
         browserDataDir: (profile) => browserDataDirForEngine(profile.dataDir, "camoufox"),
-        // Fingerprint mapping (T20) is injected here once implemented.
+        buildFingerprintConfig: (profile) => camoufoxConfigForProfile(profile),
       });
       this.firefoxDriver.on("running-changed", (c) => this.onSubEvent(c));
     }
