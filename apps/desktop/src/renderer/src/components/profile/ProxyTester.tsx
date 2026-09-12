@@ -81,10 +81,19 @@ function ResultCard({ result }: { result: ProxyGeoResult }): JSX.Element {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-[12px] text-emerald-200 font-medium">
           <Flag cc={result.country} />
-          <span>
+          <span className="min-w-0 truncate">
             {result.city ? `${result.city}, ` : ""}
             {result.countryName}
           </span>
+          {typeof result.latencyMs === "number" && (
+            <span
+              className="ml-auto flex-shrink-0 text-[10px] mono"
+              style={{ color: latencyColor(result.latencyMs) }}
+              title="Round-trip of the test request through the proxy"
+            >
+              {result.latencyMs} ms
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mt-1.5 text-[10px] mono text-emerald-300/70">
           <div>
@@ -99,6 +108,15 @@ function ResultCard({ result }: { result: ProxyGeoResult }): JSX.Element {
       </div>
     </div>
   );
+}
+
+/** Color the latency: green fast, amber okay, red slow. Thresholds are lenient
+ *  because this is a round-trip THROUGH the proxy to a geo API, and residential
+ *  proxies routinely sit around a second. */
+function latencyColor(ms: number): string {
+  if (ms < 1000) return "#34d399"; // emerald-400
+  if (ms < 2500) return "#fbbf24"; // amber-400
+  return "#f87171"; // red-400
 }
 
 function ErrorCard({ message }: { message: string }): JSX.Element {

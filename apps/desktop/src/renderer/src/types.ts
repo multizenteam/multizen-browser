@@ -45,6 +45,8 @@ export interface ProxyGeoResult {
   timezone: string;
   city: string;
   ip: string;
+  /** Round-trip time (ms) of the test request through the proxy. */
+  latencyMs?: number;
 }
 import type { ActivityEvent } from "@multizen/mcp-server";
 import type { AppSettings } from "@multizen/settings-store";

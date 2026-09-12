@@ -20,6 +20,9 @@ export interface ProxyGeoResult {
    *  so navigator.geolocation reports the proxy's geo, matching the IP. */
   latitude?: number;
   longitude?: number;
+  /** Round-trip time (ms) of the successful probe request THROUGH the proxy —
+   *  a rough "how fast is this proxy" signal for the UI. */
+  latencyMs?: number;
 }
 
 /** A geo lookup endpoint + a parser that normalizes its (provider-specific)
@@ -80,15 +83,56 @@ export async function probeProxyGeo(
       break;
     }
     try {
+      const started = Date.now();
       const raw = await fetchJson(provider.url, agent, remaining);
       const result = provider.parse(raw);
-      if (result) return result;
+      if (result) {
+        // Round-trip through the proxy for the request that actually landed —
+        // no extra request, just timing the probe we already run.
+        result.latencyMs = Date.now() - started;
+        return result;
+      }
       errors.push(`${provider.name}: unexpected payload`);
     } catch (e) {
       errors.push(`${provider.name}: ${(e as Error).message}`);
     }
   }
-  throw new Error(`all geo providers failed through the proxy — ${errors.join("; ")}`);
+  throw new Error(classifyProxyError(errors));
+}
+
+/**
+ * Turn the raw per-provider failures into ONE clear, user-facing message. The
+ * geo probe runs an HTTPS request through the proxy, so a bad proxy surfaces as
+ * low-level TLS/socket errors (e.g. WRONG_VERSION_NUMBER when the proxy returns
+ * a plaintext auth-rejection instead of a CONNECT tunnel). Users should see what
+ * to fix, not BoringSSL internals.
+ */
+function classifyProxyError(errors: string[]): string {
+  const blob = errors.join(" | ").toLowerCase();
+  const has = (...needles: string[]): boolean => needles.some((n) => blob.includes(n));
+
+  if (has("http 407", "http 403", "proxy authentication", "credential")) {
+    return "The proxy rejected your credentials. Double-check the username and password.";
+  }
+  if (has("wrong_version_number", "tlsv1 alert", "ssl routines", "eproto")) {
+    return (
+      "The proxy refused the connection or rejected your credentials. Check the host, " +
+      "port, username, password, and that the proxy Type (HTTP vs SOCKS5) is correct."
+    );
+  }
+  if (has("econnrefused")) {
+    return "Connection refused — nothing is listening there. Check the proxy host and port.";
+  }
+  if (has("enotfound", "eai_again")) {
+    return "Couldn't resolve the proxy host. Check the host name for typos.";
+  }
+  if (has("ehostunreach", "enetunreach")) {
+    return "The proxy host is unreachable. Check the host and your network.";
+  }
+  if (has("timed out", "etimedout", "deadline reached")) {
+    return "The proxy didn't respond in time — it may be slow, down, or blocking this request.";
+  }
+  return "Proxy test failed. Check the proxy details (host, port, type, credentials) and try again.";
 }
 
 /** GET a URL through the proxy agent and parse the JSON body. */

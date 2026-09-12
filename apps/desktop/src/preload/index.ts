@@ -30,6 +30,8 @@ export interface ProxyGeoResult {
   timezone: string;
   city: string;
   ip: string;
+  /** Round-trip time (ms) of the test request through the proxy. */
+  latencyMs?: number;
 }
 
 /** Mirror of the catalog types from @multizen/profile-manager. */
