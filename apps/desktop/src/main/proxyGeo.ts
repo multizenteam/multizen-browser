@@ -111,7 +111,18 @@ function classifyProxyError(errors: string[]): string {
   const blob = errors.join(" | ").toLowerCase();
   const has = (...needles: string[]): boolean => needles.some((n) => blob.includes(n));
 
-  if (has("http 407", "http 403", "proxy authentication", "credential")) {
+  // 407 is the proxy's own auth code; SOCKS auth failures are explicit too.
+  // (403 is deliberately NOT here — a geo provider can 403 a flagged IP, and a
+  // real proxy auth-reject surfaces as the TLS/plaintext case below.)
+  if (
+    has(
+      "http 407",
+      "proxy authentication",
+      "credential",
+      "socks5 authentication",
+      "authentication failed",
+    )
+  ) {
     return "The proxy rejected your credentials. Double-check the username and password.";
   }
   if (has("wrong_version_number", "tlsv1 alert", "ssl routines", "eproto")) {
@@ -122,6 +133,9 @@ function classifyProxyError(errors: string[]): string {
   }
   if (has("econnrefused")) {
     return "Connection refused — nothing is listening there. Check the proxy host and port.";
+  }
+  if (has("econnreset", "epipe", "socket hang up")) {
+    return "The proxy dropped the connection — it may be overloaded or blocking this request.";
   }
   if (has("enotfound", "eai_again")) {
     return "Couldn't resolve the proxy host. Check the host name for typos.";
