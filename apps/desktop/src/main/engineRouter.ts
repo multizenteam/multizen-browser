@@ -81,9 +81,11 @@ export class EngineRouter extends EventEmitter implements BrowserDriver {
   private async firefox(): Promise<BrowserDriver> {
     if (!this.firefoxDriver) {
       const { FirefoxBrowserDriver } = await import("./FirefoxBrowserDriver.ts");
+      // The camoufox binary is downloaded + located by CamoufoxBootstrap
+      // (via CAMOUFOX_INSTALL_DIR); the driver lets camoufox-js resolve it, so
+      // no executable path is threaded here.
       this.firefoxDriver = new FirefoxBrowserDriver({
         profileManager: this.profileManager,
-        resolveExecutablePath: () => this.engineRegistry.get("camoufox").resolveBinaryPath(),
         browserDataDir: (profile) => browserDataDirForEngine(profile.dataDir, "camoufox"),
         buildFingerprintConfig: (profile) => camoufoxConfigForProfile(profile),
       });

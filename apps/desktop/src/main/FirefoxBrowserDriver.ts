@@ -15,8 +15,11 @@ import type { RunningStateChange } from "./ChromiumBrowserDriver.ts";
  * this driver implements natively via Playwright.
  *
  * Security hardening baked in (from the Camoufox review):
- *   - `executable_path` is always the app-vendored binary, so camoufox-js never
- *     lazy-downloads a ~600MB browser at launch.
+ *   - The binary is app-vendored: CamoufoxBootstrap downloads it into
+ *     CAMOUFOX_INSTALL_DIR before launch, and camoufox-js resolves it from there
+ *     (launchPath), so it never lazy-downloads a ~600MB browser at launch. (We
+ *     do NOT pass executable_path — that would break camoufox-js's
+ *     properties.json lookup; see the launch() comment.)
  *   - `exclude_addons: ["UBO"]` disables camoufox-js's runtime uBlock XPI fetch.
  *   - the child gets an explicit MINIMAL env (allowlist), never the whole
  *     process.env — so the main process's secrets can't leak into the browser.
@@ -42,9 +45,6 @@ interface FirefoxDriverEvents {
 
 export interface FirefoxBrowserDriverOptions {
   profileManager: ProfileManager;
-  /** Absolute path to the vendored Camoufox binary (from the engine bootstrap).
-   *  Passing it explicitly is what prevents camoufox-js from lazy-downloading. */
-  resolveExecutablePath: () => string;
   /** The persistent user-data-dir for a profile on this engine
    *  (e.g. `<profile.dataDir>/engines/camoufox`). */
   browserDataDir: (profile: Profile) => string;
@@ -83,14 +83,12 @@ function minimalChildEnv(): Record<string, string> {
 export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver {
   private readonly running = new Map<ProfileId, RunningFirefox>();
   private readonly profileManager: ProfileManager;
-  private readonly resolveExecutablePath: () => string;
   private readonly browserDataDir: (profile: Profile) => string;
   private readonly buildFingerprintConfig?: (profile: Profile) => Record<string, unknown>;
 
   constructor(opts: FirefoxBrowserDriverOptions) {
     super();
     this.profileManager = opts.profileManager;
-    this.resolveExecutablePath = opts.resolveExecutablePath;
     this.browserDataDir = opts.browserDataDir;
     this.buildFingerprintConfig = opts.buildFingerprintConfig;
   }
@@ -129,11 +127,16 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
       hasProxyBridge = true;
     }
 
-    // executable_path (app-vendored) + exclude_addons (no runtime uBO fetch) +
-    // explicit minimal env are all app-controlled — never sourced from profile
-    // data. The fingerprint config is the T20 seam.
+    // We deliberately do NOT pass executable_path. camoufox-js's launchOptions
+    // resolves the binary via launchPath() — which respects our
+    // CAMOUFOX_INSTALL_DIR (set in CamoufoxBootstrap, and the binary is already
+    // downloaded there before we get here) — and, crucially, only then finds
+    // properties.json via getPath() in Contents/Resources/. Passing
+    // executable_path makes camoufox-js look for properties.json next to the
+    // executable (Contents/MacOS/), where Camoufox 152+ no longer ships it → ENOENT.
+    // exclude_addons (no runtime uBO fetch) + the explicit minimal env stay
+    // app-controlled; the fingerprint config is the T20 seam.
     const config: Record<string, unknown> = {
-      executable_path: this.resolveExecutablePath(),
       headless: false,
       exclude_addons: ["UBO"],
       env: minimalChildEnv(),
