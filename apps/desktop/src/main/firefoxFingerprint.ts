@@ -19,19 +19,29 @@ function osForDevice(device: string): "windows" | "macos" | "linux" {
  * fingerprints outright. BrowserForge fills in everything we don't pin.
  *
  *   os        ← device family            (windows | macos | linux)
- *   locale    ← navigator.languages      (typed `locale` param)
+ *   locale    ← the persona's PRIMARY locale, e.g. "en-US"
  *   screen.*  ← the persona's screen size (raw CAMOU_CONFIG keys)
  *   timezone  ← the persona's IANA tz, so Date/Intl match the persona, not host
  *
- * Screen and timezone go through the raw `config` map because camoufox exposes
- * no typed option for exact values; `screen.width`/`screen.height`/`timezone`
- * are recognized CAMOU_CONFIG properties, so this needs no i_know_what_im_doing.
+ * `locale` is passed as a SINGLE region-qualified string, not the languages
+ * array: camoufox-js's handleLocales routes a bare language like "en" (≤3 chars)
+ * through a territory lookup whose async unicode data (`SELECTOR.loadUnicodeInfo`)
+ * launchOptions never awaits, so it crashes on `this.root`. A >3-char locale
+ * takes the safe normalizeLocale path instead.
+ *
+ * Screen + timezone go through the raw `config` map (camoufox has no typed option
+ * for exact values). MultiZen already generates a COHERENT persona (device→screen,
+ * locale→tz), so we set them explicitly and pass i_know_what_im_doing to accept
+ * camoufox's manual-override warnings rather than let it randomize the persona
+ * away. (No `fingerprint` object is passed, so that flag doesn't relax anything
+ * else.)
  */
 export function camoufoxConfigForProfile(profile: Profile): Record<string, unknown> {
   const fp: FingerprintConfig = profile.fingerprint;
   return {
     os: osForDevice(fp.device),
-    locale: fp.languages.length > 0 ? fp.languages : [fp.locale],
+    locale: fp.locale,
+    i_know_what_im_doing: true,
     config: {
       "screen.width": fp.screen.width,
       "screen.height": fp.screen.height,
