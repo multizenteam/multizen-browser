@@ -187,6 +187,14 @@ export function ProfileEditSheet({ profile, isRunning = false, onSaved }: Props)
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  // Camoufox is Firefox — Chrome extensions don't apply, so the section is
+  // hidden for it. If the user switches to Camoufox while viewing Extensions,
+  // fall back to the Browser section so they don't sit on a hidden pane.
+  const extensionsHidden = form.engine === "camoufox";
+  useEffect(() => {
+    if (extensionsHidden && section === "extensions") setSection("browser");
+  }, [extensionsHidden, section]);
+
   const proxyForForm: ProxyConfig | undefined =
     form.proxyEnabled && form.proxyHost
       ? {
@@ -204,6 +212,7 @@ export function ProfileEditSheet({ profile, isRunning = false, onSaved }: Props)
         section={section}
         onSelect={setSection}
         badges={{ general: !form.name.trim() }}
+        hidden={{ extensions: extensionsHidden }}
         footer={<StatusPill status={status} />}
       />
 
@@ -329,7 +338,9 @@ export function ProfileEditSheet({ profile, isRunning = false, onSaved }: Props)
           </div>
         )}
 
-        {section === "extensions" && <ExtensionsSection profileId={profile.id} />}
+        {section === "extensions" && !extensionsHidden && (
+          <ExtensionsSection profileId={profile.id} />
+        )}
 
         {section === "fingerprint" && (
           <FingerprintForm

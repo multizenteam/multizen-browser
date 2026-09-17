@@ -122,6 +122,14 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
       }
     : undefined;
 
+  // Camoufox is Firefox — Chrome extensions don't apply, so the section is
+  // hidden for it (and any staged extensions are not passed to create). Switch
+  // off the Extensions pane if the user picks Camoufox while viewing it.
+  const extensionsHidden = engine === "camoufox";
+  useEffect(() => {
+    if (extensionsHidden && section === "extensions") setSection("browser");
+  }, [extensionsHidden, section]);
+
   const canSubmit = name.trim() !== "" && !busy;
 
   async function submit(autoLaunch: boolean): Promise<void> {
@@ -150,7 +158,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
         engine,
         proxy: built,
         fingerprint: fingerprint ?? undefined,
-        extensions: extensions.length > 0 ? extensions : undefined,
+        extensions: !extensionsHidden && extensions.length > 0 ? extensions : undefined,
       });
       onCreated(created.id, autoLaunch);
     } catch (e) {
@@ -175,6 +183,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
           section={section}
           onSelect={setSection}
           badges={{ general: name.trim() === "" }}
+          hidden={{ extensions: extensionsHidden }}
         />
 
         {/* Content pane — only this scrolls */}
@@ -315,7 +324,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
           )}
 
           {/* Extensions — staged into the shared store and passed to create. */}
-          {section === "extensions" && (
+          {section === "extensions" && !extensionsHidden && (
             <ExtensionsSection
               profileId={null}
               staged={extensions}

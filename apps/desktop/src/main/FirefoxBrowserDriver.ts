@@ -1,10 +1,12 @@
 import { EventEmitter } from "node:events";
+import { readdir } from "node:fs/promises";
 import { firefox, type BrowserContext, type Page } from "playwright-core";
 import { launchOptions } from "camoufox-js";
 import type { BrowserDriver } from "@multizen/mcp-server";
 import type { LaunchedProfile, Profile, ProfileId } from "@multizen/types";
 import type { ProfileManager } from "@multizen/profile-manager";
 import { startBridgeForProfile, stopBridgeForProfile } from "./socks5Bridge";
+import { sanitizeStartUrl } from "./startPage";
 import type { RunningStateChange } from "./ChromiumBrowserDriver.ts";
 
 /**
@@ -80,6 +82,20 @@ function minimalChildEnv(): Record<string, string> {
   return out;
 }
 
+/** True when `dir` is missing or holds no real profile files — i.e. the profile
+ *  has never been launched on this engine, so this is a first run. Dotfiles are
+ *  ignored: a stray `.DS_Store` (Finder) must not masquerade as an existing
+ *  profile and suppress the start page; Firefox's own profile files (prefs.js,
+ *  times.json, …) are never dotfiles, so this only filters noise. */
+async function isEmptyOrMissingDir(dir: string): Promise<boolean> {
+  try {
+    const entries = await readdir(dir);
+    return entries.every((name) => name.startsWith("."));
+  } catch {
+    return true; // ENOENT (or unreadable) — treat as first launch
+  }
+}
+
 export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver {
   private readonly running = new Map<ProfileId, RunningFirefox>();
   private readonly profileManager: ProfileManager;
@@ -115,6 +131,13 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
     this.profileManager.markOpened(profileId);
 
     const userDataDir = this.browserDataDir(profile);
+
+    // First launch = the persistent user-data-dir doesn't exist yet or is empty.
+    // We snapshot this BEFORE launchPersistentContext populates the dir, so we
+    // only open the start page on the very first run (mirrors the Chromium
+    // driver's hasRestorableSession gate — later launches keep whatever the
+    // profile already has, we don't stack an extra tab).
+    const isFirstLaunch = await isEmptyOrMissingDir(userDataDir);
 
     // Route a configured proxy through the local SOCKS5 bridge (handles upstream
     // auth + keeps DNS remote), exactly like the Chromium engine. The browser
@@ -161,6 +184,15 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
     const initial = context.pages();
     if (initial.length === 0) initial.push(await context.newPage());
     for (const p of initial) pageIds.set(p, String(nextPageId++));
+
+    // Open the profile's start page on first launch only. sanitizeStartUrl
+    // rejects non-http(s)/about URLs and falls back to the app default, exactly
+    // like the Chromium path. Fire-and-forget: a navigation failure (bad
+    // proxy/network) must not throw out of launch() or leave the browser closed.
+    if (isFirstLaunch) {
+      const startUrl = sanitizeStartUrl(profile.startUrl);
+      void initial[0]?.goto(startUrl).catch(() => {});
+    }
 
     const record: RunningFirefox = {
       context,

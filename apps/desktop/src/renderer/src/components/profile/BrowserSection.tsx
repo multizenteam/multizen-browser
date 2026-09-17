@@ -83,6 +83,12 @@ export function BrowserSection({
         {engineDisabled && engineDisabledReason ? (
           <p className="text-[10px] text-slate-600 leading-relaxed">{engineDisabledReason}</p>
         ) : null}
+        {engine === "camoufox" ? (
+          <p className="text-[10px] text-amber-400/80 leading-relaxed">
+            Camoufox is Firefox-based, so Chrome extensions aren't supported — the
+            Extensions section is hidden for this engine.
+          </p>
+        ) : null}
       </SectionField>
 
       <SectionField label="Start page">
@@ -97,7 +103,8 @@ export function BrowserSection({
       </SectionField>
 
       <p className="text-[10px] text-slate-600 leading-relaxed">
-        Opens on a profile's first launch (later launches restore your tabs). Leave the default
+        Opens on a profile's first launch
+        {engine === "camoufox" ? "" : " (later launches restore your tabs)"}. Leave the default
         or set your own — any http(s) URL, or <code className="text-slate-500">about:blank</code>.
       </p>
     </div>
