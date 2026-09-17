@@ -28,6 +28,9 @@
     "typescript": "^5.7.0"
   },
   "packageManager": "yarn@4.5.0",
+  "resolutions": {
+    "better-sqlite3": "11.10.0"
+  },
   "engines": {
     "node": ">=20.0.0"
   }
