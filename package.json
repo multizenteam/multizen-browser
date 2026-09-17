@@ -29,7 +29,8 @@
   },
   "packageManager": "yarn@4.5.0",
   "resolutions": {
-    "better-sqlite3": "11.10.0"
+    "better-sqlite3": "11.10.0",
+    "adm-zip": ">=0.6.1"
   },
   "engines": {
     "node": ">=20.0.0"
