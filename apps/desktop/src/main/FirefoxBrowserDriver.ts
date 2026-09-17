@@ -159,11 +159,26 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
     // executable (Contents/MacOS/), where Camoufox 152+ no longer ships it → ENOENT.
     // exclude_addons (no runtime uBO fetch) + the explicit minimal env stay
     // app-controlled; the fingerprint config is the T20 seam.
+    //
+    // We deliberately do NOT hand the proxy to camoufox-js. Its getProxyUrl runs
+    // the server URL through `new URL(...).origin`, and `socks5://` is a
+    // non-special scheme whose origin is the literal string "null" — Firefox
+    // then proxies through a host named "null": the socks5 scheme is lost
+    // (defeating the bridge's remote-DNS, no-leak guarantee) and the proxy no
+    // longer points at the bridge. Instead we set the proxy directly on the
+    // Playwright launch options below, which handles socks5 natively.
+    //
+    // When a proxy IS active we also block WebRTC (media.peerconnection.enabled
+    // = false). camoufox only spoofs the WebRTC IP when `geoip` is set, and
+    // geoip auto-detection would run from the HOST (not through the proxy) and
+    // pin the real IP — so the safe move is to disable WebRTC on proxied
+    // profiles, matching the Chromium engine's non-proxied-UDP hardening. A page
+    // otherwise leaks the operator's real address via STUN outside the proxy.
     const config: Record<string, unknown> = {
       headless: false,
       exclude_addons: ["UBO"],
       env: minimalChildEnv(),
-      ...(proxy ? { proxy } : {}),
+      ...(proxy ? { block_webrtc: true } : {}),
       ...(this.buildFingerprintConfig ? this.buildFingerprintConfig(profile) : {}),
     };
 
@@ -171,7 +186,10 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
     try {
       const opts = (await launchOptions(
         config as Parameters<typeof launchOptions>[0],
-      )) as Parameters<typeof firefox.launchPersistentContext>[1];
+      )) as NonNullable<Parameters<typeof firefox.launchPersistentContext>[1]>;
+      // Hand the credential-free bridge URL straight to Playwright, overriding
+      // whatever camoufox produced. Keeps the socks5 scheme intact end-to-end.
+      if (proxy) opts.proxy = proxy;
       context = await firefox.launchPersistentContext(userDataDir, opts);
     } catch (e) {
       if (hasProxyBridge) stopBridgeForProfile(profileId);
