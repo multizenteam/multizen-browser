@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/chrome-remote-interface": "^0.31.14",
-    "@types/ws": "^8.5.13"
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.0"
   }
 }

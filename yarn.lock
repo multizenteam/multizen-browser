@@ -1051,6 +1051,7 @@ __metadata:
     "@types/chrome-remote-interface": "npm:^0.31.14"
     "@types/ws": "npm:^8.5.13"
     chrome-remote-interface: "npm:^0.33.3"
+    typescript: "npm:^5.7.0"
     ws: "npm:^8.18.0"
   languageName: unknown
   linkType: soft
@@ -1090,6 +1091,7 @@ __metadata:
     socks: "npm:^2.8.3"
     socks-proxy-agent: "npm:^10.0.0"
     tailwindcss: "npm:^4.0.0"
+    typescript: "npm:^5.7.0"
     uuid: "npm:^11.0.5"
     vite: "npm:^6.0.3"
   languageName: unknown
@@ -1103,6 +1105,7 @@ __metadata:
     "@multizen/profile-manager": "workspace:*"
     "@multizen/types": "workspace:*"
     tsx: "npm:^4.19.2"
+    typescript: "npm:^5.7.0"
     zod: "npm:^3.23.8"
   bin:
     multizen-mcp: ./bin/multizen-mcp.js
@@ -1119,6 +1122,7 @@ __metadata:
     "@types/uuid": "npm:^10.0.0"
     better-sqlite3: "npm:^11.7.0"
     tsx: "npm:^4.19.2"
+    typescript: "npm:^5.7.0"
     uuid: "npm:^11.0.5"
   languageName: unknown
   linkType: soft
@@ -1129,12 +1133,15 @@ __metadata:
   dependencies:
     "@multizen/types": "workspace:*"
     "@types/node": "npm:^22.10.0"
+    typescript: "npm:^5.7.0"
   languageName: unknown
   linkType: soft
 
 "@multizen/types@workspace:*, @multizen/types@workspace:packages/types":
   version: 0.0.0-use.local
   resolution: "@multizen/types@workspace:packages/types"
+  dependencies:
+    typescript: "npm:^5.7.0"
   languageName: unknown
   linkType: soft
 
