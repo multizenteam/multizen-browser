@@ -102,6 +102,9 @@ export interface BrowserDownloadManifest {
  */
 export class ChromiumBootstrap extends EventEmitter {
   private status: ChromiumStatus = { kind: "missing" };
+  /** Non-null while an ensure() install is running, to collapse concurrent
+   *  callers onto one download (see ensure()). */
+  private ensureInFlight: Promise<ChromiumStatus> | null = null;
   private readonly cacheDir: string;
   private readonly engine: BrowserEngine;
 
@@ -223,8 +226,24 @@ export class ChromiumBootstrap extends EventEmitter {
   /**
    * Idempotent. Downloads + verifies + extracts if not cached. Emits
    * status throughout. Returns `ready` on success, throws on failure.
+   *
+   * Concurrency: callers are collapsed onto a single in-flight install. Two
+   * launches racing on a cold cache would otherwise both run installVersion
+   * into the same fixed paths (`<version>.tar.gz.partial`, `<versionDir>.partial`)
+   * and the second's `rm(tmpExtract)` would delete the first's extraction
+   * mid-flight → SHA mismatch / corrupt install. The promise is memoized only
+   * WHILE IN FLIGHT (cleared on settle), so a later ensure() after the cache is
+   * cleared still re-runs.
    */
   async ensure(): Promise<ChromiumStatus> {
+    if (this.ensureInFlight) return this.ensureInFlight;
+    this.ensureInFlight = this.doEnsure().finally(() => {
+      this.ensureInFlight = null;
+    });
+    return this.ensureInFlight;
+  }
+
+  private async doEnsure(): Promise<ChromiumStatus> {
     await mkdir(this.cacheDir, { recursive: true });
 
     // Cached version available?

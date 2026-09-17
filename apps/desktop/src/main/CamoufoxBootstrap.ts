@@ -37,6 +37,9 @@ interface CamoufoxBootstrapEvents {
 export class CamoufoxBootstrap extends EventEmitter implements EngineBootstrap {
   private status: ChromiumStatus = { kind: "missing" };
   private binaryPath: string | null = null;
+  /** Non-null while an ensure() install is running, to collapse concurrent
+   *  callers onto one download (see ensure()). */
+  private ensureInFlight: Promise<ChromiumStatus> | null = null;
 
   override on<K extends keyof CamoufoxBootstrapEvents>(
     event: K,
@@ -69,6 +72,20 @@ export class CamoufoxBootstrap extends EventEmitter implements EngineBootstrap {
   }
 
   async ensure(): Promise<ChromiumStatus> {
+    // Collapse concurrent callers onto one install. Two Camoufox launches in
+    // quick succession would otherwise start two CamoufoxFetcher.install()s into
+    // the same dir, each of which begins by rmSync-ing it — the second wipes the
+    // first's extracted tree mid-flight → corrupt, mixed-provenance install.
+    // Memoized only WHILE IN FLIGHT (cleared on settle), so a later ensure()
+    // after the dir is cleared still re-runs.
+    if (this.ensureInFlight) return this.ensureInFlight;
+    this.ensureInFlight = this.doEnsure().finally(() => {
+      this.ensureInFlight = null;
+    });
+    return this.ensureInFlight;
+  }
+
+  private async doEnsure(): Promise<ChromiumStatus> {
     // Relocate the binary into an app-controlled dir instead of camoufox-js's
     // default per-user cache. camoufox-js reads CAMOUFOX_INSTALL_DIR when its
     // pkgman module first evaluates — which is the dynamic import just below,
