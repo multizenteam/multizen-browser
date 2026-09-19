@@ -14,6 +14,7 @@ import { CommandPalette, type CommandAction } from "./components/palette/Command
 import { FirstRun } from "./components/onboarding/FirstRun";
 import { ChromiumBootstrapModal } from "./components/onboarding/ChromiumBootstrapModal";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { EngineDownloadBanner } from "./components/EngineDownloadBanner";
 import { Modal, ConfirmHost, confirm } from "./components/atoms";
 import { readPersisted, usePersistedState, writePersisted } from "./lib/persisted";
 import type { ActivityEvent, ChromiumStatus, ProfileSummary, SystemInfo } from "./types";
@@ -333,6 +334,7 @@ export function App(): JSX.Element {
       />
 
       <UpdateBanner suppressed={!chromiumReady} />
+      <EngineDownloadBanner />
 
       <div className="flex-1 flex min-h-0">
         <LeftRail active={section} onChange={setSection} onCmdK={() => setPaletteOpen(true)} />

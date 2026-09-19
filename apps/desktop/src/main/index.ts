@@ -184,12 +184,15 @@ app.whenReady().then(async () => {
   // with its own bootstrap later.
   engineRegistry = new EngineRegistry();
   engineRegistry.on("status", (engine, status) => {
-    // The renderer's chromium:status channel is single-engine today, so forward
-    // the CloakBrowser stream to keep the existing bootstrap UI working.
-    // Per-engine status fan-out lands with the per-profile picker.
+    // The renderer's chromium:status channel drives the CloakBrowser first-run
+    // bootstrap UI (single-engine), so keep forwarding that stream.
     if (engine === "cloakbrowser") {
       sendToRenderer("chromium:status", status);
     }
+    // Per-engine stream for the on-demand engine-download banner. Camoufox
+    // fetches its browser the first time a Camoufox profile launches; without
+    // this the launch blocks with only a "Launching…" tile and no progress.
+    sendToRenderer("engine:status", { engine, status });
   });
   // Kick off the default engine's download in the background so the UI can
   // render immediately and show progress. Profile launches wait until their
