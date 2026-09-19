@@ -36,8 +36,8 @@ extraMetadata:
     # Camoufox (Firefox) engine — lazy-loaded at runtime, so (unlike the inlined
     # Chromium path) they must be packaged into node_modules. Pinned to the
     # security-reviewed versions; their transitive native deps (impit,
-    # better-sqlite3@13, adm-zip, …) are pulled in + rebuilt for the Electron ABI
-    # automatically. NOTE: not yet validated in a real electron-builder run.
+    # better-sqlite3 — deduped to 11.10.0, adm-zip, …) are pulled in + rebuilt
+    # for the Electron ABI automatically.
     camoufox-js: "0.12.0"
     playwright-core: "1.60.0"
 
@@ -52,7 +52,7 @@ asarUnpack:
   # Camoufox (Firefox) engine: playwright-core spawns a driver process and
   # camoufox-js reads bundled data-files + spawns the browser, so both must live
   # on the real filesystem, not inside the asar archive. (`**/*.node` above
-  # already covers their native bindings: camoufox-js's better-sqlite3@13 + impit.)
+  # already covers their native bindings: the deduped better-sqlite3 + impit.)
   - "node_modules/playwright-core/**/*"
   - "node_modules/camoufox-js/**/*"
 

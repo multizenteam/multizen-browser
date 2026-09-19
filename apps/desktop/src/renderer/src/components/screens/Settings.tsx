@@ -372,6 +372,11 @@ const engineOptions: Array<{
     label: "CloakBrowser",
     description: "Source-patched Chromium from CloakHQ releases. Primary runtime.",
   },
+  {
+    value: "camoufox",
+    label: "Camoufox",
+    description: "Firefox-based anti-detect. A non-Chrome TLS/JS fingerprint.",
+  },
 ];
 
 function electronVersion(): string {

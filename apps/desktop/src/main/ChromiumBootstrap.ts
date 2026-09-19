@@ -372,7 +372,7 @@ export class ChromiumBootstrap extends EventEmitter {
     const binaryPath = await this.locateBinary(tmpExtract);
     if (!binaryPath) {
       throw new Error(
-        "Could not locate Chromium binary in extracted bundle — CFT zip layout changed?",
+        "Could not locate Chromium binary in extracted bundle — CloakBrowser archive layout changed?",
       );
     }
     // Make executable on POSIX. Chrome for Testing usually preserves

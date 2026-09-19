@@ -56,8 +56,13 @@ export interface FirefoxBrowserDriverOptions {
 }
 
 /** Only these env vars are forwarded to the browser child — deliberately NOT
- *  the whole process.env, which would leak the main process's secrets/tokens. */
+ *  the whole process.env, which would leak the main process's secrets/tokens.
+ *  The list mirrors what the Chromium driver forwards (plus Firefox/Playwright
+ *  specifics): without the Windows HOME-equivalents Playwright's Firefox
+ *  amendEnvironment throws (it requires an absolute os.homedir()), and without
+ *  the Wayland/DBus vars Firefox can't reach the display on Linux. */
 const ENV_ALLOWLIST = [
+  // POSIX + locale
   "PATH",
   "HOME",
   "USER",
@@ -67,10 +72,26 @@ const ENV_ALLOWLIST = [
   "TMPDIR",
   "TEMP",
   "TMP",
+  // Linux display / session (parity with ChromiumBrowserDriver)
   "DISPLAY",
+  "WAYLAND_DISPLAY",
   "XAUTHORITY",
+  "XDG_RUNTIME_DIR",
+  "XDG_SESSION_TYPE",
+  "XDG_CURRENT_DESKTOP",
+  "DESKTOP_SESSION",
+  "DBUS_SESSION_BUS_ADDRESS",
+  // macOS app-bundle framework lookup
+  "DYLD_FALLBACK_FRAMEWORK_PATH",
+  // Windows: paths Firefox needs + the HOME-equivalents Playwright requires
   "SystemRoot",
   "WINDIR",
+  "SystemDrive",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMFILES",
+  "PATHEXT",
 ];
 
 function minimalChildEnv(): Record<string, string> {

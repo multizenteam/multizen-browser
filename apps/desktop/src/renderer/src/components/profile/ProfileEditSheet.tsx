@@ -38,8 +38,9 @@ interface FormState {
   icon: string | undefined;
   /** Start page ("" = app default). */
   startUrl: string;
-  /** Engine that runs this profile. */
-  engine: BrowserEngine;
+  /** Engine that runs this profile. `undefined` = not pinned (inherits the app
+   *  default); kept undefined so an unrelated edit doesn't silently pin it. */
+  engine: BrowserEngine | undefined;
   proxyEnabled: boolean;
   proxyType: "http" | "socks5";
   proxyHost: string;
@@ -56,7 +57,8 @@ function toForm(p: Profile): FormState {
     tagsRaw: p.tags.join(", "),
     icon: p.icon,
     startUrl: p.startUrl ?? "",
-    engine: p.engine ?? "cloakbrowser",
+    engine: p.engine, // undefined stays undefined → patch omits it → keeps unset
+
     proxyEnabled: !!p.proxy,
     proxyType: p.proxy?.type ?? "http",
     proxyHost: p.proxy?.host ?? "",
@@ -116,6 +118,15 @@ export function ProfileEditSheet({ profile, isRunning = false, onSaved }: Props)
   const [section, setSection] = useState<SectionId>("general");
   const [form, setForm] = useState<FormState>(() => toForm(profile));
   const [status, setStatus] = useState<SaveStatus>({ kind: "saved" });
+  // The app-wide default engine, for DISPLAY only: an unpinned profile
+  // (form.engine === undefined) shows the default as selected but is never
+  // persisted to it unless the user actually picks an engine.
+  const [defaultEngine, setDefaultEngine] = useState<BrowserEngine>("cloakbrowser");
+  useEffect(() => {
+    if (!window.multizen) return;
+    void window.multizen.settings.get().then((s) => setDefaultEngine(s.browserEngine));
+  }, []);
+  const shownEngine: BrowserEngine = form.engine ?? defaultEngine;
 
   // JSON of the last-persisted form; edits that match it don't trigger a save.
   const savedRef = useRef<string>(JSON.stringify(toForm(profile)));
@@ -190,7 +201,7 @@ export function ProfileEditSheet({ profile, isRunning = false, onSaved }: Props)
   // Camoufox is Firefox — Chrome extensions don't apply, so the section is
   // hidden for it. If the user switches to Camoufox while viewing Extensions,
   // fall back to the Browser section so they don't sit on a hidden pane.
-  const extensionsHidden = form.engine === "camoufox";
+  const extensionsHidden = shownEngine === "camoufox";
   useEffect(() => {
     if (extensionsHidden && section === "extensions") setSection("browser");
   }, [extensionsHidden, section]);
@@ -253,7 +264,7 @@ export function ProfileEditSheet({ profile, isRunning = false, onSaved }: Props)
           <BrowserSection
             startUrl={form.startUrl}
             onStartUrl={(v) => update("startUrl", v)}
-            engine={form.engine}
+            engine={shownEngine}
             onEngine={(v) => update("engine", v)}
             engineDisabled={isRunning}
             engineDisabledReason="Stop the profile to change its engine."

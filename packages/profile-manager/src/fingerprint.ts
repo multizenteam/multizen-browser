@@ -1335,61 +1335,10 @@ function deviceMatchesHost(
   return d.family.startsWith("linux");
 }
 
-/**
- * Reconcile a fingerprint's device family to match the host OS we're
- * running on, preserving locale + timezone where possible. Used at
- * launch to auto-fix profiles created on a different host or with the
- * old "any device" generator.
- *
- * Why: claiming Windows 11 while running a macOS Chromium binary is
- * detectable via V8/Blink/CSS feature signatures. The only safe match
- * for stock binaries is "device family == host family".
- */
-export function reconcileDeviceFamilyToHost(
-  fp: FingerprintConfig,
-): FingerprintConfig {
-  const host = hostPlatformFamily();
-  const currentDevice = DEVICES.find((d) => d.family === fp.device);
-  if (currentDevice && deviceMatchesHost(currentDevice, host)) return fp;
-
-  // Pick a deterministic device for this profile so the choice is stable
-  // across launches (locale/timezone get preserved).
-  const candidates = DEVICES.filter((d) => deviceMatchesHost(d, host));
-  if (candidates.length === 0) return fp;
-  // Use UA hash as seed so the same profile always lands on the same
-  // replacement device.
-  const seed = stringHash(fp.userAgent + fp.locale);
-  const device = candidates[seed % candidates.length]!;
-
-  const screen =
-    device.screens.find(
-      (s) => s.width === fp.screen.width && s.height === fp.screen.height,
-    ) ?? device.screens[0]!;
-  const locale =
-    LOCALES.find((l) => l.locale === fp.locale) ?? LOCALES[0]!;
-  const tz = locale.timezones.includes(fp.timezone)
-    ? fp.timezone
-    : locale.timezones[0]!;
-  const hwc = device.hardwareConcurrency.includes(fp.hardwareConcurrency)
-    ? fp.hardwareConcurrency
-    : device.hardwareConcurrency[0]!;
-  const mem = device.deviceMemory.includes(fp.deviceMemory)
-    ? fp.deviceMemory
-    : device.deviceMemory[0]!;
-  const webgl = resolveWebgl(device, fp.webgl);
-
-  const next = assemble(device, locale, screen, tz, hwc, mem, webgl);
-  return fp.seed ? { ...next, seed: fp.seed } : next;
-}
-
-function stringHash(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return Math.abs(h | 0);
-}
+// (reconcileDeviceFamilyToHost + its stringHash helper were removed with the CFT
+// engine: they only ran on the CFT launch path. CloakBrowser applies the device
+// family natively via its --fingerprint-* flags, so no launch-time host
+// reconciliation is needed.)
 
 /** Backwards-compat: deterministic fingerprint for an existing profile id. */
 export function defaultFingerprint(seed: string): FingerprintConfig {
