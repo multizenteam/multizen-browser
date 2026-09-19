@@ -1073,7 +1073,7 @@ __metadata:
     "@types/react-dom": "npm:^19.0.0"
     "@vitejs/plugin-react": "npm:^4.3.4"
     better-sqlite3: "npm:^11.7.0"
-    camoufox-js: "npm:0.12.0"
+    camoufox-js: "patch:camoufox-js@npm%3A0.12.0#~/.yarn/patches/camoufox-js-npm-0.12.0-2464878a7a.patch"
     chrome-remote-interface: "npm:^0.33.3"
     electron: "npm:^33.2.0"
     electron-builder: "npm:^25.1.8"
@@ -2435,6 +2435,30 @@ __metadata:
   bin:
     camoufox-js: dist/__main__.js
   checksum: 10c0/b734938f69cf1ce449a5f71d2693d70870838fc6d2a17a33db17f714e217623774300087fc4f172e6ad20d395cf3aee5ef61588b5a8828162e4f3ce75224d373
+  languageName: node
+  linkType: hard
+
+"camoufox-js@patch:camoufox-js@npm%3A0.12.0#~/.yarn/patches/camoufox-js-npm-0.12.0-2464878a7a.patch":
+  version: 0.12.0
+  resolution: "camoufox-js@patch:camoufox-js@npm%3A0.12.0#~/.yarn/patches/camoufox-js-npm-0.12.0-2464878a7a.patch::version=0.12.0&hash=b7801a"
+  dependencies:
+    adm-zip: "npm:^0.6.0"
+    better-sqlite3: "npm:^13.0.1"
+    cli-progress: "npm:^3.12.0"
+    commander: "npm:^14.0.0"
+    fingerprint-generator: "npm:^2.1.86"
+    glob: "npm:^13.0.0"
+    impit: "npm:^0.14.1"
+    language-tags: "npm:^2.0.1"
+    maxmind: "npm:^5.0.0"
+    pretty-bytes: "npm:^7.1.0"
+    ua-parser-js: "npm:^2.0.10"
+    xml2js: "npm:^0.6.2"
+  peerDependencies:
+    playwright-core: <1.61.0
+  bin:
+    camoufox-js: dist/__main__.js
+  checksum: 10c0/a74c612915fda97409794033721c6e8132c961014fdbbf2dfcc15fea89075eee77a208e2b00e43139f5a1d329b64bd4778f9eaa6699c7996aed7c370cd079a91
   languageName: node
   linkType: hard
 

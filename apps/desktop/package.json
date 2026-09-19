@@ -30,7 +30,7 @@
     "@multizen/settings-store": "workspace:*",
     "@multizen/types": "workspace:*",
     "better-sqlite3": "^11.7.0",
-    "camoufox-js": "0.12.0",
+    "camoufox-js": "patch:camoufox-js@npm%3A0.12.0#~/.yarn/patches/camoufox-js-npm-0.12.0-2464878a7a.patch",
     "chrome-remote-interface": "^0.33.3",
     "electron-updater": "^6.8.9",
     "emoji-mart": "^5.6.0",
