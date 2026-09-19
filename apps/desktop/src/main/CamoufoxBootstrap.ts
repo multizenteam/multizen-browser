@@ -42,6 +42,13 @@ type Pkgman = typeof import("camoufox-js/dist/pkgman.js");
  * publishes no checksums file, so these were captured from GitHub's asset
  * `digest` field for the tag. Keys are camoufox-js's platform tokens; the asset
  * is `camoufox-<version>-<release>-<key>.zip`.
+ *
+ * WHEN BUMPING: the tag MUST stay inside the installed camoufox-js's supported
+ * version range (CONSTRAINTS in camoufox-js/dist/__version__.js). If it drifts
+ * outside, camoufox-js's launchPath() treats our verified install as
+ * unsupported and fires its OWN unverified download in the background — silently
+ * re-opening the integrity hole this whole module exists to close. Bump the pin
+ * and camoufox-js together, and re-run the security review.
  */
 const CAMOUFOX_PIN = {
   tag: "v152.0.4-beta.30",
@@ -250,10 +257,20 @@ async function downloadAndVerify(
       const total = Number(res.headers.get("content-length") ?? 0);
       const hash = createHash("sha256");
       const out = createWriteStream(outPath);
+      // A persistent 'error' listener so a write failure (disk full, EACCES,
+      // EIO) raised while we're awaiting reader.read() has a handler — otherwise
+      // it's an unhandled 'error' on the stream and takes down the main process
+      // (there is no global uncaughtException handler). We surface it into the
+      // attempt's catch instead. Mirrors ChromiumBootstrap's stream.on("error").
+      let streamErr: Error | null = null;
+      out.on("error", (e: Error) => {
+        streamErr = e;
+      });
       let received = 0;
       try {
         const reader = res.body.getReader();
         for (;;) {
+          if (streamErr) throw streamErr;
           const { done, value } = await reader.read();
           if (done) break;
           hash.update(value);
@@ -263,8 +280,11 @@ async function downloadAndVerify(
         }
       } finally {
         out.end();
-        await once(out, "close");
+        // 'close' still fires after 'error'; swallow a possible rejection here
+        // since streamErr is checked explicitly below.
+        await once(out, "close").catch(() => {});
       }
+      if (streamErr) throw streamErr;
 
       const sha = hash.digest("hex");
       if (sha !== expectedSha) {
