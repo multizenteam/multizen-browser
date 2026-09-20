@@ -130,6 +130,26 @@ function test(name: string, fn: () => Promise<void>): void {
   tests.push([name, fn]);
 }
 
+// ── initialize guidance ────────────────────────────────────────────────────
+
+test("initialize supports autonomous authorized work without blanket human handoffs", async () => {
+  const client = await connect(new SpyDriver());
+  try {
+    const instructions = client.getInstructions();
+    assert.ok(instructions, "initialize must include server-level guidance");
+    assert.match(instructions, /tools and access available to you/);
+    assert.match(instructions, /Do not stop and ask a human to perform work you can complete yourself/);
+    assert.match(instructions, /concrete missing prerequisite actually prevents progress/);
+    assert.doesNotMatch(instructions, /pause and let the user solve it|human-in-the-loop/i);
+    // Autonomy does not remove the product's technical or authorized-use constraints.
+    assert.match(instructions, /no headless mode/);
+    assert.match(instructions, /Do not create or launch profiles in bulk to farm accounts/);
+    assert.match(instructions, /authorized workflows/);
+  } finally {
+    await client.close();
+  }
+});
+
 // ── tools/list registration ─────────────────────────────────────────────────
 
 test("tools/list exposes the 11 Phase-2 tools with object input schemas", async () => {
