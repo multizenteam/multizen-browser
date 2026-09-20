@@ -16,6 +16,7 @@ import type { ClientHints, FingerprintConfig, LaunchedProfile, ProfileId } from 
 import { waitForCdpSessionReady } from "./cdpReadiness";
 import type { BrowserEngine } from "@multizen/settings-store";
 import { CdpSession } from "@multizen/cdp-driver";
+import type { TargetContext, TargetSender } from "@multizen/cdp-driver";
 import type { ChromiumBootstrap } from "./ChromiumBootstrap";
 import { startBridgeForProfile, stopBridgeForProfile } from "./socks5Bridge";
 import { probeProxyGeo } from "./proxyGeo";
@@ -509,142 +510,153 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       engine === "cloakbrowser"
         ? null
         : buildFingerprintPreloadScript(fp, { includeWebGl: true });
+
+    const applyScreenMetrics = async (send: TargetSender, ctx: TargetContext): Promise<void> => {
+      // Preserve CFT's existing root-only metrics path. CloakBrowser needs
+      // every top-level page target because its native screen flags do not
+      // populate CSS device media queries.
+      if (ctx.type !== "page" || (engine !== "cloakbrowser" && !ctx.isRoot)) return;
+      try {
+        await send("Emulation.setDeviceMetricsOverride", {
+          width: 0,
+          height: 0,
+          deviceScaleFactor: engine === "cloakbrowser" ? 0 : fp.dpr,
+          mobile: false,
+          screenWidth: fp.screen.width,
+          screenHeight: fp.screen.height,
+          screenOrientation: { type: "landscapePrimary", angle: 0 },
+        });
+      } catch (e) {
+        console.error("[multizen] setDeviceMetricsOverride failed:", e);
+      }
+    };
+
     await session
-      .bootstrapTargets(async (send, ctx) => {
-        // 1. WebRTC kill-switch / spoof when proxy is on.
-        //    CloakBrowser handles WebRTC natively (webrtcScript is null).
-        if (useProxy && webrtcScript) {
-          // addScriptToEvaluateOnNewDocument applies on EVERY future
-          // document load in this target — works for iframes too. The
-          // immediate Runtime.evaluate is a belt-and-braces patch of the
-          // currently-loaded document; it expects an active execution
-          // context which iframes that haven't finished navigating yet
-          // don't have. Silence "Cannot find default execution context"
-          // — addScript already covered the next load.
-          await send("Page.addScriptToEvaluateOnNewDocument", {
-            source: webrtcScript,
-          }).catch((e: unknown) => {
-            console.error("[multizen] WebRTC addScript failed:", e);
-          });
-          await send("Runtime.evaluate", { expression: webrtcScript }).catch((e: unknown) => {
-            const msg = (e as Error).message;
-            if (!/default execution context/i.test(msg)) {
-              console.error("[multizen] WebRTC eval failed:", e);
-            }
-          });
-        }
-        // 1b. Generic fingerprint patches (deviceMemory, hwConcurrency,
-        //     navigator.platform, WebGL UNMASKED_*). CloakBrowser handles
-        //     these in C++ — skip our preload to avoid double-patching.
-        if (fingerprintScript) {
-          await send("Page.addScriptToEvaluateOnNewDocument", {
-            source: fingerprintScript,
-          }).catch((e: unknown) => {
-            console.error("[multizen] fingerprint addScript failed:", e);
-          });
-          await send("Runtime.evaluate", { expression: fingerprintScript }).catch(
-            (e: unknown) => {
+      .bootstrapTargets(
+        async (send, ctx) => {
+          // 1. WebRTC kill-switch / spoof when proxy is on.
+          //    CloakBrowser handles WebRTC natively (webrtcScript is null).
+          if (useProxy && webrtcScript) {
+            // addScriptToEvaluateOnNewDocument applies on EVERY future
+            // document load in this target — works for iframes too. The
+            // immediate Runtime.evaluate is a belt-and-braces patch of the
+            // currently-loaded document; it expects an active execution
+            // context which iframes that haven't finished navigating yet
+            // don't have. Silence "Cannot find default execution context"
+            // — addScript already covered the next load.
+            await send("Page.addScriptToEvaluateOnNewDocument", {
+              source: webrtcScript,
+            }).catch((e: unknown) => {
+              console.error("[multizen] WebRTC addScript failed:", e);
+            });
+            await send("Runtime.evaluate", { expression: webrtcScript }).catch((e: unknown) => {
               const msg = (e as Error).message;
               if (!/default execution context/i.test(msg)) {
-                console.error("[multizen] fingerprint eval failed:", e);
+                console.error("[multizen] WebRTC eval failed:", e);
               }
-            },
-          );
-        }
-        // 1c. Screen / device metrics — TOP-LEVEL TARGETS ONLY. iframes
-        //     reject with "Command can only be executed on top-level
-        //     targets" — they inherit metrics from their parent page.
-        //     Skip for CloakBrowser: --fingerprint-screen-{width,height}
-        //     already configures native screen at C++ level, and
-        //     setDeviceMetricsOverride on top can produce inconsistent
-        //     window.innerWidth vs screen.width values that detection
-        //     vendors flag.
-        if (ctx.isRoot && engine !== "cloakbrowser") {
-          try {
-            await send("Emulation.setDeviceMetricsOverride", {
-              width: 0,
-              height: 0,
-              deviceScaleFactor: fp.dpr,
-              mobile: false,
-              screenWidth: fp.screen.width,
-              screenHeight: fp.screen.height,
-              screenOrientation: { type: "landscapePrimary", angle: 0 },
             });
-          } catch (e) {
-            console.error("[multizen] setDeviceMetricsOverride failed:", e);
           }
-        }
-        // 2-4. Timezone / Locale / UA+UA-CH overrides via CDP.
-        //
-        // ONLY run for CFT. CloakBrowser sets these natively at C++ level
-        // through --fingerprint-timezone / --fingerprint-locale /
-        // --fingerprint-brand-version. Layering CDP `Emulation.*` on top
-        // produces subtle disagreements between layers (e.g. our CDP UA
-        // string ≠ CloakBrowser's native UA-CH brand list) that
-        // composite scorers like fingerprint-scan.com flag as "Masking
-        // detected". Trust the native binary on CloakBrowser.
-        if (engine !== "cloakbrowser") {
-          try {
-            await send("Emulation.setTimezoneOverride", {
-              timezoneId: fp.timezone,
+          // 1b. Generic fingerprint patches (deviceMemory, hwConcurrency,
+          //     navigator.platform, WebGL UNMASKED_*). CloakBrowser handles
+          //     these in C++ — skip our preload to avoid double-patching.
+          if (fingerprintScript) {
+            await send("Page.addScriptToEvaluateOnNewDocument", {
+              source: fingerprintScript,
+            }).catch((e: unknown) => {
+              console.error("[multizen] fingerprint addScript failed:", e);
             });
-          } catch (e) {
-            console.error("[multizen] setTimezoneOverride failed:", e);
+            await send("Runtime.evaluate", { expression: fingerprintScript }).catch(
+              (e: unknown) => {
+                const msg = (e as Error).message;
+                if (!/default execution context/i.test(msg)) {
+                  console.error("[multizen] fingerprint eval failed:", e);
+                }
+              },
+            );
           }
-          try {
-            await send("Emulation.setLocaleOverride", { locale: fp.locale });
-          } catch (e) {
-            // "Another locale override is already in effect" fires when
-            // Target.setAutoAttach re-attaches an already-configured target;
-            // the override is in place, we just can't replace it. Harmless.
-            const msg = (e as Error).message;
-            if (!/already in effect/i.test(msg)) {
-              console.error("[multizen] setLocaleOverride failed:", e);
+          // 1c. Screen / device metrics — TOP-LEVEL TARGETS ONLY. iframes
+          //     reject with "Command can only be executed on top-level
+          //     targets"; their behavior remains governed by the engine.
+          //     CloakBrowser's native --fingerprint-screen-{width,height}
+          //     values cover the JS screen API, while this CDP override also
+          //     supplies CSS device-width/device-height and matchMedia. Keep
+          //     width/height at 0 so the logical viewport is unchanged.
+          //
+          //     `isRoot` only identifies the target used by the initial CDP
+          //     websocket. Existing and newly-created top-level page targets
+          //     are also `type === "page"` but have `isRoot === false`.
+          await applyScreenMetrics(send, ctx);
+          // 2-4. Timezone / Locale / UA+UA-CH overrides via CDP.
+          //
+          // ONLY run for CFT. CloakBrowser sets these natively at C++ level
+          // through --fingerprint-timezone / --fingerprint-locale /
+          // --fingerprint-brand-version. Layering CDP `Emulation.*` on top
+          // produces subtle disagreements between layers (e.g. our CDP UA
+          // string ≠ CloakBrowser's native UA-CH brand list) that
+          // composite scorers like fingerprint-scan.com flag as "Masking
+          // detected". Trust the native binary on CloakBrowser.
+          if (engine !== "cloakbrowser") {
+            try {
+              await send("Emulation.setTimezoneOverride", {
+                timezoneId: fp.timezone,
+              });
+            } catch (e) {
+              console.error("[multizen] setTimezoneOverride failed:", e);
+            }
+            try {
+              await send("Emulation.setLocaleOverride", { locale: fp.locale });
+            } catch (e) {
+              // "Another locale override is already in effect" fires when
+              // Target.setAutoAttach re-attaches an already-configured target;
+              // the override is in place, we just can't replace it. Harmless.
+              const msg = (e as Error).message;
+              if (!/already in effect/i.test(msg)) {
+                console.error("[multizen] setLocaleOverride failed:", e);
+              }
+            }
+            const meta = safeBuildUserAgentMetadata(fp);
+            try {
+              const params: Record<string, unknown> = {
+                userAgent: fp.userAgent,
+                // Plain language list — see --accept-lang comment above.
+                acceptLanguage: acceptLangPlain,
+                platform: fp.platform,
+              };
+              if (meta) params.userAgentMetadata = meta;
+              await send("Emulation.setUserAgentOverride", params);
+            } catch (e) {
+              console.error("[multizen] setUserAgentOverride failed:", e);
+            }
+          } else {
+            // CloakBrowser: we skip the CDP UA/timezone overrides above because
+            // those have native --fingerprint-* patches that a CDP layer would
+            // contradict. LOCALE is the exception: CloakBrowser ships NO native
+            // locale switch (its --fingerprint-* set has timezone but no
+            // locale/language — verified against the binary), and macOS ignores
+            // --lang, so nothing otherwise sets the renderer's ICU default locale
+            // and Intl.*.resolvedOptions().locale leaks the host locale (e.g. a
+            // th-TH persona reports en-US). Because there is no native locale
+            // value here, this CDP override fills a gap rather than shadowing a
+            // patch — no cross-layer disagreement. (--lang is stock Chromium, not
+            // a fingerprint patch; CFT already ships this exact override.)
+            // navigator.language(s) come from --accept-lang and stay untouched.
+            try {
+              await send("Emulation.setLocaleOverride", { locale: fp.locale });
+            } catch (e) {
+              const msg = (e as Error).message;
+              if (!/already in effect/i.test(msg)) {
+                console.error("[multizen] setLocaleOverride (cloakbrowser) failed:", e);
+              }
             }
           }
-          const meta = safeBuildUserAgentMetadata(fp);
+          // Diagnostic: capture what the page actually sees AFTER overrides.
+          // Logs once per session — if browserscan reports "Different browser
+          // name", these values tell us whether our override landed.
           try {
-            const params: Record<string, unknown> = {
-              userAgent: fp.userAgent,
-              // Plain language list — see --accept-lang comment above.
-              acceptLanguage: acceptLangPlain,
-              platform: fp.platform,
-            };
-            if (meta) params.userAgentMetadata = meta;
-            await send("Emulation.setUserAgentOverride", params);
-          } catch (e) {
-            console.error("[multizen] setUserAgentOverride failed:", e);
-          }
-        } else {
-          // CloakBrowser: we skip the CDP UA/timezone overrides above because
-          // those have native --fingerprint-* patches that a CDP layer would
-          // contradict. LOCALE is the exception: CloakBrowser ships NO native
-          // locale switch (its --fingerprint-* set has timezone but no
-          // locale/language — verified against the binary), and macOS ignores
-          // --lang, so nothing otherwise sets the renderer's ICU default locale
-          // and Intl.*.resolvedOptions().locale leaks the host locale (e.g. a
-          // th-TH persona reports en-US). Because there is no native locale
-          // value here, this CDP override fills a gap rather than shadowing a
-          // patch — no cross-layer disagreement. (--lang is stock Chromium, not
-          // a fingerprint patch; CFT already ships this exact override.)
-          // navigator.language(s) come from --accept-lang and stay untouched.
-          try {
-            await send("Emulation.setLocaleOverride", { locale: fp.locale });
-          } catch (e) {
-            const msg = (e as Error).message;
-            if (!/already in effect/i.test(msg)) {
-              console.error("[multizen] setLocaleOverride (cloakbrowser) failed:", e);
-            }
-          }
-        }
-        // Diagnostic: capture what the page actually sees AFTER overrides.
-        // Logs once per session — if browserscan reports "Different browser
-        // name", these values tell us whether our override landed.
-        try {
-          const probe = await send<{
-            result?: { value?: string };
-          }>("Runtime.evaluate", {
-            expression: `JSON.stringify({
+            const probe = await send<{
+              result?: { value?: string };
+            }>("Runtime.evaluate", {
+              expression: `JSON.stringify({
               ua: navigator.userAgent,
               brands: navigator.userAgentData ? navigator.userAgentData.brands : null,
               platform: navigator.platform,
@@ -657,18 +669,20 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
               hardwareConcurrency: navigator.hardwareConcurrency,
               hasRTCPC: typeof window.RTCPeerConnection !== "undefined",
             })`,
-            returnByValue: true,
-          });
-          const value = probe?.result?.value;
-          // Diagnostic only — gated behind MULTIZEN_DEBUG so it doesn't spam the
-          // console on every launch (it also fires a few times as the context settles).
-          if (value && process.env.MULTIZEN_DEBUG)
-            console.log("[multizen] post-bootstrap probe:", value);
-        } catch (e) {
-          // Non-fatal — diagnostic only.
-          void e;
-        }
-      })
+              returnByValue: true,
+            });
+            const value = probe?.result?.value;
+            // Diagnostic only — gated behind MULTIZEN_DEBUG so it doesn't spam the
+            // console on every launch (it also fires a few times as the context settles).
+            if (value && process.env.MULTIZEN_DEBUG)
+              console.log("[multizen] post-bootstrap probe:", value);
+          } catch (e) {
+            // Non-fatal — diagnostic only.
+            void e;
+          }
+        },
+        { onPageLoad: engine === "cloakbrowser" ? applyScreenMetrics : undefined },
+      )
       .catch((e: unknown) => {
         console.error("[multizen] CDP bootstrap failed:", e);
       });
