@@ -7,7 +7,7 @@ import type { AccessibilityNode, ExtractContext } from "./types.js";
  * to track sessionIds itself.
  */
 export interface TargetContext {
-  /** True for the root (top-level page) session, false for nested iframes. */
+  /** True only for the initial websocket's page, not other pages or iframes. */
   isRoot: boolean;
   /** Target type as reported by Target.attachedToTarget — "page" | "iframe" | etc. */
   type: "page" | "iframe";
@@ -185,21 +185,21 @@ export class CdpSession {
    * Apply a setup function to every page target the browser has now and
    * to every page target it opens later. Used to wire Emulation overrides
    * (timezone, locale, Sec-CH-UA via userAgentMetadata) and preload
-   * scripts (WebRTC handler) so a fresh tab is never un-cloaked even for
-   * a single navigation.
+   * scripts (WebRTC handler).
    *
    * `setup` receives a `send` function pre-bound to the right session.
    * It runs on:
    *   1. the root connected target,
    *   2. every existing page target (e.g. session-restored tabs),
-   *   3. every future target — auto-attached with waitForDebuggerOnStart
-   *      so we win the race against the page's first script. On CloakBrowser,
-   *      newly-created top-level pages are discovered and attached explicitly
-   *      because a page connection's Target.setAutoAttach does not cover them.
+   *   3. future related targets — auto-attached with waitForDebuggerOnStart.
+   *      On CloakBrowser, independent top-level pages are discovered and
+   *      attached explicitly because a page connection's Target.setAutoAttach
+   *      does not cover them. Discovery does not pause their first script.
    *
    * The optional page-load hook runs only after Page.loadEventFired and is
    * intentionally separate from setup so navigation-sensitive commands can be
-   * reapplied without duplicating preload scripts.
+   * reapplied without duplicating preload scripts. This is not a guarantee of
+   * consistent values before load (including restored documents).
    */
   async bootstrapTargets(
     setup: (send: TargetSender, ctx: TargetContext) => Promise<void>,
@@ -207,11 +207,14 @@ export class CdpSession {
   ): Promise<void> {
     const client = this.require();
     const { Target } = client;
-    const attachedTargetTypes = new Map<string, "page" | "iframe">();
+    const attachedTargets = new Map<
+      string,
+      { targetId: string; type: "page" | "iframe"; ready: Promise<void> }
+    >();
 
     client.on("Page.loadEventFired", (_params: unknown, sessionId?: string) => {
       if (!hooks.onPageLoad) return;
-      const type = sessionId === undefined ? "page" : attachedTargetTypes.get(sessionId);
+      const type = sessionId === undefined ? "page" : attachedTargets.get(sessionId)?.type;
       if (type !== "page") return;
       void hooks
         .onPageLoad(buildSender(client, sessionId), {
@@ -234,36 +237,40 @@ export class CdpSession {
     // RTCPeerConnection inside a cross-origin iframe goes un-spoofed and
     // leaks the real IP via STUN even when the parent page is patched.
     const SETUP_TARGET_TYPES = new Set(["page", "iframe"]);
-    const configuredTargetIds = new Set<string>();
-    const inFlightTargetSetups = new Map<string, Promise<void>>();
+
+    client.on("Target.detachedFromTarget", (params: { sessionId: string }) => {
+      attachedTargets.delete(params.sessionId);
+    });
+    client.on("Target.targetDestroyed", (params: { targetId: string }) => {
+      for (const [sessionId, target] of attachedTargets) {
+        if (target.targetId === params.targetId) attachedTargets.delete(sessionId);
+      }
+    });
 
     const setupAttachedTarget = (
       targetId: string,
       sessionId: string,
       type: "page" | "iframe",
     ): Promise<void> => {
-      if (configuredTargetIds.has(targetId)) return Promise.resolve();
-      const inFlight = inFlightTargetSetups.get(targetId);
-      if (inFlight) return inFlight;
+      // Configuration belongs to a CDP session, not the target's lifetime.
+      // A detached target may reattach with a new session that needs setup.
+      const existing = attachedTargets.get(sessionId);
+      if (existing) return existing.ready;
 
-      const setupPromise = (async () => {
-        attachedTargetTypes.set(sessionId, type);
-        if (type === "page" && hooks.onPageLoad) {
-          await client.send("Page.enable", undefined, sessionId);
-        }
-        await setup(buildSender(client, sessionId), {
-          isRoot: false,
-          type,
-        });
-      })()
-        .then(() => {
-          configuredTargetIds.add(targetId);
+      const target = { targetId, type, ready: Promise.resolve() };
+      target.ready = Promise.resolve()
+        .then(async () => {
+          if (type === "page" && hooks.onPageLoad) {
+            await client.send("Page.enable", undefined, sessionId);
+          }
+          await setup(buildSender(client, sessionId), { isRoot: false, type });
         })
-        .finally(() => {
-          inFlightTargetSetups.delete(targetId);
+        .catch((e: unknown) => {
+          if (attachedTargets.get(sessionId) === target) attachedTargets.delete(sessionId);
+          throw e;
         });
-      inFlightTargetSetups.set(targetId, setupPromise);
-      return setupPromise;
+      attachedTargets.set(sessionId, target);
+      return target.ready;
     };
 
     try {
@@ -299,7 +306,10 @@ export class CdpSession {
           };
         }) => {
           const { targetInfo } = params;
-          if (targetInfo.type !== "page" || configuredTargetIds.has(targetInfo.targetId)) {
+          if (
+            targetInfo.type !== "page" ||
+            [...attachedTargets.values()].some((target) => target.targetId === targetInfo.targetId)
+          ) {
             return;
           }
           void (async () => {
