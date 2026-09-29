@@ -141,6 +141,9 @@ test("initialize supports autonomous authorized work without blanket human hando
     assert.match(instructions, /Do not stop and ask a human to perform work you can complete yourself/);
     assert.match(instructions, /concrete missing prerequisite actually prevents progress/);
     assert.doesNotMatch(instructions, /pause and let the user solve it|human-in-the-loop/i);
+    // Autonomy stops at human-verification walls: agents must not try to defeat
+    // CAPTCHA/2FA themselves (anti-abuse guardrail, from the security review).
+    assert.match(instructions, /CAPTCHA.*do not attempt to solve or bypass it yourself/);
     // Autonomy does not remove the product's technical or authorized-use constraints.
     assert.match(instructions, /no headless mode/);
     assert.match(instructions, /Do not create or launch profiles in bulk to farm accounts/);

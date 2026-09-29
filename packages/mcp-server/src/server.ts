@@ -366,6 +366,7 @@ const MULTIZEN_MCP_INSTRUCTIONS = [
   "",
   "Constraints:",
   "- Profiles always open as visible desktop windows. There is no headless mode; do not expect one.",
+  "- On a CAPTCHA, 2FA prompt, or other human-verification wall, do not attempt to solve or bypass it yourself — pause and let the user handle it, then continue. The session carries over.",
   "- Do not create or launch profiles in bulk to farm accounts; this tool supports autonomous execution of authorized workflows.",
 ].join("\n");
 
