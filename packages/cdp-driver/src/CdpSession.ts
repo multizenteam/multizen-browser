@@ -7,10 +7,18 @@ import type { AccessibilityNode, ExtractContext } from "./types.js";
  * to track sessionIds itself.
  */
 export interface TargetContext {
-  /** True for the root (top-level page) session, false for nested iframes. */
+  /** True only for the initial websocket's page, not other pages or iframes. */
   isRoot: boolean;
   /** Target type as reported by Target.attachedToTarget — "page" | "iframe" | etc. */
   type: "page" | "iframe";
+}
+
+export interface TargetBootstrapHooks {
+  /**
+   * Runs after a top-level page target emits Page.loadEventFired. This is
+   * useful for native emulation that a browser fork resets during navigation.
+   */
+  onPageLoad?: (send: TargetSender, ctx: TargetContext) => Promise<void>;
 }
 
 export type TargetSender = <T = unknown>(
@@ -92,6 +100,7 @@ const CLOAK_RISKY_ENABLE_DOMAINS = new Set(["Runtime", "Network"]);
  */
 export class CdpSession {
   private client: CDP.Client | null = null;
+  private closing = false;
   private readonly opts: CdpSessionOptions;
   /** Cleanups (e.g. polling intervals) to run on close(). */
   private readonly teardowns: Array<() => void> = [];
@@ -115,6 +124,7 @@ export class CdpSession {
 
   async connect(): Promise<void> {
     if (this.client) return;
+    this.closing = false;
     const host = this.opts.host ?? "localhost";
     this.client = await CDP({ host, port: this.opts.port });
     const { Page } = this.client;
@@ -132,6 +142,7 @@ export class CdpSession {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     for (const t of this.teardowns.splice(0)) {
       try {
         t();
@@ -174,21 +185,48 @@ export class CdpSession {
    * Apply a setup function to every page target the browser has now and
    * to every page target it opens later. Used to wire Emulation overrides
    * (timezone, locale, Sec-CH-UA via userAgentMetadata) and preload
-   * scripts (WebRTC handler) so a fresh tab is never un-cloaked even for
-   * a single navigation.
+   * scripts (WebRTC handler).
    *
    * `setup` receives a `send` function pre-bound to the right session.
    * It runs on:
    *   1. the root connected target,
    *   2. every existing page target (e.g. session-restored tabs),
-   *   3. every future target — auto-attached with waitForDebuggerOnStart
-   *      so we win the race against the page's first script.
+   *   3. future related targets — auto-attached with waitForDebuggerOnStart.
+   *      On CloakBrowser, independent top-level pages are discovered and
+   *      attached explicitly because a page connection's Target.setAutoAttach
+   *      does not cover them. Discovery does not pause their first script.
+   *
+   * The optional page-load hook runs only after Page.loadEventFired and is
+   * intentionally separate from setup so navigation-sensitive commands can be
+   * reapplied without duplicating preload scripts. This is not a guarantee of
+   * consistent values before load (including restored documents).
    */
   async bootstrapTargets(
     setup: (send: TargetSender, ctx: TargetContext) => Promise<void>,
+    hooks: TargetBootstrapHooks = {},
   ): Promise<void> {
     const client = this.require();
     const { Target } = client;
+    const attachedTargets = new Map<
+      string,
+      { targetId: string; type: "page" | "iframe"; ready: Promise<void> }
+    >();
+
+    client.on("Page.loadEventFired", (_params: unknown, sessionId?: string) => {
+      if (!hooks.onPageLoad) return;
+      const type = sessionId === undefined ? "page" : attachedTargets.get(sessionId)?.type;
+      if (type !== "page") return;
+      void hooks
+        .onPageLoad(buildSender(client, sessionId), {
+          isRoot: sessionId === undefined,
+          type: "page",
+        })
+        .catch((e: unknown) => {
+          if (!this.closing) {
+            console.error("[multizen] page-load bootstrap failed:", e);
+          }
+        });
+    });
 
     await setup(buildSender(client, undefined), { isRoot: true, type: "page" });
 
@@ -200,46 +238,117 @@ export class CdpSession {
     // leaks the real IP via STUN even when the parent page is patched.
     const SETUP_TARGET_TYPES = new Set(["page", "iframe"]);
 
+    client.on("Target.detachedFromTarget", (params: { sessionId: string }) => {
+      attachedTargets.delete(params.sessionId);
+    });
+    client.on("Target.targetDestroyed", (params: { targetId: string }) => {
+      for (const [sessionId, target] of attachedTargets) {
+        if (target.targetId === params.targetId) attachedTargets.delete(sessionId);
+      }
+    });
+
+    const setupAttachedTarget = (
+      targetId: string,
+      sessionId: string,
+      type: "page" | "iframe",
+    ): Promise<void> => {
+      // Configuration belongs to a CDP session, not the target's lifetime.
+      // A detached target may reattach with a new session that needs setup.
+      const existing = attachedTargets.get(sessionId);
+      if (existing) return existing.ready;
+
+      const target = { targetId, type, ready: Promise.resolve() };
+      target.ready = Promise.resolve()
+        .then(async () => {
+          if (type === "page" && hooks.onPageLoad) {
+            await client.send("Page.enable", undefined, sessionId);
+          }
+          await setup(buildSender(client, sessionId), { isRoot: false, type });
+        })
+        .catch((e: unknown) => {
+          if (attachedTargets.get(sessionId) === target) attachedTargets.delete(sessionId);
+          throw e;
+        });
+      attachedTargets.set(sessionId, target);
+      return target.ready;
+    };
+
     try {
       const targets = await Target.getTargets();
       for (const t of targets.targetInfos) {
         if (!SETUP_TARGET_TYPES.has(t.type)) continue;
-        const { sessionId } = await Target.attachToTarget({
-          targetId: t.targetId,
-          flatten: true,
-        });
-        await setup(buildSender(client, sessionId), {
-          isRoot: false,
-          type: t.type as "page" | "iframe",
-        }).catch(() => {});
+        try {
+          const { sessionId } = await Target.attachToTarget({
+            targetId: t.targetId,
+            flatten: true,
+          });
+          await setupAttachedTarget(t.targetId, sessionId, t.type as "page" | "iframe");
+        } catch (e) {
+          console.error(`[multizen] initial target bootstrap failed (${t.type}):`, e);
+        }
       }
     } catch {
       // Best-effort — root is already covered.
     }
 
-    await Target.setAutoAttach({
-      autoAttach: true,
-      waitForDebuggerOnStart: true,
-      flatten: true,
-    });
+    if (this.opts.engine === "cloakbrowser") {
+      // Target.setAutoAttach covers nested targets such as OOPIFs from this
+      // page connection, but it does not reliably attach newly-created
+      // top-level pages. Discovery gives us the target id; attach it
+      // explicitly so every new tab and popup receives the same setup.
+      client.on(
+        "Target.targetCreated",
+        (params: {
+          targetInfo: {
+            targetId: string;
+            type: string;
+            url?: string;
+          };
+        }) => {
+          const { targetInfo } = params;
+          if (
+            targetInfo.type !== "page" ||
+            [...attachedTargets.values()].some((target) => target.targetId === targetInfo.targetId)
+          ) {
+            return;
+          }
+          void (async () => {
+            try {
+              const { sessionId } = await Target.attachToTarget({
+                targetId: targetInfo.targetId,
+                flatten: true,
+              });
+              await setupAttachedTarget(targetInfo.targetId, sessionId, "page");
+            } catch (e) {
+              if (!this.closing) {
+                console.error("[multizen] new page target bootstrap failed:", e);
+              }
+            }
+          })();
+        },
+      );
+      await Target.setDiscoverTargets({ discover: true });
+    }
+
     client.on(
       "Target.attachedToTarget",
-      (params: { sessionId: string; targetInfo: { type: string } }) => {
+      (params: { sessionId: string; targetInfo: { targetId: string; type: string } }) => {
         void (async () => {
           try {
             if (SETUP_TARGET_TYPES.has(params.targetInfo.type)) {
-              await setup(buildSender(client, params.sessionId), {
-                isRoot: false,
-                type: params.targetInfo.type as "page" | "iframe",
-              }).catch(() => {});
+              await setupAttachedTarget(
+                params.targetInfo.targetId,
+                params.sessionId,
+                params.targetInfo.type as "page" | "iframe",
+              );
+            }
+          } catch (e) {
+            if (!this.closing) {
+              console.error("[multizen] attached target bootstrap failed:", e);
             }
           } finally {
             try {
-              await client.send(
-                "Runtime.runIfWaitingForDebugger",
-                undefined,
-                params.sessionId,
-              );
+              await client.send("Runtime.runIfWaitingForDebugger", undefined, params.sessionId);
             } catch {
               // Already detached.
             }
@@ -247,6 +356,11 @@ export class CdpSession {
         })();
       },
     );
+    await Target.setAutoAttach({
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+    });
   }
 
   /**
