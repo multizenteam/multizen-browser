@@ -320,6 +320,19 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
                   <ProxyTester proxy={proxyForForm} />
                 </div>
               )}
+              <p className="text-[10px] text-slate-600 leading-relaxed mt-2.5">
+                Need proxies? Our partner{" "}
+                <a
+                  href="https://dashboard.thordata.com/register?invitation_code=E8XWP3FP"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-purple-400 hover:text-purple-300"
+                >
+                  Thordata
+                </a>
+                : residential + ISP, 10% off with{" "}
+                <code className="text-slate-500">MULTIZEN10</code>.
+              </p>
             </div>
           )}
 

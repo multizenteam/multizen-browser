@@ -116,6 +116,16 @@ function createWindow(): void {
     },
   });
 
+  // Open external links (target="_blank" / window.open) in the user's real
+  // browser instead of a new Electron window, and never let the app window
+  // itself navigate away. Only http(s) is handed to the OS.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("https://") || url.startsWith("http://")) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
     mainWindow.webContents.openDevTools({ mode: "detach" });
