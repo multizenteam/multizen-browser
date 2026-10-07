@@ -233,6 +233,9 @@ export interface ProfileSummary {
   /** Device family from the fingerprint — drives the platform icon
    *  (windows-laptop-intel → 🪟, macbook-pro-14-m3 → ). */
   device?: DeviceFamily;
+  /** Effective browser engine this profile runs on, for the engine badge. The
+   *  `profiles:list` IPC resolves it (profile's pinned engine ?? app default). */
+  engine?: BrowserEngine;
 }
 
 export interface CreateProfileInput {

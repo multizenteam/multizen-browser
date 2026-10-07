@@ -93,12 +93,20 @@ export class ProfileManager {
   list(): ProfileSummary[] {
     const rows = this.db
       .prepare(
-        `SELECT id, name, tags, last_opened_at, proxy, fingerprint, proxy_country, icon
+        `SELECT id, name, tags, last_opened_at, proxy, fingerprint, proxy_country, icon, engine
          FROM profiles ORDER BY updated_at DESC`,
       )
       .all() as Pick<
       ProfileRow,
-      "id" | "name" | "tags" | "last_opened_at" | "proxy" | "fingerprint" | "proxy_country" | "icon"
+      | "id"
+      | "name"
+      | "tags"
+      | "last_opened_at"
+      | "proxy"
+      | "fingerprint"
+      | "proxy_country"
+      | "icon"
+      | "engine"
     >[];
     return rows.map((r) => {
       const fingerprint = JSON.parse(r.fingerprint) as FingerprintConfig;
@@ -113,6 +121,9 @@ export class ProfileManager {
         timezone: fingerprint.timezone,
         proxyCountry: r.proxy_country ?? undefined,
         device: fingerprint.device,
+        // Pinned engine (undefined = inherits the app default). The profiles:list
+        // IPC resolves this to the effective engine for the GUI badge.
+        engine: (r.engine as BrowserEngine | null) ?? undefined,
       };
     });
   }

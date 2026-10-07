@@ -360,7 +360,11 @@ app.whenReady().then(async () => {
 
   // Profile IPC
   ipcMain.handle("profiles:list", () =>
-    profileManager.list().map((p) => ({ ...p, isRunning: browserDriver.isRunning(p.id) })),
+    profileManager.list().map((p) => ({
+      ...p,
+      isRunning: browserDriver.isRunning(p.id),
+      engine: resolveEngine(p.engine, cachedSettings?.browserEngine ?? "cloakbrowser"),
+    })),
   );
   ipcMain.handle("profiles:get", (_e, id: string) => profileManager.get(id));
   ipcMain.handle("profiles:create", (_e, input: Parameters<ProfileManager["create"]>[0]) =>
