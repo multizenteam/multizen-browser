@@ -261,6 +261,8 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
         if (zeroSinceMs === null) zeroSinceMs = Date.now();
         else if (Date.now() - zeroSinceMs > 1500) {
           if (r.windowWatcher) clearInterval(r.windowWatcher);
+          // Show the "terminating" phase while Firefox winds down, like Chromium.
+          this.emit("running-changed", { kind: "closing", profileId });
           void r.context.close().catch(() => {});
         }
       } else {
