@@ -1,5 +1,40 @@
 export type ProfileId = string;
 
+/**
+ * Browser engine that runs a profile.
+ *   - "cloakbrowser": CloakBrowser — Chromium with 50+ source-level stealth
+ *     patches (canvas farbling, WebRTC, CDP traces removed). Primary runtime,
+ *     driven over CDP.
+ *   - "camoufox": Camoufox — a Firefox/Gecko anti-detect build with its own
+ *     BrowserForge fingerprint system, driven over the Firefox protocol.
+ * The engine is chosen per profile; the app setting only picks the default
+ * for newly created profiles.
+ */
+export type BrowserEngine = "cloakbrowser" | "camoufox";
+
+/**
+ * Resolve which engine actually runs a profile: the profile's own engine if
+ * set, else the app-wide default (`AppSettings.browserEngine`, i.e. the default
+ * engine for new profiles), else CloakBrowser as the ultimate fallback. Pure,
+ * so both the main process and tests can rely on it.
+ */
+export function resolveEngine(
+  profileEngine: BrowserEngine | null | undefined,
+  defaultEngine: BrowserEngine | null | undefined,
+): BrowserEngine {
+  return profileEngine ?? defaultEngine ?? "cloakbrowser";
+}
+
+/** The engines this build can run — the runtime companion to {@link BrowserEngine}. */
+export const BROWSER_ENGINES = ["cloakbrowser", "camoufox"] as const;
+
+/** Runtime guard: is `value` an engine this build knows how to run? Used on the
+ *  import path to reject a stored engine that isn't in the current roster (e.g.
+ *  a legacy "cft" export, or a newer engine) so it can fall back to the default. */
+export function isBrowserEngine(value: unknown): value is BrowserEngine {
+  return typeof value === "string" && (BROWSER_ENGINES as readonly string[]).includes(value);
+}
+
 export interface ProxyConfig {
   type: "http" | "socks5";
   host: string;
@@ -166,6 +201,9 @@ export interface Profile {
    *  overrides (verified), so this is deferred to the patched-Chromium build.
    *  The column/field are kept so the feature can land without a migration. */
   searchProvider?: string;
+  /** Browser engine that runs this profile. Unset → the app's default engine
+   *  (settings.browserEngine) is resolved at launch. See {@link BrowserEngine}. */
+  engine?: BrowserEngine;
   dataDir: string;
   createdAt: string;
   updatedAt: string;
@@ -195,6 +233,9 @@ export interface ProfileSummary {
   /** Device family from the fingerprint — drives the platform icon
    *  (windows-laptop-intel → 🪟, macbook-pro-14-m3 → ). */
   device?: DeviceFamily;
+  /** Effective browser engine this profile runs on, for the engine badge. The
+   *  `profiles:list` IPC resolves it (profile's pinned engine ?? app default). */
+  engine?: BrowserEngine;
 }
 
 export interface CreateProfileInput {
@@ -204,6 +245,8 @@ export interface CreateProfileInput {
   icon?: string;
   startUrl?: string;
   searchProvider?: string;
+  /** Engine for the new profile. Unset → the app's default engine. */
+  engine?: BrowserEngine;
   proxy?: ProxyConfig;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];
@@ -216,6 +259,8 @@ export interface UpdateProfileInput {
   icon?: string | null;
   startUrl?: string | null;
   searchProvider?: string | null;
+  /** null clears → revert to the app default engine; undefined keeps existing. */
+  engine?: BrowserEngine | null;
   proxy?: ProxyConfig | null;
   fingerprint?: Partial<FingerprintConfig>;
   extensions?: ExtensionConfig[];
@@ -277,8 +322,8 @@ export type UpdateStatus =
   | { kind: "error"; message: string };
 
 /**
- * Browser-ENGINE update lifecycle (the downloaded Chromium runtime —
- * CloakBrowser / Chrome for Testing — NOT the MultiZen app itself). Drives
+ * Browser-ENGINE update lifecycle (the downloaded browser runtime —
+ * CloakBrowser / Camoufox — NOT the MultiZen app itself). Drives
  * the "Browser engine" update UX in Settings. Apply semantics are
  * "next launch": a newer version is downloaded side-by-side and current.json
  * is swapped, so the next profile launch picks it up while already-running

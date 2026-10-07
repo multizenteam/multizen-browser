@@ -21,6 +21,17 @@ const NATIVE_EXTERNALS = [
   "@modelcontextprotocol/sdk",
   "uuid",
   "zod",
+  // Camoufox (Firefox) engine. These are large node packages that VENDOR their
+  // own dependencies: playwright-core bundles `chromium-bidi` internally (its
+  // package.json deps are empty), and camoufox-js pulls native impit +
+  // better-sqlite3@13. Bundling them breaks their internal bare imports (rollup
+  // emits an unresolvable `import 'chromium-bidi'`), so they MUST load from
+  // node_modules at runtime. Regexes so subpath imports are external too
+  // (FirefoxBrowserDriver imports `camoufox-js`; CamoufoxBootstrap dynamically
+  // imports `camoufox-js/dist/pkgman.js`).
+  /^playwright-core(\/|$)/,
+  /^camoufox-js(\/|$)/,
+  "chromium-bidi",
 ];
 
 export default defineConfig({

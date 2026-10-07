@@ -10,6 +10,8 @@ import {
   countryNameFromCc,
   platformFromDeviceFamily,
   platformLabel,
+  EngineIcon,
+  engineLabel,
 } from "../atoms";
 import { Button } from "../atoms/Button";
 import { relativeTime } from "../../lib/relativeTime";
@@ -191,6 +193,13 @@ export function ProfileTile({
         <span className="text-slate-500">
           {platformLabel(platformFromDeviceFamily(profile.device))}
         </span>
+        {profile.engine && (
+          <>
+            <span className="text-slate-700">·</span>
+            <EngineIcon engine={profile.engine} size={12} className="text-slate-500" />
+            <span className="text-slate-500">{engineLabel(profile.engine)}</span>
+          </>
+        )}
         <span className="text-slate-700">·</span>
         <span className="truncate">
           {profile.lastOpenedAt ? relativeTime(profile.lastOpenedAt) : "never opened"}

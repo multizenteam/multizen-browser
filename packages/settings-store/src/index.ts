@@ -1,18 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { BrowserEngine } from "@multizen/types";
 
-/**
- * Which Chromium-derived binary the bootstrap downloads on first run.
- *   - "cft": Chrome for Testing — Google's official automation channel,
- *     same binary Puppeteer/Playwright use. Stable, reproducible, but
- *     no anti-detect patches (CFT branding, vanilla TLS fingerprint).
- *   - "cloakbrowser": CloakBrowser — Chromium with 50+ source-level
- *     stealth patches (canvas farbling, WebRTC, CDP traces removed).
- *     Drops detection rate against Cloudflare/DataDome/Akamai. Binary
- *     is "free to use, no redistribution" — we auto-download to user
- *     machine, never bundle. Slightly older Mac builds (145 vs 148 CFT).
- */
-export type BrowserEngine = "cft" | "cloakbrowser";
+export type { BrowserEngine };
 
 export interface AppSettings {
   /** Theme — "dark" only for now, kept for forward compatibility */
@@ -30,9 +20,9 @@ export interface AppSettings {
    */
   autoUpdate: boolean;
   /**
-   * Automatically check for + stage new versions of the downloaded Chromium
-   * ENGINE (CloakBrowser / Chrome for Testing) in the background. A staged
-   * engine applies on the next profile launch; running browsers are never
+   * Automatically check for + stage new versions of the downloaded browser
+   * ENGINE (CloakBrowser / Camoufox) in the background. A staged engine
+   * applies on the next profile launch; running browsers are never
    * interrupted. Manual "Check for updates" works regardless of this flag.
    */
   engineAutoUpdate: boolean;
@@ -50,8 +40,7 @@ const DEFAULTS: AppSettings = {
   theme: "dark",
   mcpHttpEnabled: true,
   mcpHttpPort: 7777,
-  // Prefer CloakBrowser as the primary runtime. Chrome for Testing stays
-  // available as a compatibility fallback from Settings.
+  // CloakBrowser is the default engine for newly created profiles.
   browserEngine: "cloakbrowser",
   autoUpdate: true,
   engineAutoUpdate: true,
@@ -82,7 +71,7 @@ export class SettingsStore {
     }
 
     const merged: AppSettings = { ...DEFAULTS, ...raw };
-    if (merged.browserEngine !== "cft" && merged.browserEngine !== "cloakbrowser") {
+    if (merged.browserEngine !== "cloakbrowser" && merged.browserEngine !== "camoufox") {
       merged.browserEngine = DEFAULTS.browserEngine;
     }
     if (typeof merged.autoUpdate !== "boolean") {

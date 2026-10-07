@@ -5,7 +5,7 @@ import { ProxyTester } from "./ProxyTester";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { EmojiField } from "./EmojiField";
 import { BrowserSection, DEFAULT_START_URL } from "./BrowserSection";
-import type { ExtensionConfig, FingerprintConfig, ProxyConfig } from "../../types";
+import type { BrowserEngine, ExtensionConfig, FingerprintConfig, ProxyConfig } from "../../types";
 import { parseProxyString } from "../../lib/parseProxy";
 import {
   Field,
@@ -56,6 +56,9 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
   const [tagsRaw, setTagsRaw] = useState("");
   const [icon, setIcon] = useState<string | undefined>(undefined);
   const [startUrl, setStartUrl] = useState(DEFAULT_START_URL);
+  // New profiles default to CloakBrowser (the app's default engine this phase);
+  // the create IPC also falls back to the default when this is unset.
+  const [engine, setEngine] = useState<BrowserEngine>("cloakbrowser");
   const [proxy, setProxy] = useState<DraftProxy>(EMPTY_PROXY);
   const [notes, setNotes] = useState("");
   const [extensions, setExtensions] = useState<ExtensionConfig[]>([]);
@@ -119,6 +122,14 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
       }
     : undefined;
 
+  // Camoufox is Firefox — Chrome extensions don't apply, so the section is
+  // hidden for it (and any staged extensions are not passed to create). Switch
+  // off the Extensions pane if the user picks Camoufox while viewing it.
+  const extensionsHidden = engine === "camoufox";
+  useEffect(() => {
+    if (extensionsHidden && section === "extensions") setSection("browser");
+  }, [extensionsHidden, section]);
+
   const canSubmit = name.trim() !== "" && !busy;
 
   async function submit(autoLaunch: boolean): Promise<void> {
@@ -144,9 +155,10 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
         icon,
         notes: notes.trim() || undefined,
         startUrl: startUrl.trim() || undefined,
+        engine,
         proxy: built,
         fingerprint: fingerprint ?? undefined,
-        extensions: extensions.length > 0 ? extensions : undefined,
+        extensions: !extensionsHidden && extensions.length > 0 ? extensions : undefined,
       });
       onCreated(created.id, autoLaunch);
     } catch (e) {
@@ -171,6 +183,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
           section={section}
           onSelect={setSection}
           badges={{ general: name.trim() === "" }}
+          hidden={{ extensions: extensionsHidden }}
         />
 
         {/* Content pane — only this scrolls */}
@@ -219,7 +232,12 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
           )}
 
           {section === "browser" && (
-            <BrowserSection startUrl={startUrl} onStartUrl={setStartUrl} />
+            <BrowserSection
+              startUrl={startUrl}
+              onStartUrl={setStartUrl}
+              engine={engine}
+              onEngine={setEngine}
+            />
           )}
 
           {section === "proxy" && (
@@ -306,7 +324,7 @@ export function NewProfileSheet({ onCancel, onCreated, onDirtyChange }: Props): 
           )}
 
           {/* Extensions — staged into the shared store and passed to create. */}
-          {section === "extensions" && (
+          {section === "extensions" && !extensionsHidden && (
             <ExtensionsSection
               profileId={null}
               staged={extensions}

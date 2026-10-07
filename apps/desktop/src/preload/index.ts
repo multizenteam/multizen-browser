@@ -11,6 +11,7 @@ import type {
 import type { ActivityEvent } from "@multizen/mcp-server";
 import type { AppSettings } from "@multizen/settings-store";
 import type {
+  BrowserEngine,
   ChromiumStatus,
   DeviceFamily,
   EngineUpdateStatus,
@@ -126,6 +127,20 @@ const api = {
       const listener = (_: unknown, status: ChromiumStatus): void => cb(status);
       ipcRenderer.on("chromium:status", listener);
       return () => ipcRenderer.off("chromium:status", listener);
+    },
+  },
+  engine: {
+    /** Per-engine download/verify status stream — drives the on-demand engine
+     *  download banner (currently Camoufox). */
+    onDownloadStatus: (
+      cb: (payload: { engine: BrowserEngine; status: ChromiumStatus }) => void,
+    ): (() => void) => {
+      const listener = (
+        _: unknown,
+        payload: { engine: BrowserEngine; status: ChromiumStatus },
+      ): void => cb(payload);
+      ipcRenderer.on("engine:status", listener);
+      return () => ipcRenderer.off("engine:status", listener);
     },
   },
   extensions: {

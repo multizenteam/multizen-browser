@@ -194,8 +194,8 @@ export function Settings({ onImport }: Props): JSX.Element {
 
         <Row
           icon={<Chrome size={16} strokeWidth={1.5} />}
-          title="Browser engine"
-          desc="Applied on next app launch."
+          title="Default engine for new profiles"
+          desc="New profiles use this engine unless you pick another. Existing profiles keep their own."
         >
           <div className="grid gap-2 sm:grid-cols-2">
             {engineOptions.map((option) => {
@@ -373,9 +373,9 @@ const engineOptions: Array<{
     description: "Source-patched Chromium from CloakHQ releases. Primary runtime.",
   },
   {
-    value: "cft",
-    label: "Chrome for Testing",
-    description: "Compatibility fallback using Google's official automation build.",
+    value: "camoufox",
+    label: "Camoufox",
+    description: "Firefox-based anti-detect. A non-Chrome TLS/JS fingerprint.",
   },
 ];
 

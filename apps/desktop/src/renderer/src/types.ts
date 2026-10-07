@@ -12,6 +12,7 @@ import type {
   UpdateStatus,
   EngineUpdateStatus,
   ExtensionConfig,
+  BrowserEngine,
 } from "@multizen/types";
 
 /** Payload for the `extensions:installed` push (companion "Add to MultiZen"). */
@@ -100,6 +101,13 @@ export interface MultizenApi {
     retry: () => Promise<ChromiumStatus>;
     onStatus: (cb: (s: ChromiumStatus) => void) => () => void;
   };
+  engine: {
+    /** Per-engine download/verify status — drives the on-demand engine download
+     *  banner (currently Camoufox, fetched on first launch of a Camoufox profile). */
+    onDownloadStatus: (
+      cb: (e: { engine: BrowserEngine; status: ChromiumStatus }) => void,
+    ) => () => void;
+  };
   extensions: {
     list: (profileId: string) => Promise<ExtensionConfig[]>;
     addFromFile: (profileId: string) => Promise<ExtensionConfig[]>;
@@ -168,4 +176,5 @@ export type {
   EngineUpdateStatus,
   ExtensionConfig,
   UpdateProfileInput,
+  BrowserEngine,
 };

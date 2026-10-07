@@ -1,0 +1,22 @@
+diff --git a/dist/webgl/sample.js b/dist/webgl/sample.js
+index 3ac1706218d928998cfe7fdf9d9b27481518003b..4de05d2f7efac04c24de13355ac6c2e47b3543b8 100644
+--- a/dist/webgl/sample.js
++++ b/dist/webgl/sample.js
+@@ -20,9 +20,15 @@ async function openDatabase(pathName) {
+     }
+     return new DatabaseConstructor(pathName);
+ }
+-// Get database path relative to this file
++// Get database path relative to this file. In a packaged Electron app this file
++// lives inside app.asar (a virtual path from import.meta.url), but better-sqlite3
++// opens the DB with native C++ sqlite3_open, which bypasses Electron's asar fs
++// shim and can't read a virtual app.asar path. The DB is unpacked to
++// app.asar.unpacked, so redirect the raw string there. No-op outside asar.
+ const currentDir = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
+-const DB_PATH = path.join(currentDir, "..", "data-files", "webgl_data.db");
++const DB_PATH = path
++    .join(currentDir, "..", "data-files", "webgl_data.db")
++    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+ export async function sampleWebGL(os, vendor, renderer) {
+     if (!OS_ARCH_MATRIX[os]) {
+         throw new Error(`Invalid OS: ${os}. Must be one of: win, mac, lin`);

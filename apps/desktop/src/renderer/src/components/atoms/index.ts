@@ -9,4 +9,5 @@ export {
   platformLabel,
   type PlatformKind,
 } from "./PlatformIcon";
+export { EngineIcon, engineLabel } from "./EngineIcon";
 export { Modal, ConfirmHost, confirm, type ModalProps, type ConfirmOptions } from "./Modal";

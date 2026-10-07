@@ -43,41 +43,25 @@ async function extractArchive(archivePath: string, destDir: string): Promise<voi
 async function extractZipPreservingAttrs(zipPath: string, destDir: string): Promise<void> {
   return extractArchive(zipPath, destDir);
 }
-import type { BrowserEngine } from "@multizen/settings-store";
+import type { BrowserEngine } from "@multizen/types";
 import type { ChromiumStatus } from "@multizen/types";
 
 const execFileP = promisify(execFile);
 
 interface BootstrapOptions {
-  /** Override the cache directory (default: userData/chromium). */
+  /** Override the cache directory (default: userData/chromium/<engine>). */
   cacheDir?: string;
   /**
-   * Which Chromium binary to download. Defaults to "cft" (Chrome for
-   * Testing — Google's official automation channel). "cloakbrowser"
-   * pulls from the CloakBrowser GitHub releases — Chromium with 50+
-   * source-level anti-detect patches baked in, drop-in compatible with
-   * our CDP driver.
+   * Which Chromium engine to download. The Chromium engine is CloakBrowser —
+   * Chromium with 50+ source-level anti-detect patches, drop-in with our CDP
+   * driver. (Camoufox, the Firefox-family engine, has its own bootstrap.)
    */
   engine?: BrowserEngine;
-  /**
-   * Force a specific Chrome for Testing channel. Defaults to "Stable".
-   * "Beta" / "Dev" / "Canary" are also valid. Only applies when
-   * engine === "cft".
-   */
-  channel?: "Stable" | "Beta" | "Dev" | "Canary";
-  /**
-   * Override the CFT manifest URL — useful if Google ever changes paths
-   * or for offline tests.
-   */
-  manifestUrl?: string;
 }
 
 interface BootstrapEvents {
   status: (status: ChromiumStatus) => void;
 }
-
-const CFT_LATEST =
-  "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json";
 
 // /releases (not /releases/latest) — CloakBrowser ships per-platform
 // builds at different cadences (Linux/Win on 146.x, macOS still on 145.x).
@@ -92,20 +76,6 @@ interface CloakBrowserAsset {
 interface CloakBrowserRelease {
   tag_name: string;
   assets: CloakBrowserAsset[];
-}
-
-interface CftPlatformDownload {
-  platform: string;
-  url: string;
-}
-interface CftChannelManifest {
-  channel: string;
-  version: string;
-  revision: string;
-  downloads: { chrome?: CftPlatformDownload[] };
-}
-interface CftRoot {
-  channels: Record<string, CftChannelManifest>;
 }
 
 export interface BrowserDownloadManifest {
@@ -132,19 +102,18 @@ export interface BrowserDownloadManifest {
  */
 export class ChromiumBootstrap extends EventEmitter {
   private status: ChromiumStatus = { kind: "missing" };
+  /** Non-null while an ensure() install is running, to collapse concurrent
+   *  callers onto one download (see ensure()). */
+  private ensureInFlight: Promise<ChromiumStatus> | null = null;
   private readonly cacheDir: string;
-  private readonly channel: BootstrapOptions["channel"];
-  private readonly manifestUrl: string;
   private readonly engine: BrowserEngine;
 
   constructor(opts: BootstrapOptions = {}) {
     super();
-    this.engine = opts.engine ?? "cft";
+    this.engine = opts.engine ?? "cloakbrowser";
     // Per-engine subdir so switching doesn't trip on cross-engine cached
     // metadata. Each engine gets its own current.json.
     this.cacheDir = opts.cacheDir ?? join(app.getPath("userData"), "chromium", this.engine);
-    this.channel = opts.channel ?? "Stable";
-    this.manifestUrl = opts.manifestUrl ?? CFT_LATEST;
   }
 
   override on<K extends keyof BootstrapEvents>(event: K, listener: BootstrapEvents[K]): this {
@@ -257,8 +226,24 @@ export class ChromiumBootstrap extends EventEmitter {
   /**
    * Idempotent. Downloads + verifies + extracts if not cached. Emits
    * status throughout. Returns `ready` on success, throws on failure.
+   *
+   * Concurrency: callers are collapsed onto a single in-flight install. Two
+   * launches racing on a cold cache would otherwise both run installVersion
+   * into the same fixed paths (`<version>.tar.gz.partial`, `<versionDir>.partial`)
+   * and the second's `rm(tmpExtract)` would delete the first's extraction
+   * mid-flight → SHA mismatch / corrupt install. The promise is memoized only
+   * WHILE IN FLIGHT (cleared on settle), so a later ensure() after the cache is
+   * cleared still re-runs.
    */
   async ensure(): Promise<ChromiumStatus> {
+    if (this.ensureInFlight) return this.ensureInFlight;
+    this.ensureInFlight = this.doEnsure().finally(() => {
+      this.ensureInFlight = null;
+    });
+    return this.ensureInFlight;
+  }
+
+  private async doEnsure(): Promise<ChromiumStatus> {
     await mkdir(this.cacheDir, { recursive: true });
 
     // Cached version available?
@@ -379,8 +364,7 @@ export class ChromiumBootstrap extends EventEmitter {
       throw new Error(
         `Failed to extract the browser archive — the download was likely ` +
           `corrupted or truncated. It has been cleared; please retry. If it ` +
-          `keeps failing, add MultiZen to your antivirus exclusions or switch ` +
-          `the engine to Chrome for Testing in Settings. (${(e as Error).message})`,
+          `keeps failing, add MultiZen to your antivirus exclusions. (${(e as Error).message})`,
       );
     }
     await rm(zipPath, { force: true });
@@ -388,7 +372,7 @@ export class ChromiumBootstrap extends EventEmitter {
     const binaryPath = await this.locateBinary(tmpExtract);
     if (!binaryPath) {
       throw new Error(
-        "Could not locate Chromium binary in extracted bundle — CFT zip layout changed?",
+        "Could not locate Chromium binary in extracted bundle — CloakBrowser archive layout changed?",
       );
     }
     // Make executable on POSIX. Chrome for Testing usually preserves
@@ -439,7 +423,6 @@ export class ChromiumBootstrap extends EventEmitter {
           binaryRelative: binaryPath.slice(versionDir.length + 1),
           sha256,
           installedAt: new Date().toISOString(),
-          channel: this.channel,
         },
         null,
         2,
@@ -469,22 +452,9 @@ export class ChromiumBootstrap extends EventEmitter {
   }
 
   private async fetchManifest(): Promise<BrowserDownloadManifest> {
-    if (this.engine === "cloakbrowser") {
-      return this.fetchCloakBrowserManifest();
-    }
-    const res = await fetch(this.manifestUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching CFT manifest`);
-    const data = (await res.json()) as CftRoot;
-    const channel = data.channels[this.channel ?? "Stable"];
-    if (!channel) {
-      throw new Error(`Chrome for Testing has no ${this.channel} channel right now`);
-    }
-    const platformKey = cftPlatformKey();
-    const dl = channel.downloads.chrome?.find((d) => d.platform === platformKey);
-    if (!dl) {
-      throw new Error(`Chrome for Testing has no ${platformKey} build for ${channel.version}`);
-    }
-    return { version: channel.version, url: dl.url };
+    // The Chromium engine is CloakBrowser only. (CFT was removed; Camoufox is a
+    // separate Firefox-family engine handled by its own bootstrap.)
+    return this.fetchCloakBrowserManifest();
   }
 
   /**
@@ -564,8 +534,7 @@ export class ChromiumBootstrap extends EventEmitter {
       `Could not download a complete, valid Chromium archive after ${MAX_ATTEMPTS} attempts. ` +
         `Last error: ${lastError?.message ?? "unknown"}. Your network — or an antivirus / ` +
         `corporate proxy inspecting HTTPS — is likely corrupting the large download. Try a ` +
-        `different network, add MultiZen to your antivirus exclusions, or switch the engine to ` +
-        `"Chrome for Testing" in Settings.`,
+        `different network or add MultiZen to your antivirus exclusions.`,
     );
   }
 
@@ -700,42 +669,15 @@ export class ChromiumBootstrap extends EventEmitter {
   }
 
   /**
-   * Locate the executable inside the extracted archive. Layout depends
-   * on the engine:
-   *   CFT:           chrome-{platform}/Google Chrome for Testing.app/...
-   *   CloakBrowser:  Chromium.app (Mac) / chrome.exe (Win) / chrome (Linux)
+   * Locate the executable inside the extracted archive. CloakBrowser layout:
+   * Chromium.app (Mac) / chrome.exe (Win) / chrome (Linux).
    */
   private async locateBinary(rootDir: string): Promise<string | null> {
-    if (this.engine === "cloakbrowser") {
-      return this.locateCloakBrowserBinary(rootDir);
-    }
-    if (process.platform === "darwin") {
-      const app = await this.findAppBundle(rootDir);
-      if (!app) return null;
-      const name = "Google Chrome for Testing";
-      return join(app, "Contents", "MacOS", name);
-    }
-    if (process.platform === "win32") {
-      const subdir = "chrome-win64";
-      const path = join(rootDir, subdir, "chrome.exe");
-      return existsSync(path) ? path : null;
-    }
-    const subdir = "chrome-linux64";
-    const path = join(rootDir, subdir, "chrome");
-    return existsSync(path) ? path : null;
+    return this.locateCloakBrowserBinary(rootDir);
   }
 
   private async findAppBundle(rootDir: string): Promise<string | null> {
-    if (this.engine === "cloakbrowser") {
-      return this.findCloakBrowserAppBundle(rootDir);
-    }
-    const platformKey = cftPlatformKey();
-    const subdir = `chrome-${platformKey}`;
-    const candidates = [join(rootDir, subdir, "Google Chrome for Testing.app")];
-    for (const c of candidates) {
-      if (existsSync(c)) return c;
-    }
-    return null;
+    return this.findCloakBrowserAppBundle(rootDir);
   }
 
   // ─── CloakBrowser-specific resolvers ────────────────────────────────
@@ -888,16 +830,6 @@ export class ChromiumBootstrap extends EventEmitter {
       }).catch(() => {});
     }
   }
-}
-
-function cftPlatformKey(): "mac-arm64" | "mac-x64" | "linux64" | "win64" | "win32" {
-  if (process.platform === "darwin") {
-    return process.arch === "arm64" ? "mac-arm64" : "mac-x64";
-  }
-  if (process.platform === "win32") {
-    return process.arch === "ia32" ? "win32" : "win64";
-  }
-  return "linux64";
 }
 
 /**
