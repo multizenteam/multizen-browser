@@ -2,7 +2,7 @@ import { app } from "electron";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { promises as fsp } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -21,6 +21,47 @@ import { probeProxyGeo } from "./proxyGeo";
 import { companionDir } from "./extensions/companion";
 import { resolveLoadDir } from "./extensions/extensionStore.ts";
 import { sanitizeStartUrl } from "./startPage";
+
+/** Warn about the auto --no-sandbox fallback at most once per process. */
+let warnedNoSandbox = false;
+
+function readSysctl(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return null; // file absent (kernel doesn't expose this knob)
+  }
+}
+
+/**
+ * Whether the spawned Chromium child must run with `--no-sandbox` on Linux.
+ *
+ * Chromium's sandbox needs unprivileged user namespaces, which modern distros
+ * restrict by default: Ubuntu 23.10+ / Debian 12+ via AppArmor
+ * (`kernel.apparmor_restrict_unprivileged_userns=1`), and some Debian/older
+ * kernels via `kernel.unprivileged_userns_clone=0`. When restricted, the child
+ * dies with "No usable sandbox!" and never exposes its CDP port. A `--no-sandbox`
+ * the user passes to the MultiZen app does NOT reach this child (its flags are
+ * app-controlled), so we handle it here: honor an explicit app-level
+ * `--no-sandbox`, and otherwise fall back only when a kernel restriction is
+ * actually on — with a one-line note on how to keep the sandbox instead.
+ */
+function needsNoSandbox(): boolean {
+  if (process.platform !== "linux") return false;
+  if (process.argv.includes("--no-sandbox")) return true;
+  const restricted =
+    readSysctl("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") === "1" ||
+    readSysctl("/proc/sys/kernel/unprivileged_userns_clone") === "0";
+  if (restricted && !warnedNoSandbox) {
+    warnedNoSandbox = true;
+    process.stderr.write(
+      "[multizen] Chromium's user-namespace sandbox is blocked by this kernel; " +
+        "launching the browser with --no-sandbox. To keep the sandbox instead, run: " +
+        "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n",
+    );
+  }
+  return restricted;
+}
 
 interface RunningProcess {
   child: ChildProcess;
@@ -247,6 +288,10 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       `--remote-debugging-port=${port}`,
       "--no-first-run",
       "--no-default-browser-check",
+      // Linux: the child can't use Chromium's user-namespace sandbox when the
+      // kernel restricts it (Ubuntu 23.10+). Without this the browser dies with
+      // "No usable sandbox!" and never opens its CDP port (see needsNoSandbox).
+      ...(needsNoSandbox() ? ["--no-sandbox"] : []),
       // Force-restore the previous session's tabs at startup. This flag is what
       // actually drives restore (writing the protected restore_on_startup pref
       // just gets reset by Chromium); combined with ensureSessionRestore marking

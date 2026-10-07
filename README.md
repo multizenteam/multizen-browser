@@ -66,7 +66,7 @@ chmod +x MultiZen-linux-x86_64.AppImage
 ./MultiZen-linux-x86_64.AppImage
 ```
 
-Some distros need `libfuse2` (`apt install libfuse2t64` on Ubuntu 24.04+). If Chromium's sandbox refuses to start, add `--no-sandbox`.
+Some distros need `libfuse2` (`apt install libfuse2t64` on Ubuntu 24.04+). On Ubuntu 23.10+ / Debian 12+ the kernel restricts the user-namespace sandbox Chromium needs; MultiZen detects this and launches the browser with `--no-sandbox` automatically. To keep the sandbox enabled instead, run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`. If the browser still fails to start with "No usable sandbox!", launch the AppImage with `--no-sandbox` (MultiZen forwards it to the browser).
 
 ### Windows
 
