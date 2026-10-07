@@ -243,6 +243,14 @@ Things landing in upcoming releases.
 
 Building a multi-account browser is dual-use. We support QA testing across roles and regions, agency workflows you are authorized to run, market research, multi-marketplace e-commerce ops, AI-driven sales engineering, and personal accounts you legitimately own. We do not support platform ToS violations, mass account farming, ban evasion, or fraud. Full policy at [getmultizen.com/acceptable-use](https://getmultizen.com/acceptable-use).
 
+## Sponsor
+
+<a href="https://dashboard.thordata.com/register?invitation_code=E8XWP3FP">
+  <img src=".github/assets/thordata-logo.svg" alt="Thordata" height="32" />
+</a>
+
+Our recommended proxy partner. [Thordata](https://dashboard.thordata.com/register?invitation_code=E8XWP3FP) provides residential + ISP proxies — MultiZen users get **10% off** with code `MULTIZEN10`.
+
 ## License
 
 [MIT](LICENSE). Use it however you want.
