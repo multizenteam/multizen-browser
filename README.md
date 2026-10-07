@@ -28,16 +28,16 @@
   </p>
 
   <p>
-    <sub>Proxies by</sub>
-    &nbsp;
+    <sub>PROXY PARTNER</sub>
+    <br/>
     <a href="https://dashboard.thordata.com/register?invitation_code=E8XWP3FP">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset=".github/assets/thordata-logo-dark.svg" />
-        <img src=".github/assets/thordata-logo.svg" alt="Thordata" height="18" />
+        <img src=".github/assets/thordata-logo.svg" alt="Thordata" height="24" />
       </picture>
     </a>
-    &nbsp;
-    <sub>· 10% off with <code>MULTIZEN10</code></sub>
+    <br/>
+    <sub>Residential + ISP proxies · 10% off with <code>MULTIZEN10</code></sub>
   </p>
 
   <br/>
