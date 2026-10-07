@@ -27,6 +27,19 @@
     <a href="https://discord.gg/pd6MhzPbJ3">Discord</a>
   </p>
 
+  <p>
+    <sub>Proxies by</sub>
+    &nbsp;
+    <a href="https://dashboard.thordata.com/register?invitation_code=E8XWP3FP">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset=".github/assets/thordata-logo-dark.svg" />
+        <img src=".github/assets/thordata-logo.svg" alt="Thordata" height="18" />
+      </picture>
+    </a>
+    &nbsp;
+    <sub>· 10% off with <code>MULTIZEN10</code></sub>
+  </p>
+
   <br/>
 
   <img src=".github/assets/profiles-list.jpg" alt="MultiZen profile library with platform, proxy country, and AI-activity indicators" width="100%" />
@@ -242,14 +255,6 @@ Things landing in upcoming releases.
 ## Acceptable use
 
 Building a multi-account browser is dual-use. We support QA testing across roles and regions, agency workflows you are authorized to run, market research, multi-marketplace e-commerce ops, AI-driven sales engineering, and personal accounts you legitimately own. We do not support platform ToS violations, mass account farming, ban evasion, or fraud. Full policy at [getmultizen.com/acceptable-use](https://getmultizen.com/acceptable-use).
-
-## Sponsor
-
-<a href="https://dashboard.thordata.com/register?invitation_code=E8XWP3FP">
-  <img src=".github/assets/thordata-logo.svg" alt="Thordata" height="32" />
-</a>
-
-Our recommended proxy partner. [Thordata](https://dashboard.thordata.com/register?invitation_code=E8XWP3FP) provides residential + ISP proxies — MultiZen users get **10% off** with code `MULTIZEN10`.
 
 ## License
 
