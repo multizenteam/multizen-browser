@@ -103,9 +103,11 @@ export function BrowserSection({
       </SectionField>
 
       <p className="text-[10px] text-slate-600 leading-relaxed">
-        Opens on a profile's first launch
-        {engine === "camoufox" ? "" : " (later launches restore your tabs)"}. Leave the default
-        or set your own — any http(s) URL, or <code className="text-slate-500">about:blank</code>.
+        {engine === "camoufox"
+          ? "Opens on each launch (Camoufox doesn't restore previous tabs)"
+          : "Opens on a profile's first launch (later launches restore your tabs)"}
+        . Leave the default or set your own — any http(s) URL, or{" "}
+        <code className="text-slate-500">about:blank</code>.
       </p>
     </div>
   );
