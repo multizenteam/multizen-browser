@@ -1,6 +1,6 @@
 {
   "name": "multizen",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "AI-native browser for agents and operators — desktop app + MCP server with anti-detect Chromium",
   "homepage": "https://getmultizen.com",

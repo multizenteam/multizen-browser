@@ -36,7 +36,7 @@
 
 ## What it is
 
-MultiZen is a desktop app that runs a library of isolated Chromium browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy. A local MCP server on `127.0.0.1:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot, evaluate JS, cookies, tabs, waits) to any MCP client.
+MultiZen is a desktop app that runs a library of isolated browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy, and runs on your choice of engine — CloakBrowser (Chromium) or Camoufox (Firefox). A local MCP server on `127.0.0.1:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot, evaluate JS, cookies, tabs, waits) to any MCP client.
 
 The result: your AI agent in Cursor or Claude Desktop can complete real authenticated workflows. Cookies and session state survive between launches, so logins and context carry over across AI sessions.
 
@@ -110,6 +110,7 @@ Each profile is a real Chromium window with persistent state on disk. The MCP se
 |  | What it does |
 | --- | --- |
 | **MCP server** | Native localhost endpoint. Works with Cursor, Claude Desktop, Cline, Continue, anything else that speaks MCP. |
+| **Per-profile engine** | Choose each profile's browser: **CloakBrowser** (Chromium) or **Camoufox** (Firefox-based, for a genuinely non-Chrome TLS/JS fingerprint). |
 | **Anti-detect Chromium** | Source-patched browser engine (CloakBrowser). Canvas, WebGL, audio, fonts, WebRTC IP all spoofed at C++ level instead of JS injection. |
 | **Persistent state** | Cookies, login, IndexedDB, localStorage stay per-profile across launches and across AI sessions. |
 | **Cross-platform persona** | Run a Windows persona on a Mac host (or vice versa). C++ patches keep the fingerprint coherent across V8, Blink, and CSS feature signatures. |
@@ -183,8 +184,8 @@ Restart your client. The agent now has the full tool set — profile lifecycle (
 | Main process | TypeScript ESM, electron-vite, native MCP SDK |
 | MCP server | `@modelcontextprotocol/sdk` over Streamable HTTP + SSE |
 | Profile storage | better-sqlite3 with idempotent migrations |
-| Browser driver | chrome-remote-interface over CDP |
-| Browser engine | CloakBrowser (open-source patched Chromium) |
+| Browser driver | chrome-remote-interface over CDP (Chromium); playwright-core (Firefox) |
+| Browser engine | CloakBrowser (patched Chromium) or Camoufox (Firefox), per profile |
 | Build | Yarn 4 workspaces, electron-vite, electron-builder |
 | CI | GitHub Actions matrix on macOS, Windows, Linux |
 
