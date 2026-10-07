@@ -39,6 +39,9 @@ interface RunningFirefox {
   /** Stable per-tab ids (Firefox has no CDP targetId). */
   pageIds: Map<Page, string>;
   nextPageId: number;
+  /** Polls for zero open windows and closes the context when the user shuts the
+   *  last window (macOS keeps the browser alive otherwise). Set after launch. */
+  windowWatcher?: NodeJS.Timeout;
 }
 
 interface FirefoxDriverEvents {
@@ -252,6 +255,7 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
       if (r && !r.pageIds.has(p)) r.pageIds.set(p, String(r.nextPageId++));
     });
     context.on("close", () => {
+      if (record.windowWatcher) clearInterval(record.windowWatcher);
       if (hasProxyBridge) stopBridgeForProfile(profileId);
       const wasByRequest = record.closingByRequest;
       this.running.delete(profileId);
@@ -261,6 +265,29 @@ export class FirefoxBrowserDriver extends EventEmitter implements BrowserDriver 
         reason: wasByRequest ? "user-close" : "external-exit",
       });
     });
+
+    // macOS keeps Firefox alive after its last window closes (standard app
+    // lifecycle), so closing the window never closes the persistent context —
+    // the profile would look stuck "running" and linger in the Dock. Mirror the
+    // Chromium windowWatcher: once there are no open pages for >1.5s, close the
+    // context ourselves, which quits Firefox and fires the "close" handler above
+    // as an external-exit. The 2s launch grace + 1.5s debounce avoid firing
+    // during startup or a quick close-then-open.
+    let zeroSinceMs: number | null = null;
+    record.windowWatcher = setInterval(() => {
+      const r = this.running.get(profileId);
+      if (!r || r.closingByRequest) return;
+      if (Date.now() - new Date(r.startedAt).getTime() < 2000) return;
+      if (r.context.pages().length === 0) {
+        if (zeroSinceMs === null) zeroSinceMs = Date.now();
+        else if (Date.now() - zeroSinceMs > 1500) {
+          if (r.windowWatcher) clearInterval(r.windowWatcher);
+          void r.context.close().catch(() => {});
+        }
+      } else {
+        zeroSinceMs = null;
+      }
+    }, 1000);
 
     this.emit("running-changed", { kind: "launched", profileId });
     return { id: profileId, cdpEndpoint: "", pid: record.pid, startedAt };
