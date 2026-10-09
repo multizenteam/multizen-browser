@@ -354,3 +354,21 @@ export interface ChromiumManifest {
   /** Uncompressed size in bytes — used for progress UI when content-length is missing */
   size: number;
 }
+
+/** UI state for the Linux AppArmor sandbox Settings row / status IPC. */
+export type SandboxUiState =
+  | "n/a"
+  | "not-restricted"
+  | "active"
+  | "needs-setup"
+  | "declined"
+  | "unsupported";
+
+/** Cross-process DTO for the Linux sandbox status (main -> renderer). */
+export interface SandboxStatus {
+  state: SandboxUiState;
+  /** Human-readable reason, shown when state is "unsupported". */
+  reasonText?: string;
+  /** Manual `sudo` command the user can run instead of the one-click setup. */
+  manualCommand?: string;
+}

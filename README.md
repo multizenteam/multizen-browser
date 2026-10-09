@@ -78,7 +78,11 @@ chmod +x MultiZen-linux-x86_64.AppImage
 ./MultiZen-linux-x86_64.AppImage
 ```
 
-Some distros need `libfuse2` (`apt install libfuse2t64` on Ubuntu 24.04+). On Ubuntu 23.10+ / Debian 12+ the kernel restricts the user-namespace sandbox Chromium needs; MultiZen detects this and launches the browser with `--no-sandbox` automatically. To keep the sandbox enabled instead, run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`. If the browser still fails to start with "No usable sandbox!", launch the AppImage with `--no-sandbox` (MultiZen forwards it to the browser).
+Some distros need `libfuse2` (`apt install libfuse2t64` on Ubuntu 24.04+).
+
+On Ubuntu 24.04+ (and other kernels that restrict unprivileged user namespaces) the browser's sandbox is blocked by default. On the first affected launch MultiZen offers a one-time **secure setup**: it installs a small AppArmor profile that re-permits the sandbox for just this browser (one password prompt). The sandbox then stays on with no warning banner. You can also run or re-run it later from Settings. If you decline or it can't run, MultiZen launches the browser without the sandbox so it still works.
+
+Prefer to do it by hand? Settings shows the exact command; it writes `/etc/apparmor.d/multizen-cloakbrowser` and loads it with `apparmor_parser`. To force sandbox-off regardless, launch the AppImage with `--no-sandbox`.
 
 ### Windows
 

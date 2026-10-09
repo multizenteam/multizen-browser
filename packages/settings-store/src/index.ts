@@ -4,6 +4,17 @@ import type { BrowserEngine } from "@multizen/types";
 
 export type { BrowserEngine };
 
+/**
+ * Linux sandbox secure-setup state.
+ * - "unset": never decided; re-evaluate live each launch.
+ * - "declined": user chose to launch without the sandbox; do not auto-prompt.
+ * - "unsupported": the AppArmor secure setup cannot be performed on this system
+ *   (reason surfaced once + kept visible in Settings); do not re-nag.
+ * Only meaningful on Linux. "active" is never stored — it is verified live
+ * against the OS at launch (a persisted flag must never be trusted).
+ */
+export type LinuxSandboxState = "unset" | "declined" | "unsupported";
+
 export interface AppSettings {
   /** Theme — "dark" only for now, kept for forward compatibility */
   theme: "dark";
@@ -34,6 +45,11 @@ export interface AppSettings {
    * env var force-disables it regardless. See docs/TELEMETRY.md.
    */
   usageReporting: boolean;
+  /**
+   * Linux sandbox secure-setup state (see LinuxSandboxState). Only consulted on
+   * Linux kernels that restrict unprivileged user namespaces; ignored elsewhere.
+   */
+  linuxSandboxState: LinuxSandboxState;
 }
 
 const DEFAULTS: AppSettings = {
@@ -46,6 +62,9 @@ const DEFAULTS: AppSettings = {
   engineAutoUpdate: true,
   // Opt-in. Never phone home unless the user explicitly turns this on.
   usageReporting: false,
+  // Re-evaluated live on each Linux launch until the user decides or the system
+  // is found unable to run the secure setup.
+  linuxSandboxState: "unset",
 };
 
 export class SettingsStore {
@@ -82,6 +101,13 @@ export class SettingsStore {
     }
     if (typeof merged.usageReporting !== "boolean") {
       merged.usageReporting = DEFAULTS.usageReporting;
+    }
+    if (
+      merged.linuxSandboxState !== "unset" &&
+      merged.linuxSandboxState !== "declined" &&
+      merged.linuxSandboxState !== "unsupported"
+    ) {
+      merged.linuxSandboxState = DEFAULTS.linuxSandboxState;
     }
     this.cache = merged;
     return merged;
