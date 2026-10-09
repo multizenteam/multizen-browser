@@ -22,9 +22,6 @@ import { companionDir } from "./extensions/companion";
 import { resolveLoadDir } from "./extensions/extensionStore.ts";
 import { sanitizeStartUrl } from "./startPage";
 
-/** Warn about the auto --no-sandbox fallback at most once per process. */
-let warnedNoSandbox = false;
-
 function readSysctl(path: string): string | null {
   try {
     return readFileSync(path, "utf8").trim();
@@ -33,34 +30,36 @@ function readSysctl(path: string): string | null {
   }
 }
 
+/** Chromium stderr signatures that mean the user-namespace sandbox could not
+ *  start (so a relaunch with --no-sandbox is warranted). Kept to failure-only
+ *  phrases — a generic token like CLONE_NEWUSER could appear on a healthy
+ *  launch and must NOT trigger the backstop. The backstop also requires the
+ *  child to have actually exited, so a stray match alone can't disable the
+ *  sandbox. */
+const SANDBOX_FAILURE_RE = /No usable sandbox|Failed to move to new (?:user )?namespace/i;
+
+/** Thrown by the spawn attempt when the sandbox failed to start, so the caller
+ *  can relaunch once with --no-sandbox (never re-prompting). */
+class SandboxStartupError extends Error {}
+
 /**
- * Whether the spawned Chromium child must run with `--no-sandbox` on Linux.
+ * Sync fallback used ONLY when the async sandbox resolver is absent or throws:
+ * whether the spawned Chromium child must run with `--no-sandbox` on Linux.
  *
  * Chromium's sandbox needs unprivileged user namespaces, which modern distros
- * restrict by default: Ubuntu 23.10+ / Debian 12+ via AppArmor
- * (`kernel.apparmor_restrict_unprivileged_userns=1`), and some Debian/older
- * kernels via `kernel.unprivileged_userns_clone=0`. When restricted, the child
- * dies with "No usable sandbox!" and never exposes its CDP port. A `--no-sandbox`
- * the user passes to the MultiZen app does NOT reach this child (its flags are
- * app-controlled), so we handle it here: honor an explicit app-level
- * `--no-sandbox`, and otherwise fall back only when a kernel restriction is
- * actually on — with a one-line note on how to keep the sandbox instead.
+ * restrict by default (Ubuntu 24.04+ via `apparmor_restrict_unprivileged_userns`,
+ * older Debian via `unprivileged_userns_clone`). When restricted, the child dies
+ * with "No usable sandbox!" and never exposes its CDP port. The richer path that
+ * keeps the sandbox ON via a per-binary AppArmor profile lives in
+ * `linuxSandbox.ts`; this is just the degrade-to-today's-behavior safety net.
  */
-function needsNoSandbox(): boolean {
+function fallbackNeedsNoSandbox(): boolean {
   if (process.platform !== "linux") return false;
   if (process.argv.includes("--no-sandbox")) return true;
-  const restricted =
+  return (
     readSysctl("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") === "1" ||
-    readSysctl("/proc/sys/kernel/unprivileged_userns_clone") === "0";
-  if (restricted && !warnedNoSandbox) {
-    warnedNoSandbox = true;
-    process.stderr.write(
-      "[multizen] Chromium's user-namespace sandbox is blocked by this kernel; " +
-        "launching the browser with --no-sandbox. To keep the sandbox instead, run: " +
-        "sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0\n",
-    );
-  }
-  return restricted;
+    readSysctl("/proc/sys/kernel/unprivileged_userns_clone") === "0"
+  );
 }
 
 interface RunningProcess {
@@ -94,6 +93,24 @@ export interface ChromiumBrowserDriverOptions {
   /** Root of the shared extension store, e.g. `<userData>/data/extension-store`.
    *  Used to resolve shared extension references to their on-disk load dir. */
   extensionStoreRoot: string;
+  /**
+   * Decide, per launch, whether to pass `--no-sandbox` to the engine child
+   * (the Linux AppArmor flow — detect restriction, verify/offer the secure
+   * setup, else fall back). Injected from the host so the driver stays UI-free.
+   * Omitted or throwing → the sync `fallbackNeedsNoSandbox()` is used instead.
+   */
+  resolveSandboxDecision?: (ctx: {
+    engine: BrowserEngine;
+    binaryPath: string;
+  }) => Promise<{ noSandbox: boolean }>;
+  /**
+   * Called with the engine binary path when the crash-detection backstop had to
+   * relaunch with `--no-sandbox` because the sandbox failed despite us expecting
+   * it to work, so the host can mark that binary's AppArmor profile inactive for
+   * the session and re-offer setup (instead of optimistically retrying it every
+   * launch).
+   */
+  onSandboxInactive?: (binaryPath: string) => void;
 }
 
 export type RunningStateChange =
@@ -125,6 +142,11 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
   private readonly getDefaultEngine: () => BrowserEngine;
   private readonly onCompanionInstall?: (profileId: ProfileId, extensionId: string) => void;
   private readonly extensionStoreRoot: string;
+  private readonly resolveSandboxDecision?: (ctx: {
+    engine: BrowserEngine;
+    binaryPath: string;
+  }) => Promise<{ noSandbox: boolean }>;
+  private readonly onSandboxInactive?: (binaryPath: string) => void;
 
   constructor(opts: ChromiumBrowserDriverOptions) {
     super();
@@ -133,6 +155,8 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     this.getDefaultEngine = opts.getDefaultEngine;
     this.onCompanionInstall = opts.onCompanionInstall;
     this.extensionStoreRoot = opts.extensionStoreRoot;
+    this.resolveSandboxDecision = opts.resolveSandboxDecision;
+    this.onSandboxInactive = opts.onSandboxInactive;
   }
 
   override on<K extends keyof DriverEvents>(event: K, listener: DriverEvents[K]): this {
@@ -282,16 +306,28 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     // we pass a pre-formatted string with q-values ("en-US,en;q=0.9"),
     // Chromium parses it as ["en-US", "en;q=0.9"] and then re-adds q's,
     // producing the malformed "en-US,en;q=0.9;q=0.9" we saw on browserscan.
+    // Linux sandbox decision. Prefer the injected resolver (AppArmor flow:
+    // detect restriction, verify/offer the one-time secure setup, else fall
+    // back). If it's absent or throws, degrade to the sync fallback so a
+    // resolver failure can never dead-launch. `--no-sandbox` is NOT added to the
+    // args literal below; it's applied at spawn time so the crash backstop can
+    // relaunch with it without rebuilding the args.
+    let noSandbox: boolean;
+    try {
+      noSandbox = this.resolveSandboxDecision
+        ? (await this.resolveSandboxDecision({ engine, binaryPath: chromiumPath })).noSandbox
+        : fallbackNeedsNoSandbox();
+    } catch (e) {
+      console.warn("[multizen] sandbox resolver failed; using fallback:", (e as Error).message);
+      noSandbox = fallbackNeedsNoSandbox();
+    }
+
     const acceptLangPlain = fp.languages.join(",");
     const args = [
       `--user-data-dir=${browserDataDir}`,
       `--remote-debugging-port=${port}`,
       "--no-first-run",
       "--no-default-browser-check",
-      // Linux: the child can't use Chromium's user-namespace sandbox when the
-      // kernel restricts it (Ubuntu 23.10+). Without this the browser dies with
-      // "No usable sandbox!" and never opens its CDP port (see needsNoSandbox).
-      ...(needsNoSandbox() ? ["--no-sandbox"] : []),
       // Force-restore the previous session's tabs at startup. This flag is what
       // actually drives restore (writing the protected restore_on_startup pref
       // just gets reset by Chromium); combined with ensureSessionRestore marking
@@ -475,35 +511,107 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       args.push(sanitizeStartUrl(profile.startUrl));
     }
 
-    const child = spawn(chromiumPath, args, {
-      detached: false,
-      stdio: ["ignore", "ignore", "pipe"],
-      env: cleanEnv,
-    });
-    if (!child.pid) throw new Error("Failed to spawn Chromium");
-    child.stderr?.on("data", (chunk: Buffer) => {
-      const line = chunk.toString("utf8").trim();
-      if (line) process.stderr.write(`[chromium ${child.pid}] ${line}\n`);
-    });
-    child.on("exit", (code, signal) => {
-      // First-line breadcrumb — child.on("exit") below also handles
-      // running-changed teardown.
-      if (code !== 0 && code !== null) {
-        process.stderr.write(
-          `[multizen] Chromium pid ${child.pid} exited code=${code} signal=${signal ?? "—"}\n`,
-        );
+    // Spawn + readiness, with a one-shot crash backstop: if the child dies from
+    // a user-namespace sandbox failure while we launched WITHOUT --no-sandbox
+    // (the AppArmor profile turned out not to be active), relaunch once WITH
+    // --no-sandbox so the profile still launches (AC16/B1). `--no-sandbox` is
+    // applied here, not in the args literal, so no arg rebuild is needed.
+    const attemptSpawn = async (
+      useNoSandbox: boolean,
+    ): Promise<{ child: ChildProcess; session: CdpSession }> => {
+      const spawnArgs = useNoSandbox ? ["--no-sandbox", ...args] : args;
+      const child = spawn(chromiumPath, spawnArgs, {
+        detached: false,
+        stdio: ["ignore", "ignore", "pipe"],
+        env: cleanEnv,
+      });
+      const pid = child.pid;
+      if (!pid) throw new Error("Failed to spawn Chromium");
+      // Treat as a sandbox crash ONLY when the FATAL signature appeared on
+      // stderr AND the child actually exited (either event may land first). A
+      // bare early exit, or a stray signature on a healthy child, is NOT a
+      // sandbox crash.
+      let sawSandboxCrash = false;
+      let crashReject: ((e: Error) => void) | undefined;
+      const signalCrashIfConfirmed = (): void => {
+        if (sawSandboxCrash && (child.exitCode !== null || child.signalCode !== null)) {
+          crashReject?.(new SandboxStartupError());
+        }
+      };
+      child.stderr?.on("data", (chunk: Buffer) => {
+        const line = chunk.toString("utf8").trim();
+        if (!line) return;
+        if (SANDBOX_FAILURE_RE.test(line)) {
+          sawSandboxCrash = true;
+          signalCrashIfConfirmed();
+        }
+        process.stderr.write(`[chromium ${pid}] ${line}\n`);
+      });
+      child.on("exit", (code, signal) => {
+        // First-line breadcrumb — the record's child.on("exit") below also
+        // handles running-changed teardown.
+        if (code !== 0 && code !== null) {
+          process.stderr.write(
+            `[multizen] Chromium pid ${pid} exited code=${code} signal=${signal ?? "-"}\n`,
+          );
+        }
+        signalCrashIfConfirmed();
+      });
+
+      const session = new CdpSession({ port, engine });
+      // Staged readiness: /json/version -> a page target exists -> connect+attach,
+      // all within one budget. Raced against a confirmed sandbox-crash signal so
+      // a failed sandbox aborts at once instead of waiting out the full budget.
+      const crashSignal = new Promise<never>((_, reject) => {
+        crashReject = reject;
+      });
+      try {
+        await Promise.race([waitForCdpSessionReady(port, session, 15000), crashSignal]);
+      } catch (e) {
+        killPid(pid, "SIGKILL");
+        // Wait for the process to actually die so a retry on the same
+        // user-data-dir doesn't collide with its still-held SingletonLock.
+        await waitForPidDeath(pid, 2000);
+        await session.close().catch(() => {});
+        throw e;
       }
-    });
+      return { child, session };
+    };
+
+    let child: ChildProcess;
+    let session: CdpSession;
+    try {
+      try {
+        ({ child, session } = await attemptSpawn(noSandbox));
+      } catch (e) {
+        if (e instanceof SandboxStartupError && !noSandbox) {
+          console.warn("[multizen] sandbox failed to start; relaunching with --no-sandbox");
+          // Profile was expected active but isn't — let the host re-offer setup.
+          this.onSandboxInactive?.(chromiumPath);
+          // The crashed child is dead (attemptSpawn awaited it); clear its stale
+          // SingletonLock before reusing the data dir, or the retry silently
+          // exits on the dead lock.
+          await cleanStaleSingletonLocks(browserDataDir).catch(() => {});
+          ({ child, session } = await attemptSpawn(true));
+        } else {
+          throw e;
+        }
+      }
+    } catch (e) {
+      // Spawn/readiness failed for good — don't leak this profile's socks5
+      // bridge (only the record's exit/close paths stop it, and no record
+      // exists yet).
+      await stopBridgeForProfile(profileId).catch(() => {});
+      throw e;
+    }
+
+    // attemptSpawn guarantees a live pid (it throws otherwise); capture it so
+    // the record/return don't re-widen to number | undefined.
+    const pid = child.pid;
+    if (pid === undefined) throw new Error("Chromium exited before readiness");
 
     const startedAt = new Date().toISOString();
     const cdpEndpoint = `http://127.0.0.1:${port}`;
-
-    const session = new CdpSession({ port, engine });
-    // Staged readiness: /json/version → a page target exists → connect+attach,
-    // all within one budget. Guarantees the profile is actually drivable before
-    // launch() resolves, so an MCP navigate/extract right after launch can't
-    // race a not-yet-ready CDP endpoint.
-    await waitForCdpSessionReady(port, session, 15000);
 
     // Per-target CDP bootstrap. CloakBrowser applies fingerprint / timezone
     // / UA / UA-CH / WebRTC / screen patches natively in C++ via its
@@ -605,7 +713,7 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       child,
       cdpEndpoint,
       port,
-      pid: child.pid,
+      pid,
       startedAt,
       session,
       browserDataDir,
@@ -629,7 +737,7 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     });
 
     this.emit("running-changed", { kind: "launched", profileId });
-    return { id: profileId, cdpEndpoint, pid: child.pid, startedAt };
+    return { id: profileId, cdpEndpoint, pid, startedAt };
   }
 
   async close(profileId: ProfileId): Promise<void> {

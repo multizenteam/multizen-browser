@@ -13,6 +13,7 @@ import type {
   EngineUpdateStatus,
   ExtensionConfig,
   BrowserEngine,
+  SandboxStatus,
 } from "@multizen/types";
 
 /** Payload for the `extensions:installed` push (companion "Add to MultiZen"). */
@@ -138,6 +139,10 @@ export interface MultizenApi {
     install: () => Promise<EngineUpdateStatus>;
     onStatus: (cb: (s: EngineUpdateStatus) => void) => () => void;
   };
+  sandbox: {
+    status: () => Promise<SandboxStatus>;
+    setup: () => Promise<SandboxStatus>;
+  };
   fingerprint: {
     generate: () => Promise<FingerprintConfig>;
     devices: () => Promise<ReadonlyArray<DeviceCatalogEntry>>;
@@ -177,4 +182,5 @@ export type {
   ExtensionConfig,
   UpdateProfileInput,
   BrowserEngine,
+  SandboxStatus,
 };

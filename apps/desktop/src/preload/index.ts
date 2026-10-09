@@ -17,6 +17,7 @@ import type {
   EngineUpdateStatus,
   ExtensionConfig,
   ProxyConfig,
+  SandboxStatus,
   UpdateStatus,
 } from "@multizen/types";
 
@@ -128,6 +129,13 @@ const api = {
       ipcRenderer.on("chromium:status", listener);
       return () => ipcRenderer.off("chromium:status", listener);
     },
+  },
+  sandbox: {
+    /** Live Linux sandbox status for the Settings row (hidden off affected
+     *  systems). */
+    status: (): Promise<SandboxStatus> => ipcRenderer.invoke("sandbox:status"),
+    /** Run the one-time secure setup (pkexec); resolves to the new status. */
+    setup: (): Promise<SandboxStatus> => ipcRenderer.invoke("sandbox:setup"),
   },
   engine: {
     /** Per-engine download/verify status stream — drives the on-demand engine

@@ -20,10 +20,12 @@ import {
   type ActivityLog,
 } from "@multizen/mcp-server";
 import { SettingsStore, defaultSettingsPath, type AppSettings } from "@multizen/settings-store";
+import { LinuxSandboxManager, describeSandboxReason } from "./linuxSandbox";
 import type {
   EngineUpdateStatus,
   ExtensionConfig,
   ProxyConfig,
+  SandboxStatus,
   UpdateStatus,
 } from "@multizen/types";
 import { isBrowserEngine, resolveEngine } from "@multizen/types";
@@ -257,11 +259,47 @@ app.whenReady().then(async () => {
     },
   });
 
+  // Linux AppArmor sandbox manager. Owns detection + the one-time secure-setup
+  // flow; the driver calls resolveForLaunch per launch. Prompting + persistence
+  // are injected here so the module stays UI-free. All no-ops off Linux.
+  const linuxSandbox = new LinuxSandboxManager({
+    getState: () => cachedSettings?.linuxSandboxState ?? "unset",
+    setState: async (s) => {
+      cachedSettings = await settingsStore.update({ linuxSandboxState: s });
+    },
+    hasWindow: () => mainWindow !== null && !mainWindow.isDestroyed(),
+    promptSetup: async () => {
+      const choice = await dialog.showMessageBox(mainWindow!, {
+        type: "warning",
+        buttons: ["Set up secure sandbox", "Launch without sandbox"],
+        defaultId: 0,
+        cancelId: 1,
+        message: "Enable the secure browser sandbox?",
+        detail:
+          "This Linux kernel blocks the browser's sandbox. MultiZen can re-enable it for " +
+          "just this browser with a one-time system authorization (you will be asked for " +
+          "your password). Otherwise the browser launches without its sandbox.",
+      });
+      return choice.response === 0 ? "setup" : "no-sandbox";
+    },
+    showNotice: async (notice) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        buttons: ["OK"],
+        message: "Secure sandbox not enabled",
+        detail: `${describeSandboxReason(notice.reason)}\n\nTo enable it manually, run:\n\n${notice.manualCommand}`,
+      });
+    },
+  });
+
   const chromiumDriver = new ChromiumBrowserDriver({
     profileManager,
     engineRegistry,
     getDefaultEngine: () => cachedSettings?.browserEngine ?? "cloakbrowser",
     extensionStoreRoot,
+    resolveSandboxDecision: (ctx) => linuxSandbox.resolveForLaunch(ctx),
+    onSandboxInactive: (binaryPath) => linuxSandbox.markBinaryInactive(binaryPath),
     // The companion's "Add to MultiZen" button routes here (profile-scoped).
     // Confirm natively first: any script on the store page could trigger the
     // channel, so an explicit OS dialog makes a drive-by install impossible.
@@ -430,6 +468,34 @@ app.whenReady().then(async () => {
   // Chromium bootstrap IPC
   ipcMain.handle("chromium:status", () => engineRegistry.get("cloakbrowser").getStatus());
   ipcMain.handle("chromium:retry", () => engineRegistry.get("cloakbrowser").ensure());
+
+  // Linux sandbox IPC. `status` drives the Settings row (live-computed, hidden
+  // off affected systems); `setup` runs the one-time secure setup on demand.
+  const resolveEngineBinaryPath = (): string | null => {
+    try {
+      const b = engineRegistry.get("cloakbrowser");
+      const kind = b.getStatus().kind;
+      return kind === "ready" || kind === "dev-system" ? b.resolveBinaryPath() : null;
+    } catch {
+      return null;
+    }
+  };
+  ipcMain.handle("sandbox:status", () => linuxSandbox.getStatus(resolveEngineBinaryPath()));
+  ipcMain.handle("sandbox:setup", async () => {
+    try {
+      const b = engineRegistry.get("cloakbrowser");
+      await b.ensure();
+      return await linuxSandbox.setupFromSettings(b.resolveBinaryPath());
+    } catch (e) {
+      // The engine must be downloaded before we can target its binary; surface
+      // that as a status instead of rejecting the invoke (unhandled in renderer).
+      console.warn("[multizen] sandbox:setup failed:", (e as Error).message);
+      return {
+        state: "needs-setup",
+        reasonText: "The browser engine needs to finish downloading before secure setup can run.",
+      } satisfies SandboxStatus;
+    }
+  });
 
   // Extensions IPC (per-profile)
   ipcMain.handle("extensions:list", (_e, profileId: string) =>

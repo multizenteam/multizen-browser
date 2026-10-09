@@ -62,6 +62,11 @@ asarUnpack:
 extraResources:
   - from: resources/companion
     to: companion
+  # Linux-only: the static AppArmor-profile installer run once via pkexec to
+  # re-permit the Chromium sandbox on restricted-userns kernels. Shipped
+  # read-only; resolved at runtime from process.resourcesPath/linux-sandbox.
+  - from: resources/linux
+    to: linux-sandbox
 
 # Stable artifact names — no version baked in. The GitHub Releases page
 # still surfaces the version (from package.json) in the release title,
