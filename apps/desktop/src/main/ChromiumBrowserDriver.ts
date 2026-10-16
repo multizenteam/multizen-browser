@@ -55,7 +55,9 @@ class SandboxStartupError extends Error {}
  */
 function fallbackNeedsNoSandbox(): boolean {
   if (process.platform !== "linux") return false;
-  if (process.argv.includes("--no-sandbox")) return true;
+  // A --no-sandbox on the HOST process (e.g. the AppImage boot flag on Ubuntu
+  // 24.04) is deliberately NOT forwarded here: the engine decision is driven by
+  // the actual kernel restriction below, and the crash backstop is the net.
   return (
     readSysctl("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") === "1" ||
     readSysctl("/proc/sys/kernel/unprivileged_userns_clone") === "0"

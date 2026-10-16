@@ -351,9 +351,18 @@ export class LinuxSandboxManager {
   async resolveForLaunch(ctx: { engine: string; binaryPath: string }): Promise<SandboxDecision> {
     // Fast paths: no async, no prompt.
     if (process.platform !== "linux") return { noSandbox: false };
-    if (process.argv.includes("--no-sandbox")) return { noSandbox: true };
-    // This fix targets the Chromium engine only; Camoufox is out of scope.
-    if (ctx.engine !== "cloakbrowser") return { noSandbox: false };
+    // This fix targets the Chromium engine only; Camoufox is out of scope. For a
+    // non-engine launch we still honor an explicit host --no-sandbox.
+    if (ctx.engine !== "cloakbrowser") {
+      return { noSandbox: process.argv.includes("--no-sandbox") };
+    }
+    // We deliberately do NOT forward a --no-sandbox the HOST process was launched
+    // with onto the engine. On Ubuntu 24.04 the AppImage host often needs
+    // --no-sandbox just to start (its setuid sandbox helper sits on a nosuid FUSE
+    // mount), but the engine is a separately-confined binary: when its per-binary
+    // AppArmor profile is active it must still run sandboxed. The decision below
+    // is driven by the kernel restriction + that profile, with the crash backstop
+    // as the final net.
 
     const mechanism = detectMechanism();
     if (mechanism === "none") return { noSandbox: false };
@@ -492,7 +501,18 @@ export class LinuxSandboxManager {
       return { state: process.platform === "linux" ? "not-restricted" : "n/a" };
     }
     const cacheDir = cacheDirForEngine();
-    if (binaryPath && verifyActive(binaryPath, cacheDir)) return { state: "active" };
+    // Never claim "active" when the sandboxed launch already failed this session
+    // (the crash backstop fired): verifyActive only checks the profile file, not
+    // the real runtime confinement, so trusting it here would report a sandbox
+    // that is actually running with --no-sandbox. Fall through to needs-setup so
+    // the user can re-run the setup.
+    if (
+      binaryPath &&
+      !this.brokenThisSession.has(binaryPath) &&
+      verifyActive(binaryPath, cacheDir)
+    ) {
+      return { state: "active" };
+    }
     const state = this.deps.getState();
     const attachPath = attachPathForCache(cacheDir);
     if (state === "declined") return { state: "declined" };
