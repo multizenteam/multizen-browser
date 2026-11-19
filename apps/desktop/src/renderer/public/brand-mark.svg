@@ -1,1 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 960 960"><title>Covebird Pipit Harbor — app icon concept</title><rect x="32" y="32" width="896" height="896" rx="214" fill="#132d4e"/><defs><mask id="01-harbor" x="0" y="0" width="960" height="960" maskUnits="userSpaceOnUse"><path d="M236 523V384Q236 239 384 239H513Q655 239 655 382V406L742 457L655 501V525Q655 687 498 687H397Q236 687 236 523Z" fill="white"/><path d="M248 552L174 634L302 638Z" fill="white"/><circle cx="561" cy="376" r="25" fill="black"/><path d="M323 445Q337 587 482 575Q459 465 323 445Z" fill="black"/></mask></defs><rect width="960" height="960" fill="#b4e2ff" mask="url(#01-harbor)"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 128 128">
+  <title>Sekvona</title>
+  <defs>
+    <linearGradient id="tile" x2=".75" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#203e60"/>
+      <stop offset="1" stop-color="#0b192b"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#tile)"/>
+  <g transform="rotate(-8 64 64)">
+    <path fill="#e3f4ff" d="M98 32v9a5 5 0 0 1-5 5H55l-9 10 24 7-12 12-23-7c-9-3-12-11-6-19l14-16a13 13 0 0 1 10-5h17l5 4z"/>
+    <path fill="#89cfff" transform="rotate(180 64 64)" d="M98 32v9a5 5 0 0 1-5 5H55l-9 10 24 7-12 12-23-7c-9-3-12-11-6-19l14-16a13 13 0 0 1 10-5h17l5 4z"/>
+  </g>
+</svg>

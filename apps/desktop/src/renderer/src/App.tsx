@@ -60,7 +60,7 @@ export function App(): JSX.Element {
     void window.multizen.chromium.status().then(apply);
     return window.multizen.chromium.onStatus(apply);
   }, []);
-  // Global toast when the companion "Add to Covebird" button installs an
+  // Global toast when the companion "Add to Sekvona" button installs an
   // extension into a running profile (the edit sheet may not be open).
   useEffect(() => {
     if (!window.multizen) return;

@@ -593,7 +593,7 @@ describe("References", () => {
     // The row now reports only that a value is stored, and offers no way to see
     // it — the only action left is removal.
     const list = await screen.findByTestId("reference-list");
-    await waitFor(() => expect(within(list).getByText("stored by Covebird")).toBeInTheDocument());
+    await waitFor(() => expect(within(list).getByText("stored by Sekvona")).toBeInTheDocument());
     expect(within(list).queryByRole("button", { name: /provide value/i })).not.toBeInTheDocument();
     expect(
       within(list).queryByRole("button", { name: /show|reveal|view/i }),
@@ -628,7 +628,7 @@ describe("References", () => {
     const { user } = setup(fake, view);
 
     const list = await screen.findByTestId("reference-list");
-    expect(within(list).getByText("stored by Covebird")).toBeInTheDocument();
+    expect(within(list).getByText("stored by Sekvona")).toBeInTheDocument();
     // With a stored value there is nothing to "provide" and no env choice to make.
     expect(within(list).queryByRole("button", { name: /provide value/i })).not.toBeInTheDocument();
     await user.click(within(list).getByRole("button", { name: /remove stored value/i }));

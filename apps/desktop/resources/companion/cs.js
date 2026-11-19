@@ -1,6 +1,6 @@
-// Covebird Companion — content script on Chrome Web Store detail pages. The
+// Sekvona Companion — content script on Chrome Web Store detail pages. The
 // native install path is dead in CloakBrowser, so we replace the disabled "Add
-// to Chrome" button with our own "Add to Covebird" in the same spot and hide
+// to Chrome" button with our own "Add to Sekvona" in the same spot and hide
 // Google's "Switch/Install Chrome" promos.
 //
 // CloakBrowser runs content scripts in an ISOLATED world (it ignores manifest
@@ -15,7 +15,7 @@
     return m ? m[1] : null;
   }
 
-  // Channel to Covebird: write the id to a DOM attribute on <html>. CloakBrowser
+  // Channel to Sekvona: write the id to a DOM attribute on <html>. CloakBrowser
   // puts this content script in an isolated world, but the DOM is shared, so the
   // host (which polls via CDP) reads it. Stamp a nonce so repeats are distinct.
   function signalHost(id) {
@@ -42,7 +42,7 @@
     const btn = document.createElement("button");
     btn.id = "mz-add-to-multizen";
     btn.type = "button";
-    btn.textContent = "Add to Covebird";
+    btn.textContent = "Add to Sekvona";
     btn.style.cssText = [
       "display:inline-flex",
       "align-items:center",

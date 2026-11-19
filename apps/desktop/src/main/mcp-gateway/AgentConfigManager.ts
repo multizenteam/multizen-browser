@@ -97,7 +97,7 @@ export class AgentConfigManager {
 
     // Clean up de-selected agents first. A failure here is reported but does not
     // block the new selection from installing; the operator is told which file
-    // still holds Covebird entries.
+    // still holds Sekvona entries.
     const cleanupFailures: InstallFailure[] = [];
     for (const row of removed) {
       const failure = await this.uninstallOne(projectId, canonical, row);
@@ -112,7 +112,7 @@ export class AgentConfigManager {
       if (view.agents.length === 0) {
         const first = cleanupFailures[0] as InstallFailure;
         throw new ConfigFileError(
-          `could not remove Covebird entries from ${first.agent}: ${first.message}`,
+          `could not remove Sekvona entries from ${first.agent}: ${first.message}`,
           "io",
           first.hint,
         );
@@ -143,7 +143,7 @@ export class AgentConfigManager {
   }
 
   /**
-   * Forget a directory after removing every Covebird entry it holds.
+   * Forget a directory after removing every Sekvona entry it holds.
    *
    * If a file cannot be cleaned the binding is KEPT and the failure is thrown,
    * so the operator can fix the file and retry rather than silently leaving our
@@ -162,7 +162,7 @@ export class AgentConfigManager {
     if (failures.length > 0) {
       const first = failures[0] as InstallFailure;
       throw new ConfigFileError(
-        `could not remove Covebird entries from ${first.agent}: ${first.message}`,
+        `could not remove Sekvona entries from ${first.agent}: ${first.message}`,
         "io",
         first.hint ??
           "Fix the reported problem and unlink again, or remove the multizen_* entries by hand.",
@@ -206,7 +206,7 @@ export class AgentConfigManager {
   }
 
   /**
-   * Remove every Covebird entry this project owns, across all its directories.
+   * Remove every Sekvona entry this project owns, across all its directories.
    * Returns the failures rather than throwing, so a caller (project deletion)
    * can decide whether to proceed.
    */

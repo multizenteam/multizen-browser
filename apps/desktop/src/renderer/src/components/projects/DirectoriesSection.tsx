@@ -15,10 +15,10 @@ import { Section } from "./ProjectDetail";
  * The local folders this project is installed into, and the agents configured in
  * each one.
  *
- * Every row states plainly which file Covebird manages, whether that file is
+ * Every row states plainly which file Sekvona manages, whether that file is
  * currently up to date, and — when something went wrong — what to fix. Nothing
  * is written silently: a folder only receives entries for the agents selected
- * here, and unlinking removes Covebird's entries before the folder is forgotten.
+ * here, and unlinking removes Sekvona's entries before the folder is forgotten.
  */
 
 export interface DirectoriesSectionProps {
@@ -87,7 +87,7 @@ export function DirectoriesSection({
     async (directory: string) => {
       const confirmed = await confirm({
         title: "Unlink this folder?",
-        body: `Covebird will remove its entries from the agent configuration in ${directory}. Everything else in those files is left alone.`,
+        body: `Sekvona will remove its entries from the agent configuration in ${directory}. Everything else in those files is left alone.`,
         confirmLabel: "Unlink folder",
         destructive: true,
       });
@@ -129,7 +129,7 @@ export function DirectoriesSection({
     >
       {bindings.length === 0 ? (
         <div className="text-[12px] text-slate-500 leading-relaxed">
-          No folders linked. Add one and Covebird will write this project’s endpoints into
+          No folders linked. Add one and Sekvona will write this project’s endpoints into
           the agent configuration there, keeping everything else in those files intact.
         </div>
       ) : (

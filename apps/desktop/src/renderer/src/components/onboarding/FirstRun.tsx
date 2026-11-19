@@ -10,7 +10,7 @@ const DEFAULT_NAME = "My first profile";
 /**
  * Two-step first-run: welcome → name a profile.
  * We omit the Anthropic-key step from the original Claude Design output because
- * Covebird no longer calls any external API.
+ * Sekvona no longer calls any external API.
  *
  * The final step asks for one thing, a name; tags / proxy / fingerprint are
  * editable later from the profile panel.
@@ -77,7 +77,7 @@ export function FirstRun({ onCreate }: Props): JSX.Element {
         style={{ maxWidth: 520 }}
       >
         <Cube size={88} />
-        <div className="text-[12px] uppercase tracking-[0.3em] text-[#b4e2ff]">Covebird</div>
+        <div className="text-[12px] uppercase tracking-[0.3em] text-[#b4e2ff]">Sekvona</div>
 
         {step === 1 && (
           <>
@@ -86,7 +86,7 @@ export function FirstRun({ onCreate }: Props): JSX.Element {
                 className="font-bold tracking-tight text-slate-100"
                 style={{ fontSize: 30, lineHeight: 1.1, letterSpacing: "-0.02em" }}
               >
-                Every identity. Its own lane.
+                A browser workspace for every project.
               </div>
               <div className="text-[14px] text-slate-400 mt-3 leading-relaxed">
                 Cookies, login, fingerprint, and proxy isolated per profile.

@@ -108,6 +108,7 @@ export interface SyncControllerDeps {
    * and in tests; production always supplies it (see main/index.ts).
    */
   onSettingsUpdated: (next: AppSettings) => void;
+  onSyncMaterialsChanged?: () => void;
   profileManager: ProfileManager;
   vault: CredentialVault;
   driver: QuiescenceDriver & {
@@ -145,6 +146,47 @@ export interface SyncControllerDeps {
 }
 
 export class SyncController {
+  private readonly profileJobs = new Map<string, Promise<unknown>>();
+  private readonly renewals = new WeakSet<HeldLease>();
+
+  private withProfile<T>(id: string, work: () => Promise<T>, closeBackup = false): Promise<T> {
+    if (this.disposed || this.suppressAutoBackup || (this.quitting && !closeBackup)) {
+      return Promise.reject(syncError(SyncErrorCode.SyncDisabled, "Cloud Sync is stopping"));
+    }
+    const previous = this.profileJobs.get(id) ?? Promise.resolve();
+    const job = previous.then(work, work);
+    this.profileJobs.set(id, job);
+    const finish = () => {
+      if (this.profileJobs.get(id) === job) this.profileJobs.delete(id);
+    };
+    void job.then(finish, finish);
+    return job;
+  }
+
+  launch<T>(id: string, start: () => Promise<T>): Promise<T> {
+    return this.withProfile(id, async () => {
+      const previous = this.leases.get(id);
+      try {
+        await this.prepareLaunch(id);
+        const lease =
+          this.cfg().enabled && this.deps.profileManager.getSyncState(id)?.syncEnabled
+            ? this.requireOwnedLease(id)
+            : undefined;
+        const result = await start();
+        if (lease && (this.leases.get(id) !== lease || lease.expiresAtMs <= Date.now())) {
+          await this.deps.driver.close(id);
+          throw syncError(SyncErrorCode.LeaseExpired, "Lease lost during launch");
+        }
+        return result;
+      } catch (error) {
+        if (this.leases.get(id) !== previous && !this.deps.driver.isRunning(id)) {
+          await this.releaseAndDropLease(id).catch(() => {});
+        }
+        throw error;
+      }
+    });
+  }
+
   private readonly leases = new Map<string, HeldLease>();
   private readonly coordinatorFactory: StorageCoordinatorFactory;
   /** Test-injected coordinator that bypasses the factory entirely. */
@@ -160,7 +202,12 @@ export class SyncController {
    * disable: those forced closes must NOT kick off a backup because the leases
    * are already being released (any backup would just fail on a released lease).
    */
-  private suppressAutoBackup = false;
+  private pauses = 0;
+  private quitting = false;
+
+  private get suppressAutoBackup(): boolean {
+    return this.pauses > 0;
+  }
   /**
    * In-flight close-triggered auto backups, keyed by profile id. Used to
    * deduplicate concurrent close events for the same profile (one snapshot +
@@ -222,7 +269,6 @@ export class SyncController {
    * by profile id; a second delete of the same profile joins the first.
    */
   private readonly disableInFlight = new Map<string, Promise<DisableProfileSyncResult>>();
-
 
   /** Wait for a close-triggered backup of this profile, if one is active. */
   private async waitForAutoBackup(profileId: string): Promise<void> {
@@ -379,7 +425,18 @@ export class SyncController {
    * conditional object store bound to the same credentials/bucket; the gateway
    * writes only under `<controlPrefix>/mcp/…`.
    */
+  gatewayTargetId(): string | undefined {
+    const c = this.cfg();
+    if (!c.s3Bucket.trim()) return undefined;
+    return JSON.stringify([
+      this.safeEffectiveEndpoint(c.s3Endpoint),
+      c.s3Bucket.trim(),
+      c.controlPrefix.trim().replace(/^\/+|\/+$/g, ""),
+    ]);
+  }
+
   async gatewaySyncMaterials(): Promise<{
+    targetId: string;
     store: import("@multizen/s3-coordinator").S3ConditionalObjectStore;
     controlPrefix: string;
     password: string;
@@ -388,6 +445,7 @@ export class SyncController {
     if (!(await this.isCloudSyncReady())) return null;
     const c = this.cfg();
     const config = this.coordinatorConfig();
+    const targetId = this.gatewayTargetId()!;
     const credentials = await this.coordinatorCredentials();
     const password = await this.deps.vault.get(c.kopiaPasswordRef);
     if (!password) return null;
@@ -407,7 +465,14 @@ export class SyncController {
       },
       s3Deps,
     );
-    return { store, controlPrefix: config.controlPrefix, password, deviceId: config.deviceId };
+    if (targetId !== this.gatewayTargetId()) return null;
+    return {
+      targetId,
+      store,
+      controlPrefix: config.controlPrefix,
+      password,
+      deviceId: config.deviceId,
+    };
   }
 
   /** True when Cloud Sync is ready for the gateway to compose config sync. */
@@ -452,13 +517,20 @@ export class SyncController {
     if (typeof patch.s3Region === "string") allowed.s3Region = patch.s3Region.trim();
     if (typeof patch.s3Bucket === "string") allowed.s3Bucket = patch.s3Bucket.trim();
     if (typeof patch.s3Prefix === "string") allowed.s3Prefix = patch.s3Prefix.trim();
-    if (typeof patch.controlPrefix === "string")
-      allowed.controlPrefix = patch.controlPrefix.trim();
+    if (typeof patch.controlPrefix === "string") allowed.controlPrefix = patch.controlPrefix.trim();
     if (typeof patch.s3ForcePathStyle === "boolean")
       allowed.s3ForcePathStyle = patch.s3ForcePathStyle;
-    if (typeof patch.leaseTtlMs === "number" && Number.isInteger(patch.leaseTtlMs) && patch.leaseTtlMs > 0)
+    if (
+      typeof patch.leaseTtlMs === "number" &&
+      Number.isInteger(patch.leaseTtlMs) &&
+      patch.leaseTtlMs > 0
+    )
       allowed.leaseTtlMs = patch.leaseTtlMs;
-    if (typeof patch.renewalMs === "number" && Number.isInteger(patch.renewalMs) && patch.renewalMs > 0)
+    if (
+      typeof patch.renewalMs === "number" &&
+      Number.isInteger(patch.renewalMs) &&
+      patch.renewalMs > 0
+    )
       allowed.renewalMs = patch.renewalMs;
     if (
       typeof patch.clockSkewSafetyMs === "number" &&
@@ -480,23 +552,14 @@ export class SyncController {
       allowed.s3ForcePathStyle !== undefined;
 
     const disabling = wasEnabled && allowed.enabled === false;
-    if (disabling) {
-      // Transitioning global sync true→false: safely wind down coordination
-      // BEFORE the disabled state is committed so we never leave a stale owner
-      // holding a lease (split brain). Close any running profiles whose leases
-      // this controller holds, best-effort release each lease through the
-      // current coordinator after close, then clear renewal timers/leases.
-      await this.stopCoordination();
+    if (disabling) this.pauses++;
+    try {
+      if (disabling) await this.stopCoordination();
+      const nextSettings = await this.deps.settingsStore.update({ sync: allowed as SyncConfig });
+      this.deps.onSettingsUpdated(nextSettings);
+    } finally {
+      if (disabling) this.pauses--;
     }
-
-    const nextSettings = await this.deps.settingsStore.update({
-      sync: allowed as SyncConfig,
-    });
-    // SettingsStore replaces its cached object rather than mutating the
-    // previously-loaded object. Hand the new object back to the owner before
-    // configView() reads through getSettings(), otherwise the master switch
-    // appears stuck on its previous value.
-    this.deps.onSettingsUpdated(nextSettings);
     // Config changed → the cached coordinator (if any) may be stale; the next
     // coordinator() call rebuilds it lazily when the effective fingerprint
     // differs. Reset defensively so a bucket/prefix change is never missed.
@@ -506,6 +569,7 @@ export class SyncController {
       this.lastCapability = null;
     }
     this.lastReadyFingerprint = null;
+    this.deps.onSyncMaterialsChanged?.();
     // Automatically probe + bootstrap once all required settings/secrets exist.
     void this.autoBootstrap().catch(() => undefined);
     return this.configView();
@@ -526,6 +590,7 @@ export class SyncController {
       this.lastCapability = null;
     }
     this.lastReadyFingerprint = null;
+    this.deps.onSyncMaterialsChanged?.();
     void this.autoBootstrap().catch(() => undefined);
   }
 
@@ -537,6 +602,7 @@ export class SyncController {
       this.lastCapability = null;
     }
     this.lastReadyFingerprint = null;
+    this.deps.onSyncMaterialsChanged?.();
   }
 
   /** Report which secrets are present (never their values). */
@@ -908,14 +974,12 @@ export class SyncController {
    * Marks the profile dirty on allow (writable launch coming).
    */
   async beforeLaunch(profileId: string): Promise<void> {
-    let s = this.deps.profileManager.getSyncState(profileId);
-    if (!s?.syncEnabled) return; // unsynced → unchanged behavior
+    return this.withProfile(profileId, () => this.prepareLaunch(profileId));
+  }
 
-    // A relaunch must not race a close-triggered auto backup of the SAME
-    // profile: wait for it, then RELOAD state so the launch decision uses the
-    // new base/local revision and cleared dirty flag from a successful publish.
-    await this.waitForAutoBackup(profileId);
-    s = this.deps.profileManager.getSyncState(profileId);
+  private async prepareLaunch(profileId: string): Promise<void> {
+    // The profile queue has drained any preceding close backup.
+    const s = this.deps.profileManager.getSyncState(profileId);
     if (!s?.syncEnabled) return;
 
     // Global master switch off: Cloud Sync is fully decoupled. Allow the local
@@ -962,7 +1026,7 @@ export class SyncController {
       case "restore-then-launch":
         // Keep-local is safe here: decideLaunch only returns this action when
         // the profile is NOT dirty, so there is no local state to preserve.
-        await this.restoreLatest(profileId, { keepLocalAsConflict: false });
+        await this.restoreInternal(profileId, { keepLocalAsConflict: false });
         this.markDirty(profileId);
         return;
       case "conflict":
@@ -1017,7 +1081,7 @@ export class SyncController {
     const held = this.leases.get(profileId);
     if (held && held.expiresAtMs > Date.now()) return; // already own a valid lease
     if (held) this.dropLease(profileId); // stale — drop before re-acquiring
-    await this.acquire(profileId);
+    await this.acquireInternal(profileId);
   }
 
   // ── Coordination: acquire / renew / release ──────────────────────────────
@@ -1037,7 +1101,10 @@ export class SyncController {
   }
 
   async acquire(profileId: string): Promise<ProfileSyncStatusView> {
-    await this.waitForAutoBackup(profileId);
+    return this.withProfile(profileId, () => this.acquireInternal(profileId));
+  }
+
+  private async acquireInternal(profileId: string): Promise<ProfileSyncStatusView> {
     await this.requireEnabled(profileId);
     const coordinator = await this.coordinator();
     this.emit({ profileId, phase: "acquiring", message: "Acquiring lease…" });
@@ -1057,9 +1124,10 @@ export class SyncController {
   }
 
   async release(profileId: string): Promise<ProfileSyncStatusView> {
-    // A release must not race a close-triggered auto backup that still holds the
-    // lease: wait so it publishes before ownership is dropped.
-    await this.waitForAutoBackup(profileId);
+    return this.withProfile(profileId, () => this.releaseInternal(profileId));
+  }
+
+  private async releaseInternal(profileId: string): Promise<ProfileSyncStatusView> {
     // Refuse if Chromium still running under this lease.
     if (this.deps.driver.isRunning(profileId)) {
       throw syncError(
@@ -1073,12 +1141,7 @@ export class SyncController {
     const coordinator = await this.coordinator();
     this.emit({ profileId, phase: "releasing", message: "Releasing lease…" });
     try {
-      await coordinator.release(
-        profileId,
-        held.leaseId,
-        held.fencingToken,
-        this.newOperationId(),
-      );
+      await coordinator.release(profileId, held.leaseId, held.fencingToken, this.newOperationId());
     } finally {
       this.dropLease(profileId);
     }
@@ -1115,7 +1178,9 @@ export class SyncController {
 
   private async renewLease(profileId: string): Promise<void> {
     const held = this.leases.get(profileId);
-    if (!held) return;
+    if (!held || this.renewals.has(held)) return;
+    this.renewals.add(held);
+    const token = held.fencingToken;
     try {
       const coordinator = await this.coordinator();
       const result = await coordinator.renew(
@@ -1124,12 +1189,16 @@ export class SyncController {
         held.fencingToken,
         this.newOperationId(),
       );
+      if (this.leases.get(profileId) !== held || held.fencingToken !== token) return;
       held.expiresAtMs = result.lease.leaseExpiresAt;
       held.fencingToken = result.lease.fencingToken;
     } catch (err) {
       // Lease renewal lost: conservatively close any owned synced browser and
       // invalidate the lease so a stale owner can't publish.
-      await this.onLeaseLost(profileId, err);
+      if (this.leases.get(profileId) === held && held.fencingToken === token)
+        await this.onLeaseLost(profileId, err);
+    } finally {
+      this.renewals.delete(held);
     }
   }
 
@@ -1153,9 +1222,13 @@ export class SyncController {
 
   /** On OS power suspend/resume, drop all leases and close owned synced browsers. */
   async onPowerSuspend(): Promise<void> {
-    const ids = [...this.leases.keys()];
-    for (const id of ids) {
-      await this.onLeaseLost(id);
+    this.pauses++;
+    try {
+      for (const id of [...this.leases.keys()]) await this.onLeaseLost(id);
+      await Promise.allSettled([...this.profileJobs.values()]);
+      for (const id of [...this.leases.keys()]) await this.onLeaseLost(id);
+    } finally {
+      this.pauses--;
     }
   }
 
@@ -1181,17 +1254,15 @@ export class SyncController {
       await this.waitForAutoBackup(profileId);
       return this.status(profileId);
     }
-    return this.backupAndPublishInternal(profileId);
+    return this.withProfile(profileId, () => this.backupAndPublishInternal(profileId));
   }
 
   private async backupAndPublishInternal(profileId: string): Promise<ProfileSyncStatusView> {
     const profile = await this.requireEnabled(profileId);
     if (this.deps.driver.isRunning(profileId)) {
-      throw syncError(
-        SyncErrorCode.BrowserStillRunning,
-        "Close the browser before backing up",
-        { profileId },
-      );
+      throw syncError(SyncErrorCode.BrowserStillRunning, "Close the browser before backing up", {
+        profileId,
+      });
     }
     const held = this.leases.get(profileId);
     if (!held || held.expiresAtMs <= Date.now()) {
@@ -1370,7 +1441,17 @@ export class SyncController {
     const existing = this.autoBackups.get(profileId);
     if (existing) return existing;
 
-    const task = this.runAutoBackup(profileId).finally(() => {
+    const task = this.withProfile(
+      profileId,
+      async () => {
+        const current = this.deps.profileManager.getSyncState(profileId);
+        if (!current?.syncEnabled || !current.dirty || this.deps.driver.isRunning(profileId))
+          return;
+        if (this.leases.get(profileId) !== held || held.expiresAtMs <= Date.now()) return;
+        await this.runAutoBackup(profileId);
+      },
+      true,
+    ).finally(() => {
       // Only clear if we are still the current in-flight entry for this id.
       if (this.autoBackups.get(profileId) === task) {
         this.autoBackups.delete(profileId);
@@ -1428,14 +1509,18 @@ export class SyncController {
     profileId: string,
     opts: { keepLocalAsConflict: boolean },
   ): Promise<ProfileSyncStatusView> {
-    await this.waitForAutoBackup(profileId);
+    return this.withProfile(profileId, () => this.restoreInternal(profileId, opts));
+  }
+
+  private async restoreInternal(
+    profileId: string,
+    opts: { keepLocalAsConflict: boolean },
+  ): Promise<ProfileSyncStatusView> {
     const profile = await this.requireEnabled(profileId);
     if (this.deps.driver.isRunning(profileId)) {
-      throw syncError(
-        SyncErrorCode.BrowserStillRunning,
-        "Close the browser before restoring",
-        { profileId },
-      );
+      throw syncError(SyncErrorCode.BrowserStillRunning, "Close the browser before restoring", {
+        profileId,
+      });
     }
 
     // Single-writer invariant: restore mutates local state, so it REQUIRES an
@@ -1484,11 +1569,7 @@ export class SyncController {
       // Preserve divergent dirty local state as a conflict copy first. Track
       // its id so we can roll it back if the canonical restore later fails.
       if (opts.keepLocalAsConflict && state?.dirty) {
-        conflictId = await this.preserveConflictCopy(
-          profile,
-          state.baseRevision,
-          remote.revision,
-        );
+        conflictId = await this.preserveConflictCopy(profile, state.baseRevision, remote.revision);
       }
 
       const kopia = await this.makeKopiaFor(profileId, "restoring");
@@ -1606,7 +1687,9 @@ export class SyncController {
    */
   async connectExisting(profileId: string): Promise<{ profileId: string }> {
     this.requireGlobalEnabled();
-    const res = await this.restoreIntoNewProfile(profileId, { releaseLeaseAfter: true });
+    const res = await this.withProfile(profileId, () =>
+      this.restoreIntoNewProfile(profileId, { releaseLeaseAfter: true }),
+    );
     return { profileId: res.profileId };
   }
 
@@ -1805,12 +1888,7 @@ export class SyncController {
     if (!held) return;
     try {
       const coordinator = await this.coordinator();
-      await coordinator.release(
-        profileId,
-        held.leaseId,
-        held.fencingToken,
-        this.newOperationId(),
-      );
+      await coordinator.release(profileId, held.leaseId, held.fencingToken, this.newOperationId());
     } finally {
       this.dropLease(profileId);
     }
@@ -2085,10 +2163,7 @@ export class SyncController {
     if (typeof manifest.name !== "string" || manifest.name.trim().length === 0) {
       fail("name must be a non-empty string");
     }
-    if (
-      !Array.isArray(manifest.tags) ||
-      !manifest.tags.every((t) => typeof t === "string")
-    ) {
+    if (!Array.isArray(manifest.tags) || !manifest.tags.every((t) => typeof t === "string")) {
       fail("tags must be an array of strings");
     }
     if (
@@ -2106,7 +2181,11 @@ export class SyncController {
         }
       }
     }
-    if (manifest.engine !== undefined && manifest.engine !== "cloakbrowser" && manifest.engine !== "camoufox") {
+    if (
+      manifest.engine !== undefined &&
+      manifest.engine !== "cloakbrowser" &&
+      manifest.engine !== "camoufox"
+    ) {
       fail("unsupported browser engine");
     }
     for (const key of ["notes", "icon", "startUrl", "searchProvider", "proxyCountry"] as const) {
@@ -2323,14 +2402,16 @@ export class SyncController {
       );
       // Restore every remote profile missing locally.
       for (const remote of listed.profiles) {
-        if (this.disposed) break;
+        if (this.disposed || this.quitting || this.suppressAutoBackup || !this.cfg().enabled) break;
         if (this.deps.profileManager.get(remote.profileId)) {
           // Existing local profiles are handled in the reconciliation phase,
           // where dirty/local/remote revisions determine upload vs restore.
           continue;
         }
         try {
-          await this.restoreIntoNewProfile(remote.profileId, { releaseLeaseAfter: true });
+          await this.withProfile(remote.profileId, () =>
+            this.restoreIntoNewProfile(remote.profileId, { releaseLeaseAfter: true }),
+          );
           summary.restored += 1;
           results.push({ profileId: remote.profileId, action: "restored", ok: true });
         } catch (err) {
@@ -2365,13 +2446,12 @@ export class SyncController {
     // existing). Running profiles defer to close.
     const localIds = this.allProfileIds();
     for (const id of localIds) {
-      if (this.disposed) break;
-      const state = this.deps.profileManager.getSyncState(id);
-      if (!state?.syncEnabled) continue; // user explicitly disabled → skip
-      const remote = remoteProfiles.get(id);
-      if (remote) {
-        // A profile restored earlier in this same run is already current.
-        if (results.some((r) => r.profileId === id && r.action === "restored")) continue;
+      if (this.disposed || this.quitting || this.suppressAutoBackup || !this.cfg().enabled) break;
+      await this.withProfile(id, async () => {
+        const state = this.deps.profileManager.getSyncState(id);
+        if (!state?.syncEnabled) return; // user explicitly disabled → skip
+        const remote = remoteProfiles.get(id);
+        if (results.some((r) => r.profileId === id && r.action === "restored")) return;
         if (this.deps.driver.isRunning(id)) {
           summary.deferred += 1;
           results.push({
@@ -2380,29 +2460,24 @@ export class SyncController {
             ok: true,
             message: "Synchronization deferred until the browser closes",
           });
-          continue;
+          return;
         }
         try {
           if (state.dirty) {
-            // Existing dirty profile: publish only if its base still matches
-            // remote; backupAndPublishInternal preserves conflict semantics.
-            await this.uploadDirtyProfile(id);
+            await this.withTemporaryLease(id, () => this.backupAndPublishInternal(id));
             summary.uploaded += 1;
             results.push({ profileId: id, action: "uploaded", ok: true });
-          } else if (remote.currentRevision > state.localRevision) {
-            // Existing clean profile behind remote: temporary ownership makes
-            // the restore safe, and local data has no unsaved divergence.
-            await this.acquire(id);
-            try {
-              await this.restoreLatest(id, { keepLocalAsConflict: false });
-            } finally {
-              await this.releaseAndDropLease(id).catch(() => {});
-            }
+          } else if (remote && remote.currentRevision > state.localRevision) {
+            await this.withTemporaryLease(id, () =>
+              this.restoreInternal(id, { keepLocalAsConflict: false }),
+            );
             summary.restored += 1;
             results.push({ profileId: id, action: "restored", ok: true });
-          } else {
+          } else if (remote) {
             summary.reconciled += 1;
             results.push({ profileId: id, action: "reconciled", ok: true });
+          } else {
+            results.push({ profileId: id, action: "skipped", ok: true });
           }
         } catch (err) {
           summary.failed += 1;
@@ -2413,37 +2488,7 @@ export class SyncController {
             message: redact(describeStorageError(err), secrets),
           });
         }
-        continue;
-      }
-      // Local-only (or never-published) profile. Upload it as a fresh baseline
-      // if dirty and not running; defer a running profile to its close backup.
-      if (!state.dirty) {
-        results.push({ profileId: id, action: "skipped", ok: true });
-        continue;
-      }
-      if (this.deps.driver.isRunning(id)) {
-        summary.deferred += 1;
-        results.push({
-          profileId: id,
-          action: "deferred-running",
-          ok: true,
-          message: "Upload deferred until the browser closes",
-        });
-        continue;
-      }
-      try {
-        await this.uploadDirtyProfile(id);
-        summary.uploaded += 1;
-        results.push({ profileId: id, action: "uploaded", ok: true });
-      } catch (err) {
-        summary.failed += 1;
-        results.push({
-          profileId: id,
-          action: "failed",
-          ok: false,
-          message: redact(describeStorageError(err), secrets),
-        });
-      }
+      });
     }
 
     summary.phase = "done";
@@ -2459,19 +2504,16 @@ export class SyncController {
     return summary;
   }
 
-  /**
-   * Upload a single non-running dirty profile as a baseline through a TEMPORARY
-   * acquire→backup→release so the bootstrap never accumulates leases. Reuses the
-   * existing conflict-safe {@link backupAndPublishInternal} core (which refuses
-   * to publish over a newer remote), then releases the lease. On failure the
-   * lease is still released and dirty is preserved for a later retry.
-   */
-  private async uploadDirtyProfile(profileId: string): Promise<void> {
-    await this.acquire(profileId);
+  private async withTemporaryLease(id: string, work: () => Promise<unknown>): Promise<void> {
+    const previous = this.leases.get(id);
+    await this.ensureLeaseForLaunch(id);
+    const owned = this.requireOwnedLease(id);
     try {
-      await this.backupAndPublishInternal(profileId);
+      await work();
     } finally {
-      await this.releaseAndDropLease(profileId).catch(() => {});
+      if (owned !== previous && this.leases.get(id) === owned) {
+        await this.releaseAndDropLease(id).catch(() => {});
+      }
     }
   }
 
@@ -2517,7 +2559,9 @@ export class SyncController {
     // Serialize per-profile: a second concurrent delete joins the first.
     const inFlight = this.disableInFlight.get(profileId);
     if (inFlight) return inFlight;
-    const task = this.disableProfileSyncAndDeleteRemoteInternal(profileId).finally(() => {
+    const task = this.withProfile(profileId, () =>
+      this.disableProfileSyncAndDeleteRemoteInternal(profileId),
+    ).finally(() => {
       if (this.disableInFlight.get(profileId) === task) {
         this.disableInFlight.delete(profileId);
       }
@@ -2551,9 +2595,6 @@ export class SyncController {
         { profileId },
       );
     }
-    // A close-triggered auto backup may still hold the lease — let it finish so
-    // we don't delete out from under an in-flight publish.
-    await this.waitForAutoBackup(profileId);
 
     const secrets = await this.secretValuesForRedaction();
     const op = this.deps.profileManager.recordSyncOperation({
@@ -2658,6 +2699,10 @@ export class SyncController {
    * baseline (a fresh revision line). Requires global on + browser closed.
    */
   async reEnableProfileSync(profileId: string): Promise<ProfileSyncStatusView> {
+    return this.withProfile(profileId, () => this.reEnableInternal(profileId));
+  }
+
+  private async reEnableInternal(profileId: string): Promise<ProfileSyncStatusView> {
     this.requireGlobalEnabled();
     const profile = this.deps.profileManager.get(profileId);
     if (!profile) throw syncError(SyncErrorCode.InvalidInput, "profile not found", { profileId });
@@ -2742,11 +2787,11 @@ export class SyncController {
     // closes below fire `running-changed` → onBrowserClosed, but we are already
     // releasing these leases, so any auto backup would just fail on a released
     // lease. Restore the flag afterwards so a normal later close still backs up.
-    this.suppressAutoBackup = true;
+    this.pauses++;
     try {
       // A close-triggered backup may already be using a held lease. Let it
       // finish before releasing ownership; suppression prevents new ones.
-      const pending = [...this.autoBackups.values()];
+      const pending = [...this.profileJobs.values(), ...this.autoBackups.values()];
       if (pending.length > 0) await Promise.allSettled(pending);
       const ids = [...this.leases.keys()];
       for (const profileId of ids) {
@@ -2755,7 +2800,7 @@ export class SyncController {
         // Close any running browser first so no writable session outlives the
         // lease we are about to release.
         if (this.deps.driver.isRunning(profileId)) {
-          await this.deps.driver.close(profileId).catch(() => {});
+          await this.deps.driver.close(profileId);
         }
         // Best-effort remote release through the current coordinator.
         try {
@@ -2783,8 +2828,14 @@ export class SyncController {
         }
       }
     } finally {
-      this.suppressAutoBackup = false;
+      this.pauses--;
     }
+  }
+
+  /** Drain already-admitted launches before closeAll enumerates running browsers. */
+  async prepareToQuit(): Promise<void> {
+    this.quitting = true;
+    await Promise.allSettled([...this.profileJobs.values()]);
   }
 
   /** Stop timers + drop leases (does not release them remotely). */
@@ -2799,7 +2850,7 @@ export class SyncController {
     // never reject) so a close-triggered publish completes before we clear the
     // leases it depends on and exit. Snapshot the values first — the map is
     // mutated as tasks settle.
-    const pending = [...this.autoBackups.values()];
+    const pending = [...this.profileJobs.values(), ...this.autoBackups.values()];
     if (pending.length > 0) await Promise.allSettled(pending);
     for (const held of this.leases.values()) {
       clearInterval(held.renewTimer);

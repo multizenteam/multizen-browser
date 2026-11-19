@@ -113,11 +113,11 @@ test("associating a directory installs the project into the selected agents only
     assert.equal(existsSync(configPath(ws, "kiro-cli")), false);
 
     assert.equal(
-      jsonServers(configPath(ws, "cursor")).multizen_proj_srv?.url,
+      jsonServers(configPath(ws, "cursor")).m_proj_srv?.url,
       `${BASE}/mcp/proxies/proj/srv`,
     );
     assert.equal(
-      tomlServers(configPath(ws, "codex")).multizen_proj_srv?.url,
+      tomlServers(configPath(ws, "codex")).m_proj_srv?.url,
       `${BASE}/mcp/proxies/proj/srv`,
     );
     await svc.shutdown();
@@ -141,8 +141,8 @@ test("all four agents can be configured for one directory", async () => {
       assert.equal(existsSync(configPath(ws, agent)), true, `${agent} file written`);
     }
     // Claude declares the transport explicitly; Codex uses a TOML table.
-    assert.equal(jsonServers(configPath(ws, "claude-code")).multizen_proj_srv?.type, "http");
-    assert.ok(tomlServers(configPath(ws, "codex")).multizen_proj_srv);
+    assert.equal(jsonServers(configPath(ws, "claude-code")).m_proj_srv?.type, "http");
+    assert.ok(tomlServers(configPath(ws, "codex")).m_proj_srv);
     await svc.shutdown();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -188,7 +188,7 @@ test("the same directory may be shared by two projects without clobbering", asyn
     await ctl.setDirectoryAgents("beta", ws, ["cursor"]);
 
     const s = jsonServers(configPath(ws, "cursor"));
-    assert.deepEqual(Object.keys(s).sort(), ["multizen_alpha_srv", "multizen_beta_srv"]);
+    assert.deepEqual(Object.keys(s).sort(), ["m_alpha_srv", "m_beta_srv"]);
     await svc.shutdown();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -215,12 +215,12 @@ test("adding a server updates every associated directory automatically", async (
     });
     assert.equal(added.ok, true);
     assert.deepEqual(Object.keys(jsonServers(configPath(ws, "cursor"))).sort(), [
-      "multizen_proj_api",
-      "multizen_proj_srv",
+      "m_proj_api",
+      "m_proj_srv",
     ]);
     assert.deepEqual(Object.keys(tomlServers(configPath(ws, "codex"))).sort(), [
-      "multizen_proj_api",
-      "multizen_proj_srv",
+      "m_proj_api",
+      "m_proj_srv",
     ]);
     await svc.shutdown();
   } finally {
@@ -244,14 +244,14 @@ test("disabling a server removes just that entry; disabling the project removes 
     await ctl.setDirectoryAgents("proj", ws, ["cursor"]);
 
     await ctl.setServerEnabled("proj", "api", false);
-    assert.deepEqual(Object.keys(jsonServers(configPath(ws, "cursor"))), ["multizen_proj_srv"]);
+    assert.deepEqual(Object.keys(jsonServers(configPath(ws, "cursor"))), ["m_proj_srv"]);
 
     await ctl.updateProject("proj", { enabled: false });
     assert.deepEqual(Object.keys(jsonServers(configPath(ws, "cursor"))), [], "project disabled");
 
     // Re-enabling restores the enabled endpoints.
     await ctl.updateProject("proj", { enabled: true });
-    assert.deepEqual(Object.keys(jsonServers(configPath(ws, "cursor"))), ["multizen_proj_srv"]);
+    assert.deepEqual(Object.keys(jsonServers(configPath(ws, "cursor"))), ["m_proj_srv"]);
     await svc.shutdown();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -270,13 +270,13 @@ test("binding a profile adds the browser endpoint; unbinding removes it", async 
 
     await ctl.bindProfile("proj", "profile-1");
     assert.equal(
-      jsonServers(configPath(ws, "kiro-cli")).multizen_proj_browser?.url,
+      jsonServers(configPath(ws, "kiro-cli")).m_proj_browser?.url,
       `${BASE}/mcp/projects/proj/browser`,
     );
 
     await ctl.bindProfile("proj", null);
     assert.equal(
-      jsonServers(configPath(ws, "kiro-cli")).multizen_proj_browser,
+      jsonServers(configPath(ws, "kiro-cli")).m_proj_browser,
       undefined,
       "browser endpoint removed when unbound",
     );
@@ -387,7 +387,7 @@ test("unlinking a directory removes MultiZen's entries and keeps unrelated ones"
     await seed(ctl);
     await ctl.setDirectoryAgents("proj", ws, ["cursor"]);
     assert.deepEqual(Object.keys(jsonServers(configPath(ws, "cursor"))).sort(), [
-      "multizen_proj_srv",
+      "m_proj_srv",
       "theirs",
     ]);
 
@@ -439,7 +439,7 @@ test("one agent's malformed file does not stop the others, and retry recovers", 
       assert.equal(cursorRow?.status, "current");
       assert.equal(cursorRow?.error, undefined);
     }
-    assert.ok(jsonServers(configPath(ws, "cursor")).multizen_proj_srv);
+    assert.ok(jsonServers(configPath(ws, "cursor")).m_proj_srv);
     await svc.shutdown();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -451,7 +451,7 @@ test("an unowned same-named entry is reported as a collision and never replaced"
   const ws = mkws(dir);
   mkdirSync(join(ws, ".cursor"));
   const hostile = JSON.stringify(
-    { mcpServers: { multizen_proj_srv: { url: "https://not-ours.example" } } },
+    { mcpServers: { m_proj_srv: { url: "https://not-ours.example" } } },
     null,
     2,
   );
@@ -561,7 +561,7 @@ test("deletion is refused (project kept) when an agent file cannot be cleaned", 
     const ctl = makeController(svc);
     await seed(ctl);
     await ctl.setDirectoryAgents("proj", ws, ["cursor"]);
-    assert.ok(jsonServers(configPath(ws, "cursor")).multizen_proj_srv);
+    assert.ok(jsonServers(configPath(ws, "cursor")).m_proj_srv);
 
     // Make the .cursor directory unwritable so the cleanup write fails.
     chmodSync(join(ws, ".cursor"), 0o500);

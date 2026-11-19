@@ -2260,3 +2260,109 @@ for (const engine of [undefined, "cloakbrowser", "camoufox"]) {
     }
   });
 }
+
+test("library upload waits until the driver launch finishes and defers the running profile", async () => {
+  const pm = new FakeProfileManager();
+  pm.profiles.set("p", { id: "p", name: "P", dataDir: "/tmp/p" });
+  pm.upsertSyncState({ profileId: "p", syncEnabled: true, dirty: true });
+  const vault = await vaultWithPassword();
+  await vault.set("s3AccessKeyId", "access");
+  await vault.set("s3SecretAccessKey", "secret");
+  const driver = new FakeDriver();
+  const client = new FakeCoordinator();
+  const { ctl } = makeController({ pm, driver, client, vault });
+  let started!: () => void;
+  let finish!: () => void;
+  const entering = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const launch = ctl.launch("p", async () => {
+    started();
+    await gate;
+    driver.setRunning("p", true);
+  });
+  await entering;
+  const sync = ctl.autoBootstrap({ force: true });
+  finish();
+  await launch;
+  const summary = await sync;
+  assert.equal(summary.deferred, 1);
+  assert.equal(client.releaseCalls, 0);
+  assert.equal(client.publishCalls, 0);
+  await ctl.shutdown();
+});
+
+test("a stale renewal failure cannot close the next session", async () => {
+  const pm = new FakeProfileManager();
+  pm.profiles.set("p", { id: "p", name: "P", dataDir: "/tmp/p" });
+  pm.upsertSyncState({ profileId: "p", syncEnabled: true });
+  const driver = new FakeDriver();
+  const client = new FakeCoordinator();
+  const { ctl } = makeController({ pm, driver, client });
+  await ctl.acquire("p");
+  let fail!: (err: Error) => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  client.renew = () =>
+    new Promise((_resolve, reject) => {
+      fail = reject;
+      entered();
+    });
+  const renewal = (ctl as unknown as { renewLease(id: string): Promise<void> }).renewLease("p");
+  await started;
+  await ctl.release("p");
+  await ctl.launch("p", async () => {
+    driver.setRunning("p", true);
+  });
+  fail(new Error("old request"));
+  await renewal;
+  assert.equal(driver.isRunning("p"), true);
+  assert.equal(driver.closed.length, 0);
+  await ctl.shutdown();
+});
+
+test("launch waits for the background upload to publish and release its own lease", async () => {
+  const pm = new FakeProfileManager();
+  const dataDir = mkdtempSync(join(tmpdir(), "mz-background-launch-"));
+  pm.profiles.set("p", { id: "p", dataDir, name: "P" });
+  pm.upsertSyncState({ profileId: "p", syncEnabled: true, dirty: true });
+  const vault = await vaultWithPassword();
+  await vault.set("s3AccessKeyId", "access");
+  await vault.set("s3SecretAccessKey", "secret");
+  const client = new FakeCoordinator();
+  const driver = new FakeDriver();
+  const kopia = new FakeKopia();
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const snapshot = kopia.snapshot.bind(kopia);
+  kopia.armGate();
+  kopia.snapshot = async () => {
+    entered();
+    return snapshot();
+  };
+  const { ctl } = makeController({ pm, driver, client, vault, kopia });
+  try {
+    const upload = ctl.autoBootstrap();
+    await started;
+    const launch = ctl.launch("p", async () => {
+      assert.equal(client.releaseCalls, 1);
+      driver.setRunning("p", true);
+    });
+    kopia.releaseGate();
+    await upload;
+    await launch;
+    assert.equal(client.acquireCalls, 2);
+    assert.equal(client.releaseCalls, 1);
+    assert.equal(pm.getSyncState("p")?.dirty, true);
+  } finally {
+    await ctl.shutdown();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -1625,7 +1625,7 @@ test("the receiving device cleans agent config files before forgetting the proje
     // B installs the project into a local folder for Cursor.
     await ctlB.setDirectoryAgents("gone", workspace, ["cursor"]);
     const cursorFile = join(workspace, ".cursor", "mcp.json");
-    assert.ok(readFileSync(cursorFile, "utf8").includes("multizen_gone_srv"));
+    assert.ok(readFileSync(cursorFile, "utf8").includes("m_gone_srv"));
 
     // A deletes the project; B must strip its entries from the agent file.
     await ctlA.deleteProject("gone");
@@ -1733,4 +1733,290 @@ test("a local-only gateway still deletes without any tombstone", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a failed project upload survives restart and is published once", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-pending-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const vault = new MemoryVault();
+  const first = makeService(dir, vault, store);
+  await first.start();
+  const create = store.putCreate.bind(store);
+  store.putCreate = async (key, bytes) => {
+    if (key.endsWith("/state.json"))
+      throw Object.assign(new Error("offline"), { kind: "Unreachable" });
+    return create(key, bytes);
+  };
+  await first.saveConfig(project("offline"));
+  assert.equal(first.syncStatusView().pending, 1);
+  await first.shutdown();
+  store.putCreate = create;
+  const second = makeService(dir, vault, store);
+  t.after(() => second.shutdown());
+  await second.start();
+  await second.syncNow();
+  assert.equal(second.lastRevision("offline"), 1);
+  assert.equal(second.syncStatusView().pending, 0);
+});
+
+test("a lost write acknowledgment followed by another edit advances exactly twice", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-ack-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const svc = makeService(dir, new MemoryVault(), store);
+  await svc.start();
+  t.after(() => svc.shutdown());
+  const create = store.putCreate.bind(store);
+  store.putCreate = async (key, bytes) => {
+    const result = await create(key, bytes);
+    if (key.endsWith("/state.json")) throw new Error("response lost");
+    return result;
+  };
+  await svc.saveConfig(project("ack", false));
+  assert.equal(svc.syncStatusView().pending, 1);
+  await svc.saveConfig(project("ack", true));
+  await svc.syncNow();
+  assert.equal(svc.lastRevision("ack"), 2);
+  assert.equal(svc.configOf("ack")?.enabled, true);
+  assert.equal(svc.syncStatusView().pending, 0);
+  assert.equal(svc.syncStatusView().conflicts, 0);
+});
+
+test("per-project read failures do not quarantine a good project or hide invalid records", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-read-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const svc = makeService(dir, new MemoryVault(), store);
+  await svc.start();
+  t.after(() => svc.shutdown());
+  await svc.saveConfig(project("network"));
+  await svc.saveConfig(project("broken"));
+  const get = store.get.bind(store);
+  store.get = async (key) => {
+    if (key.endsWith("/network/tombstone.json"))
+      throw Object.assign(new Error("offline"), { kind: "Unreachable" });
+    const obj = await get(key);
+    if (key.endsWith("/broken/state.json")) return { ...obj, bytes: new Uint8Array() };
+    return obj;
+  };
+  await svc.syncNow();
+  assert.equal(svc.syncStatusView().unreadable, 1);
+  assert.match(svc.syncStatusView().lastError!, /network.*Unreachable/);
+  assert.deepEqual(
+    svc.quarantineList().map((q) => q.projectId),
+    ["broken"],
+  );
+  assert.ok(svc.configOf("network"));
+  store.get = get;
+  await svc.syncNow();
+  assert.equal(svc.syncStatusView().unreadable, 0);
+  assert.equal(svc.syncStatusView().lastError, null);
+});
+
+test("first sync recovers legacy projects, preserves divergent and deleted copies and resumes after a read error", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-migrate-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const vault = new MemoryVault();
+  const local = makeService(dir, vault, store);
+  await local.start();
+  for (const id of ["equal", "different", "deleted", "missing", "retry"]) {
+    await local.saveConfig(project(id));
+  }
+  await local.shutdown();
+  const statePath = join(dir, "mcp-gateway", "state.json");
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  // A genuine pre-outbox state file, including remembered revisions.
+  writeFileSync(statePath, JSON.stringify({ revisions: state.revisions }));
+  const gv = new GatewayVault(vault);
+  const signingKey = await gv.getOrCreateSigningKey();
+  const saltHex = await gv.getOrCreateSaltHex();
+  const bridge = new GatewaySyncBridge({
+    store,
+    password: PASSWORD,
+    controlPrefix: PREFIX,
+    signingKey,
+    saltHex,
+  });
+  await bridge.publish(project("different", false), 2);
+  await bridge.publishTombstone("deleted", 2);
+  await store.deleteStrict!(`${PREFIX}/mcp/projects/missing/state.json`);
+  const get = store.get.bind(store);
+  store.get = async (key) => {
+    if (key.endsWith("/retry/state.json"))
+      throw Object.assign(new Error("offline"), { kind: "Unreachable" });
+    return get(key);
+  };
+  const migrated = makeService(dir, vault, store);
+  t.after(() => migrated.shutdown());
+  await migrated.start();
+  assert.equal(migrated.syncStatusView().unreadable, 1);
+  assert.equal(migrated.configOf("different")?.enabled, false);
+  assert.equal(migrated.configOf("deleted"), null);
+  assert.deepEqual(
+    migrated
+      .conflictList()
+      .map((c) => c.projectId)
+      .sort(),
+    ["deleted", "different"],
+  );
+  store.get = get;
+  await migrated.syncNow();
+  assert.equal(migrated.syncStatusView().unreadable, 0);
+  assert.equal(migrated.lastRevision("equal"), 1);
+  assert.equal((await bridge.inspect("missing")).applied[0]?.revision, 1);
+  assert.equal(migrated.conflictList().length, 2);
+});
+
+test("a second local edit reaches disk while the first acknowledgment is outstanding", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-inflight-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const svc = makeService(dir, new MemoryVault(), store);
+  await svc.start();
+  t.after(() => svc.shutdown());
+  let entered!: () => void;
+  let finish!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const create = store.putCreate.bind(store);
+  store.putCreate = async (key, bytes) => {
+    const result = await create(key, bytes);
+    if (key.endsWith("/flight/state.json")) {
+      entered();
+      await gate;
+    }
+    return result;
+  };
+  const first = svc.saveConfig(project("flight", false));
+  await started;
+  const second = svc.saveConfig(project("flight", true));
+  try {
+    const deadline = Date.now() + 3000;
+    while (svc.configOf("flight")?.enabled !== true && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(svc.configOf("flight")?.enabled, true);
+    const saved = JSON.parse(
+      readFileSync(join(dir, "mcp-gateway", "projects", "flight.json"), "utf8"),
+    );
+    assert.equal(saved.enabled, true);
+  } finally {
+    finish();
+    await Promise.all([first, second]);
+  }
+  assert.equal(svc.lastRevision("flight"), 2);
+  assert.equal(svc.syncStatusView().pending, 0);
+  assert.equal(svc.syncStatusView().conflicts, 0);
+});
+
+test("pending updates stay with their original bucket across target changes", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-target-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const stores = [sharedStore(), sharedStore()];
+  let target = 0;
+  const svc = new GatewayService({
+    dataDir: dir,
+    vault: new MemoryVault(),
+    allowedHosts: ["localhost"],
+    baseUrl: "http://localhost",
+    makeBoundServer: () => {
+      throw new Error("unused");
+    },
+    autoSync: { intervalMs: 0 },
+    runtimeOptions: { stdioFactory: fakeStdioFactory() },
+    syncMaterials: async () => ({
+      store: stores[target]!,
+      targetId: "bucket-" + target,
+      controlPrefix: PREFIX,
+      password: PASSWORD,
+      deviceId: "test",
+    }),
+  });
+  await svc.start();
+  t.after(() => svc.shutdown());
+  const a = stores[0]!;
+  const create = a.putCreate.bind(a);
+  a.putCreate = async () => {
+    throw new Error("offline");
+  };
+  await svc.saveConfig(project("privateproject"));
+  target = 1;
+  await svc.composeSyncIfReady();
+  await svc.syncNow();
+  const b = await device(stores[1]!);
+  assert.equal((await b.bridge.inspect("privateproject")).absent.length, 1);
+  a.putCreate = create;
+  target = 0;
+  await svc.composeSyncIfReady();
+  await svc.syncNow();
+  assert.equal(svc.lastRevision("privateproject"), 1);
+  assert.equal(svc.syncStatusView().pending, 0);
+});
+
+test("a remote deletion preserves an offline edit and never republishes it automatically", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-delete-pending-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const { svc, b } = await trustedPair(store, dir);
+  t.after(() => svc.shutdown());
+  await svc.saveConfig(project("removed"));
+  const cas = store.putCompareAndSwap.bind(store);
+  store.putCompareAndSwap = async () => {
+    throw new Error("offline");
+  };
+  await svc.saveConfig(project("removed", false));
+  store.putCompareAndSwap = cas;
+  await b.bridge.publishTombstone("removed", 2);
+  await svc.syncNow();
+  await svc.syncNow();
+  assert.equal(svc.configOf("removed"), null);
+  assert.equal(svc.conflictList().length, 1);
+  assert.equal(svc.syncStatusView().pending, 0);
+  await svc.resolveConflicts("removed", "mine");
+  assert.equal(svc.configOf("removed")?.enabled, false);
+  assert.equal(svc.lastRevision("removed"), 3);
+});
+
+test("a deletion tied with a committed concurrent edit keeps the edit for recovery", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-delete-tie-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const { svc, b } = await trustedPair(store, dir);
+  t.after(() => svc.shutdown());
+  await svc.saveConfig(project("tied"));
+  await svc.saveConfig(project("tied", false));
+  await b.bridge.publishTombstone("tied", 2);
+  await svc.syncNow();
+  await svc.syncNow();
+  assert.equal(svc.configOf("tied"), null);
+  assert.equal(svc.conflictList().length, 1);
+  await svc.resolveConflicts("tied", "mine");
+  assert.equal(svc.configOf("tied")?.enabled, false);
+  assert.equal(svc.lastRevision("tied"), 3);
+});
+
+test("restart completes a local install interrupted after the durable edit was recorded", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-local-journal-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = sharedStore();
+  const vault = new MemoryVault();
+  const first = makeService(dir, vault, store);
+  await first.start();
+  // Fail the second disk write, after the intent has been committed to state.json.
+  const { store: local } = first as unknown as { store: { save(): Promise<void> } };
+  local.save = async () => { throw new Error("disk full"); };
+  await assert.rejects(first.saveConfig(project("journal")), /disk full/);
+  await first.shutdown();
+  const recovered = makeService(dir, vault, store);
+  t.after(() => recovered.shutdown());
+  await recovered.start();
+  assert.equal(recovered.configOf("journal")?.enabled, true);
+  assert.equal(recovered.lastRevision("journal"), 1);
+  assert.equal(recovered.syncStatusView().pending, 0);
 });

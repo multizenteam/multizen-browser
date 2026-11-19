@@ -55,7 +55,7 @@ function LiveExtensions({ profileId }: { profileId: string }): JSX.Element {
   useEffect(() => {
     if (!window.multizen) return;
     void window.multizen.extensions.list(profileId).then(setItems);
-    // A companion "Add to Covebird" install (while editing a running profile)
+    // A companion "Add to Sekvona" install (while editing a running profile)
     // pushes here — refresh the list.
     return window.multizen.extensions.onInstalled((e) => {
       if (e.profileId === profileId) {
@@ -132,7 +132,7 @@ function LiveExtensions({ profileId }: { profileId: string }): JSX.Element {
       )}
 
       <div className="text-[11px] text-slate-600 leading-relaxed">
-        Or open the Chrome Web Store inside this profile and click <b>Add to Covebird</b>.
+        Or open the Chrome Web Store inside this profile and click <b>Add to Sekvona</b>.
         Changes apply on the next launch.
       </div>
 

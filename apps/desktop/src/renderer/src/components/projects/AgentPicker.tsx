@@ -7,7 +7,7 @@ import { cn } from "../../lib/cn";
  * Per-directory agent selection.
  *
  * Each directory independently chooses any subset of the supported agents.
- * Covebird writes the project's enabled endpoints into exactly the selected
+ * Sekvona writes the project's enabled endpoints into exactly the selected
  * agents' workspace configuration files, and removes them again when an agent is
  * de-selected.
  */
@@ -16,7 +16,7 @@ import { cn } from "../../lib/cn";
 export const AGENT_CHOICES: ReadonlyArray<{
   kind: AgentKind;
   label: string;
-  /** Workspace-relative path Covebird writes for this agent. */
+  /** Workspace-relative path Sekvona writes for this agent. */
   path: string;
 }> = [
   { kind: "claude-code", label: "Claude Code", path: ".mcp.json" },

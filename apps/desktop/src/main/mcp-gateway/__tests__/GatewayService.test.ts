@@ -296,3 +296,20 @@ test("OAuth Connect reports failure when the probe succeeds but the live connect
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("new project ID limit and Unicode name shortening apply to create and rename", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "gw-project-name-"));
+  const svc = makeService(dir);
+  await svc.start();
+  t.after(async () => {
+    await svc.shutdown();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const ctl = makeController(svc);
+  const id = "p".repeat(24);
+  assert.equal((await ctl.createProject({ id: id + "x" })).ok, false);
+  assert.equal((await ctl.createProject({ id, label: "🦊".repeat(33) })).ok, true);
+  assert.equal(svc.configOf(id)?.label, "🦊".repeat(32));
+  assert.equal((await ctl.updateProject(id, { label: "a".repeat(40) })).ok, true);
+  assert.equal(svc.configOf(id)?.label, "a".repeat(32));
+});

@@ -1,0 +1,4 @@
+description: Build and verify a macOS test installer from the current local commit.
+steps:
+  - name: package
+    run: bash scripts/ci-mac.sh

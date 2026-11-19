@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: main
+          ref: development
           fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
@@ -24,7 +24,7 @@ jobs:
       - name: Prepare isolated merge (never updates main)
         id: merge
         run: |
-          git config --global user.name 'Covebird Upstream Review'
+          git config --global user.name 'Sekvona Upstream Review'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
           node scripts/upstream/prepare.mjs ../upstream-review
           if [ -d ../upstream-review ]; then echo 'prepared=true' >> "$GITHUB_OUTPUT"; fi
@@ -44,10 +44,10 @@ jobs:
         working-directory: ../upstream-review
         run: |
           git add -A
-          git commit -m 'Merge upstream improvements for review; preserve Covebird and fork features'
+          git commit -m 'Merge upstream improvements for review; preserve Sekvona and fork features'
           BRANCH="$(git branch --show-current)"
           git push origin "HEAD:refs/heads/$BRANCH"
-          echo "Review: https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH" >> "$GITHUB_STEP_SUMMARY"
+          echo "Review: https://github.com/$GITHUB_REPOSITORY/compare/development...$BRANCH" >> "$GITHUB_STEP_SUMMARY"
       - name: Explain blocked integration
         if: failure()
         run: echo 'Integration stopped. No changes were made to main. Review conflicts, protected-file changes or failed tests in the job log.' >> "$GITHUB_STEP_SUMMARY"

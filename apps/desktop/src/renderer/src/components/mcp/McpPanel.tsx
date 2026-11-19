@@ -14,7 +14,7 @@ interface Props {
 }
 
 /**
- * MCP panel: the one place to connect an AI agent to Covebird and watch what it
+ * MCP panel: the one place to connect an AI agent to Sekvona and watch what it
  * does. Top half = a "Connect an agent" card (endpoint + copy-paste client
  * config); bottom half = the live feed of MCP tool calls.
  */
@@ -31,7 +31,7 @@ export function McpPanel({ events, profiles, mcpUrl, mcpToken }: Props): JSX.Ele
         </div>
         <div className="text-[13px] text-slate-500 mb-5 leading-relaxed max-w-[68ch]">
           Drive your profiles from an AI agent. Point any MCP client (Claude Desktop, Cursor,
-          Cline, …) at Covebird, then launch a profile and let the agent open tabs, click, type,
+          Cline, …) at Sekvona, then launch a profile and let the agent open tabs, click, type,
           and read pages through it — every tool call streams into the feed below.
         </div>
 
@@ -130,7 +130,7 @@ function ConnectCard({
   const llmPrompt = useMemo(
     () =>
       [
-        "I'm using the Covebird browser, which runs a local MCP server so an AI agent can drive its browser profiles (open tabs, click, type, read pages).",
+        "I'm using the Sekvona browser, which runs a local MCP server so an AI agent can drive its browser profiles (open tabs, click, type, read pages).",
         "",
         `It exposes a Streamable HTTP MCP endpoint at: ${httpUrl}`,
         `(A legacy HTTP+SSE endpoint is also available at ${sseUrl} for older clients.)`,
@@ -145,7 +145,7 @@ function ConnectCard({
         `   - Stdio-only clients (Claude Desktop, no url field) bridge via mcp-remote (needs Node.js):  {"mcpServers":{"multizen":{"command":"npx","args":["mcp-remote","${httpUrl}","--header","Authorization: Bearer ${bearer}"]}}}`,
         "3. Merge it into the existing config without overwriting other servers, then tell me to restart/reload the client.",
         "",
-        'Once connected, every Covebird tool is prefixed "multizen." — I\'ll launch a profile in Covebird and you can drive it.',
+        'Once connected, every Sekvona tool is prefixed "multizen." — I\'ll launch a profile in Sekvona and you can drive it.',
       ].join("\n"),
     [httpUrl, sseUrl, bearer],
   );

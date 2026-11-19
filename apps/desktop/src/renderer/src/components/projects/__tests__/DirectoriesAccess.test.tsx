@@ -334,7 +334,7 @@ describe("Access — one-shot token reveal", () => {
     expect(fake.api.generateToken).toHaveBeenCalledWith("alpha");
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent(/only time Covebird can show it/i);
+    expect(dialog).toHaveTextContent(/only time Sekvona can show it/i);
     const token = "f".repeat(64);
     expect(within(dialog).getByText(token)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /copy token/i })).toBeInTheDocument();

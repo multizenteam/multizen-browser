@@ -1,3 +1,4 @@
+import { shortenProjectName } from "../../../../main/mcp-gateway/projectNames";
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import { FolderTree, Plus, RefreshCw, Search } from "lucide-react";
 
@@ -15,7 +16,7 @@ import { SyncStatusRow } from "./SyncStatusRow";
  *
  * A gateway "project" bundles upstream MCP servers, an optional exclusive
  * browser-profile binding, and the local directories whose agent configuration
- * Covebird keeps in sync. This screen is the only place that composition is
+ * Sekvona keeps in sync. This screen is the only place that composition is
  * edited; browser-profile settings stay in the Profiles screen.
  */
 
@@ -216,7 +217,7 @@ export function ProjectsScreen({
               </div>
               <div className="text-[12px] text-slate-500 mt-1.5 leading-relaxed">
                 {projects.length === 0
-                  ? "Covebird will write the project’s MCP endpoints into the agent configuration of every folder you choose."
+                  ? "Sekvona will write the project’s MCP endpoints into the agent configuration of every folder you choose."
                   : "Pick a project on the left to edit its servers, folders, and access."}
               </div>
             </div>
@@ -276,7 +277,7 @@ function ProjectRow({
     >
       <div className="flex items-center gap-2">
         <span className="text-[12.5px] font-medium truncate flex-1">
-          {project.label ?? project.id}
+          {shortenProjectName(project.label ?? project.id)}
         </span>
         {project.enabled ? (
           <Pill kind="running">on</Pill>

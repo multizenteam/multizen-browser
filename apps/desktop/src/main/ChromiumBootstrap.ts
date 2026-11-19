@@ -364,7 +364,7 @@ export class ChromiumBootstrap extends EventEmitter {
       throw new Error(
         `Failed to extract the browser archive — the download was likely ` +
           `corrupted or truncated. It has been cleared; please retry. If it ` +
-          `keeps failing, add Covebird to your antivirus exclusions. (${(e as Error).message})`,
+          `keeps failing, add Sekvona to your antivirus exclusions. (${(e as Error).message})`,
       );
     }
     await rm(zipPath, { force: true });
@@ -534,7 +534,7 @@ export class ChromiumBootstrap extends EventEmitter {
       `Could not download a complete, valid Chromium archive after ${MAX_ATTEMPTS} attempts. ` +
         `Last error: ${lastError?.message ?? "unknown"}. Your network — or an antivirus / ` +
         `corporate proxy inspecting HTTPS — is likely corrupting the large download. Try a ` +
-        `different network or add Covebird to your antivirus exclusions.`,
+        `different network or add Sekvona to your antivirus exclusions.`,
     );
   }
 

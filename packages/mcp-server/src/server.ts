@@ -230,6 +230,7 @@ export interface MultizenMcpServerOptions {
   profileLifecycle?: {
     onCreated?: (profileId: ProfileId) => void | Promise<void>;
     onUpdated?: (profileId: ProfileId) => void | Promise<void>;
+    launch?: BrowserDriver["launch"];
     beforeLaunch?: (profileId: ProfileId) => void | Promise<void>;
     beforeDelete?: (profileId: ProfileId) => void | Promise<void>;
   };
@@ -373,7 +374,7 @@ const UpdateProfileSchema = ProfileIdSchema.extend({
  * headful only) that an agent can't infer from tool signatures alone.
  */
 const MULTIZEN_MCP_INSTRUCTIONS = [
-  "Covebird drives real, persistent Chromium profiles — each has its own cookies, login state, fingerprint, and proxy, kept on disk between sessions.",
+  "Sekvona drives real, persistent Chromium profiles — each has its own cookies, login state, fingerprint, and proxy, kept on disk between sessions.",
   "",
   "Workflow:",
   "1. Call list_profiles to see available profiles and which are already running.",
@@ -541,6 +542,7 @@ async function dispatch(
     case "launch_profile": {
       const { profile_id } = ProfileIdSchema.parse(args);
       assertProfileExists(profileManager, profile_id);
+      if (deps.profileLifecycle?.launch) return deps.profileLifecycle.launch(profile_id);
       await deps.profileLifecycle?.beforeLaunch?.(profile_id);
       // ChromiumBrowserDriver.launch() handles markOpened internally so
       // every entry-point (UI, MCP, palette) gets the same timestamp.
@@ -809,7 +811,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "extract",
     description:
-      "Snapshot the current page: returns the URL, title, and a trimmed accessibility tree. The calling LLM is responsible for parsing this into whatever structured data it needs. Covebird does not call any external API.",
+      "Snapshot the current page: returns the URL, title, and a trimmed accessibility tree. The calling LLM is responsible for parsing this into whatever structured data it needs. Sekvona does not call any external API.",
     inputSchema: {
       type: "object",
       required: ["profile_id"],

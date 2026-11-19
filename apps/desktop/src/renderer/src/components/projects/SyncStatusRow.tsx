@@ -86,11 +86,7 @@ export function SyncStatusRow({ onSynced }: SyncStatusRowProps): JSX.Element | n
         {!status.ready && <CloudOff size={12} className="text-slate-500 flex-shrink-0" />}
         <div className="flex-1 min-w-0">
           <div className="text-[11.5px] text-slate-300 truncate">
-            {status.running
-              ? "Syncing…"
-              : status.ready
-                ? "Cloud sync on"
-                : "Not syncing"}
+            {status.running ? "Syncing…" : status.ready ? "Cloud sync on" : "Not syncing"}
           </div>
           <div className="text-[10.5px] text-slate-500 truncate">
             {!status.ready
@@ -127,6 +123,16 @@ export function SyncStatusRow({ onSynced }: SyncStatusRowProps): JSX.Element | n
         onTrustChanged={() => void retry()}
       />
 
+      {Boolean(status.pending || status.unreadable) && (
+        <div role="status" className="mt-1 text-[10.5px] text-amber-200/90">
+          {[
+            (status.pending ?? 0) > 0 && `${status.pending} awaiting upload`,
+            (status.unreadable ?? 0) > 0 && `${status.unreadable} could not be read`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </div>
+      )}
       {status.lastError !== null && (
         <div
           role="alert"

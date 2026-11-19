@@ -1,3 +1,4 @@
+import { shortenProjectName } from "../../../../main/mcp-gateway/projectNames";
 import {
   useCallback,
   useEffect,
@@ -133,10 +134,10 @@ export function ProjectDetail({
 
   const remove = useCallback(async () => {
     const confirmed = await confirm({
-      title: `Delete “${project.label ?? project.id}”?`,
+      title: `Delete “${shortenProjectName(project.label ?? project.id)}”?`,
       body: (
         <>
-          Covebird will remove this project’s MCP entries from every folder’s agent
+          Sekvona will remove this project’s MCP entries from every folder’s agent
           configuration, then delete the project. Your browser profile and any
           servers you configured by hand are left untouched.
         </>
@@ -174,7 +175,7 @@ export function ProjectDetail({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h2 className="text-[16px] font-bold text-slate-100 truncate">
-                {project.label ?? project.id}
+                {shortenProjectName(project.label ?? project.id)}
               </h2>
               {project.enabled ? <Pill kind="running">on</Pill> : <Pill kind="idle">off</Pill>}
             </div>
@@ -225,7 +226,7 @@ export function ProjectDetail({
             <input
               type="text"
               value={label}
-              onChange={(e) => setLabel(e.target.value)}
+              onChange={(e) => setLabel(shortenProjectName(e.target.value))}
               onBlur={() => void commitLabel()}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void commitLabel();
@@ -248,7 +249,7 @@ export function ProjectDetail({
             hint={
               project.enabled
                 ? "Endpoints are served and written into your folders’ agent configuration."
-                : "Nothing is served, and Covebird’s entries are removed from your folders."
+                : "Nothing is served, and Sekvona’s entries are removed from your folders."
             }
           >
             <button

@@ -188,6 +188,8 @@ export interface QuarantineView {
 
 /** Whole-gateway sync status. */
 export interface GatewaySyncStatusView {
+  readonly pending?: number;
+  readonly unreadable?: number;
   /** True when Cloud Sync is configured + ready for project sync. */
   readonly ready: boolean;
   readonly lastSyncAt: number | null;

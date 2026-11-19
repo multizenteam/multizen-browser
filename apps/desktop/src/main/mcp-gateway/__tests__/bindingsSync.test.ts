@@ -104,11 +104,11 @@ test("a device's bindings round-trip through backup and restore", async () => {
       // The agent config files were actually rewritten, not just recorded.
       assert.match(
         readFileSync(join(workspace, ".cursor", "mcp.json"), "utf8"),
-        /multizen_alpha_srv/,
+        /m_alpha_srv/,
       );
       assert.match(
         readFileSync(join(workspace, ".codex", "config.toml"), "utf8"),
-        /multizen_alpha_srv/,
+        /m_alpha_srv/,
       );
       // And the approval came back, so references can resolve again.
       assert.deepEqual(fresh.svc.approvedEnvNames(), ["SHARED_TOKEN"]);

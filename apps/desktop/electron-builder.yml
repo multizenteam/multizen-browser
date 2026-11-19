@@ -1,5 +1,5 @@
 appId: com.multizen.desktop
-productName: Covebird
+productName: Sekvona
 # Pinned to the version in package.json devDependencies so electron-builder
 # does not need to introspect node_modules. Bump in sync when upgrading.
 electronVersion: 33.2.0

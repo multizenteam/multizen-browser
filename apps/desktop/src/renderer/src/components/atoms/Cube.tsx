@@ -13,14 +13,14 @@ interface Props {
 }
 
 /**
- * Brand mark — the selected Covebird Harbor bird icon.
+ * Brand mark — Sekvona’s interlocking tabs.
  * Renders the bundled vector asset. The component name stays stable for upstream callers.
  */
 export function Cube({ size = 28, glow = true, className }: Props): JSX.Element {
   return (
     <img
       src={logoUrl}
-      alt="Covebird"
+      alt="Sekvona"
       width={size}
       height={size}
       className={className}

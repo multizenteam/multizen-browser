@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { prepare } from './prepare.mjs';
 function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'covebird-merge-')), repo = join(root, 'repo');
+  const root = mkdtempSync(join(tmpdir(), 'sekvona-merge-')), repo = join(root, 'repo');
   mkdirSync(repo);
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
@@ -21,14 +21,14 @@ function fixture(t) {
 test('prepares a real merge separately while preserving fork and current branch', t => {
   const f=fixture(t);
   f.git('checkout','upstream'); f.write('fix.txt','upstream improvement'); f.git('add','.'); f.git('commit','-m','fix');
-  f.git('checkout','main'); f.write('brand.txt','Covebird'); f.git('add','.'); f.git('commit','-m','fork');
+  f.git('checkout','main'); f.write('brand.txt','Sekvona'); f.git('add','.'); f.git('commit','-m','fork');
   const before=f.git('rev-parse','HEAD');
   const result=prepare({...f,target:'upstream'});
   assert.equal(result.status,'prepared'); assert.equal(f.git('rev-parse','HEAD'),before);
   assert.equal(f.git('branch','--show-current'),'main'); assert.equal(f.git('status','--porcelain'),'');
   assert.equal(readFileSync(join(f.destination,'fix.txt'),'utf8'),'upstream improvement');
   assert.equal(readFileSync(join(f.destination,'custom.txt'),'utf8'),'sync remains\n');
-  assert.equal(readFileSync(join(f.destination,'brand.txt'),'utf8'),'Covebird');
+  assert.equal(readFileSync(join(f.destination,'brand.txt'),'utf8'),'Sekvona');
 });
 test('blocks clean upstream deletion of custom functionality',t=>{
   const f=fixture(t); f.git('checkout','upstream'); f.git('rm','custom.txt'); f.git('commit','-m','remove'); f.git('checkout','main');

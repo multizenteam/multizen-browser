@@ -5,14 +5,14 @@
  * and then rendered into each agent's own file format. Every adapter obeys the
  * same ownership contract:
  *
- *   - It writes ONLY deterministic Covebird-owned keys
- *     (`multizen_<projectId>_<serverId>` and `multizen_<projectId>_browser`).
+ *   - It writes ONLY deterministic Sekvona-owned keys
+ *     (short project/server aliases).
  *   - It removes previously-owned keys that are no longer desired.
- *   - It refuses (`collision`) to overwrite a same-named entry that Covebird is
+ *   - It refuses (`collision`) to overwrite a same-named entry that Sekvona is
  *     not recorded as owning, so a user's or another tool's server is never
  *     silently replaced.
  *   - It preserves every unrelated entry AND every unrelated top-level field,
- *     including ones this version of Covebird does not understand.
+ *     including ones this version of Sekvona does not understand.
  *
  * Authentication is ALWAYS emitted as an environment-variable reference in the
  * syntax each agent understands. The bearer token itself is never written into a
@@ -30,9 +30,9 @@ import { parse as tomlParse } from "@iarna/toml";
 import { ConfigFileError } from "./ConfigFileTransactor.ts";
 import { AGENT_KINDS, type AgentKind } from "./types.ts";
 
-/** One gateway endpoint Covebird installs into an agent configuration. */
+/** One gateway endpoint Sekvona installs into an agent configuration. */
 export interface DesiredEndpoint {
-  /** Deterministic Covebird-owned entry key. */
+  /** Deterministic Sekvona-owned entry key. */
   readonly key: string;
   /** Streamable HTTP URL of the gateway route. */
   readonly url: string;
@@ -51,7 +51,7 @@ export interface RenderArgs {
   readonly current: string | null;
   /** Entries that should exist after the write. */
   readonly desired: readonly DesiredEndpoint[];
-  /** Keys Covebird wrote last time; the only keys it may replace or remove. */
+  /** Keys Sekvona wrote last time; the only keys it may replace or remove. */
   readonly ownedKeys: readonly string[];
 }
 
@@ -63,7 +63,7 @@ export interface AgentAdapter {
   /** Produce the file's complete new text. */
   render(args: RenderArgs): string;
   /**
-   * Operator guidance for a precondition this agent imposes that Covebird
+   * Operator guidance for a precondition this agent imposes that Sekvona
    * cannot satisfy by writing the file (e.g. an approval prompt).
    */
   readonly postInstallHint?: string;
@@ -71,19 +71,25 @@ export interface AgentAdapter {
 
 // ── deterministic naming ────────────────────────────────────────────────────
 
+// Reserve underscores for separators and a leading hyphen for hashed components.
+function shortId(id: string, reserved = ""): string {
+  if (id !== reserved && /^[a-z0-9-]{1,8}$/.test(id)) return id;
+  return "-" + createHash("sha256").update(id).digest("hex").slice(0, 10);
+}
+
 /** Entry key for one upstream proxy endpoint. */
 export function proxyEntryKey(projectId: string, serverId: string): string {
-  return `multizen_${projectId}_${serverId}`;
+  return `m_${shortId(projectId)}_${shortId(serverId, "browser")}`;
 }
 
 /** Entry key for a project's profile-bound browser endpoint. */
 export function browserEntryKey(projectId: string): string {
-  return `multizen_${projectId}_browser`;
+  return `m_${shortId(projectId)}_browser`;
 }
 
-/** True when a key is one Covebird could have generated for this project. */
+/** True when a key is one Sekvona could have generated for this project. */
 export function isMultizenKeyFor(projectId: string, key: string): boolean {
-  return key.startsWith(`multizen_${projectId}_`);
+  return key.startsWith(`m_${shortId(projectId)}_`);
 }
 
 /**
@@ -160,7 +166,7 @@ function mergeJsonServers(
       throw new ConfigFileError(
         `${fileLabel} is not valid JSON: ${(err as Error).message}`,
         "malformed",
-        `Fix or remove ${fileLabel}, then retry. Covebird will not overwrite a file it cannot parse.`,
+        `Fix or remove ${fileLabel}, then retry. Sekvona will not overwrite a file it cannot parse.`,
       );
     }
     if (!isPlainObject(parsed)) {
@@ -192,7 +198,7 @@ function mergeJsonServers(
   for (const key of desiredByKey.keys()) {
     if (key in servers && !owned.has(key)) {
       throw new ConfigFileError(
-        `${fileLabel} already defines an MCP server named "${key}" that Covebird does not manage`,
+        `${fileLabel} already defines an MCP server named "${key}" that Sekvona does not manage`,
         "collision",
         `Rename or remove the existing "${key}" entry in ${fileLabel}, then retry.`,
       );
@@ -233,7 +239,7 @@ export const claudeCodeAdapter: AgentAdapter = {
   relativePath: [".mcp.json"],
   postInstallHint:
     "Claude Code asks you to approve project-scoped servers the first time you " +
-    "open this directory. Run `claude` there and approve Covebird's servers.",
+    "open this directory. Run `claude` there and approve Sekvona's servers.",
   render: (args) =>
     mergeJsonServers(
       args,
@@ -337,7 +343,7 @@ function assertValidToml(text: string, label: string): Record<string, unknown> {
     throw new ConfigFileError(
       `${label} is not valid TOML: ${(err as Error).message}`,
       "malformed",
-      `Fix or remove ${label}, then retry. Covebird will not overwrite a file it cannot parse.`,
+      `Fix or remove ${label}, then retry. Sekvona will not overwrite a file it cannot parse.`,
     );
   }
 }
@@ -388,7 +394,7 @@ function renderCodexBlock(projectId: string, desired: readonly DesiredEndpoint[]
  *
  * Codex shares one configuration format between the CLI, IDE extension, and the
  * desktop app, and supports a project-scoped file for TRUSTED projects. Because
- * that file routinely carries hand-written settings and comments, Covebird owns
+ * that file routinely carries hand-written settings and comments, Sekvona owns
  * only a delimited block and never reformats the rest of the document.
  */
 export const codexAdapter: AgentAdapter = {
@@ -418,7 +424,7 @@ export const codexAdapter: AgentAdapter = {
         for (const e of desired) {
           if (e.key in outside) {
             throw new ConfigFileError(
-              `${CODEX_FILE} already defines [mcp_servers.${e.key}] outside Covebird's managed block`,
+              `${CODEX_FILE} already defines [mcp_servers.${e.key}] outside Sekvona's managed block`,
               "collision",
               `Remove or rename the [mcp_servers.${e.key}] table in ${CODEX_FILE}, then retry.`,
             );
@@ -435,9 +441,9 @@ export const codexAdapter: AgentAdapter = {
         const orphaned = ownedKeys.filter((k) => k in outside);
         if (orphaned.length > 0) {
           throw new ConfigFileError(
-            `${CODEX_FILE} contains Covebird tables (${orphaned.join(", ")}) whose managed-block markers were removed`,
+            `${CODEX_FILE} contains Sekvona tables (${orphaned.join(", ")}) whose managed-block markers were removed`,
             "collision",
-            `Delete the [mcp_servers.${orphaned[0] as string}] table (and any other multizen_* tables) from ${CODEX_FILE}, then retry.`,
+            `Delete the [mcp_servers.${orphaned[0] as string}] table (and any other listed orphaned tables) from ${CODEX_FILE}, then retry.`,
           );
         }
       }

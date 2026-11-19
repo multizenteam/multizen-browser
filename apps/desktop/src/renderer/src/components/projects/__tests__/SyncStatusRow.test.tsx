@@ -28,6 +28,13 @@ describe("Sync status — states", () => {
     expect(within(row).queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("shows pending uploads and unreadable projects separately from conflicts", async () => {
+    setup(createFakeGateway({ sync: { ready: true, pending: 2, unreadable: 1 } }));
+    const row = await screen.findByTestId("sync-status");
+    expect(within(row).getByText(/2 awaiting upload.*1 could not be read/)).toBeInTheDocument();
+    expect(within(row).queryByText(/refused|conflicted/)).not.toBeInTheDocument();
+  });
+
   it("reports when it has never synced despite being ready", async () => {
     setup(createFakeGateway({ sync: { ready: true, lastSyncAt: null } }));
     const row = await screen.findByTestId("sync-status");

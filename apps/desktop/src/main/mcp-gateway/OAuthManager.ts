@@ -98,7 +98,7 @@ export class OAuthManager {
     return {
       redirectUrl,
       clientMetadata: {
-        client_name: "Covebird",
+        client_name: "Sekvona",
         redirect_uris: [redirectUrl],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
@@ -177,19 +177,19 @@ export class OAuthManager {
           return;
         }
         if (url.searchParams.get("state") !== expectedState) {
-          response.writeHead(400).end("Invalid sign-in state. Return to Covebird and try again.");
+          response.writeHead(400).end("Invalid sign-in state. Return to Sekvona and try again.");
           return;
         }
         const code = url.searchParams.get("code");
         if (!code) {
           response
             .writeHead(400)
-            .end("Sign-in was not completed. Return to Covebird and try again.");
+            .end("Sign-in was not completed. Return to Sekvona and try again.");
           callbackReject(new Error("OAuth sign-in was cancelled or denied."));
           return;
         }
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end("<h2>Sign-in received</h2><p>Return to Covebird to check the connection.</p>");
+        response.end("<h2>Sign-in received</h2><p>Return to Sekvona to check the connection.</p>");
         callbackResolve(code);
       });
       const provider = this.provider(
@@ -228,7 +228,7 @@ export class OAuthManager {
           params: {
             protocolVersion: LATEST_PROTOCOL_VERSION,
             capabilities: {},
-            clientInfo: { name: "Covebird", version: "0.0.0" },
+            clientInfo: { name: "Sekvona", version: "0.0.0" },
           },
         });
       } catch (error) {

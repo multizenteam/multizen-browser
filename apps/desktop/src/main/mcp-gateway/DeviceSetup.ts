@@ -208,7 +208,7 @@ export class DeviceSetup {
         }
         if (!probe.conditionalWritesSupported) {
           throw new Error(
-            `This storage does not support the conditional writes Covebird needs` +
+            `This storage does not support the conditional writes Sekvona needs` +
               (probe.capability.failedCheck !== null
                 ? ` (failed check: ${probe.capability.failedCheck})`
                 : ""),

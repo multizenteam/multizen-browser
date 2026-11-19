@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Covebird Companion",
+  "name": "Sekvona Companion",
   "version": "1.0.0",
-  "description": "Add extensions to Covebird from Chrome Web Store pages.",
+  "description": "Add extensions to Sekvona from Chrome Web Store pages.",
   "content_scripts": [
     {
       "matches": [

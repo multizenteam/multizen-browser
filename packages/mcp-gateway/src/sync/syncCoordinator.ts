@@ -215,6 +215,8 @@ export interface DeletedProject {
 }
 
 export interface RestoreResult {
+  readonly absent: string[];
+  readonly readErrors: { projectId: string; kind: "AuthFailed" | "Unreachable" | "ReadFailed" }[];
   readonly applied: AppliedProject[];
   readonly quarantined: QuarantinedProject[];
   /**
@@ -366,7 +368,7 @@ export class ProjectSyncCoordinator {
    * caller persists a durable local conflict copy (keep-both). Bound and unbound
    * projects (with/without `browserProfileId`) publish identically.
    */
-  async publish(config: ProjectConfig, revision: number): Promise<PublishResult> {
+  async publish(config: ProjectConfig, revision: number, allowRecreation = true): Promise<PublishResult> {
     const projectId = assertProjectId(config.id);
     if (!Number.isInteger(revision) || revision < 1) {
       throw new SyncCoordinatorError(`revision must be a positive integer`, "config");
@@ -389,8 +391,11 @@ export class ProjectSyncCoordinator {
     // Without this the head would still sit below the tombstone, `publish` would
     // demand the tombstone's own revision, and the tie would keep going to the
     // tombstone — making resurrection impossible.
-    const tombstone = await this.readTombstone(projectId).catch(() => null);
+    const tombstone = await this.readTombstone(projectId);
     const tombstoneRevision = tombstone?.revision ?? 0;
+    if (!allowRecreation && tombstone && tombstone.revision >= (current?.record.envelope.revision ?? 0)) {
+      return this.buildConflict(projectId, config, envelope, revision, tombstone);
+    }
 
     if (current === null) {
       const required = tombstoneRevision + 1;
@@ -418,7 +423,7 @@ export class ProjectSyncCoordinator {
     const remoteRevision = Math.max(current.record.envelope.revision, tombstoneRevision);
     if (revision <= remoteRevision) {
       // Remote already at/ahead of our revision: do not overwrite. Keep both.
-      return this.buildConflict(projectId, config, envelope, revision, current.record);
+      return this.buildConflict(projectId, config, envelope, revision, current.record.envelope);
     }
     if (revision !== remoteRevision + 1) {
       throw new SyncCoordinatorError(
@@ -433,7 +438,7 @@ export class ProjectSyncCoordinator {
       if (isStoreErrorKind(err, "PreconditionFailed", "Conflict", "NotFound")) {
         // Lost the CAS race: re-read to attach the winning remote metadata.
         const fresh = await this.readHead(projectId);
-        return this.buildConflict(projectId, config, envelope, revision, fresh?.record);
+        return this.buildConflict(projectId, config, envelope, revision, fresh?.record.envelope);
       }
       throw err;
     }
@@ -449,10 +454,10 @@ export class ProjectSyncCoordinator {
     losingConfig: ProjectConfig,
     losingEnvelope: ProjectEnvelope,
     attemptedRevision: number,
-    remoteRecord?: ProjectRecord,
+    remoteRecord?: Pick<ProjectEnvelope, "revision" | "signer">,
   ): ConflictOutcome {
-    const remoteRevision = remoteRecord?.envelope.revision ?? attemptedRevision;
-    const remoteSigner = remoteRecord?.envelope.signer ?? "unknown";
+    const remoteRevision = remoteRecord?.revision ?? attemptedRevision;
+    const remoteSigner = remoteRecord?.signer ?? "unknown";
     return {
       kind: "conflict",
       projectId,
@@ -792,7 +797,10 @@ export class ProjectSyncCoordinator {
     const key = projectTombstoneKey(this.controlPrefix, projectId);
     try {
       const got = await this.store.get(key);
-      return decodeTombstone(got.bytes);
+      const record = decodeTombstone(got.bytes);
+      if (!record || record.project !== projectId)
+        throw new VerificationError("Invalid project tombstone", "malformed");
+      return record;
     } catch (err) {
       if (isStoreErrorKind(err, "NotFound")) return null;
       throw err;
@@ -916,12 +924,10 @@ export class ProjectSyncCoordinator {
   async restoreAll(
     registry: TrustRegistry,
     knownRevisions?: ReadonlyMap<string, number>,
+    localIds: Iterable<string> = [],
   ): Promise<RestoreResult> {
     verifyTrustRegistry(registry);
     const prefix = mcpProjectsPrefix(this.controlPrefix);
-    const applied: AppliedProject[] = [];
-    const quarantined: QuarantinedProject[] = [];
-    const deleted: DeletedProject[] = [];
     let scanned = 0;
     let continuationToken: string | undefined;
 
@@ -929,7 +935,8 @@ export class ProjectSyncCoordinator {
     // deletion lives beside the head rather than replacing it. Collect ids first,
     // then decide per project, so a project is judged once even when both objects
     // show up on the same page.
-    const ids = new Set<string>();
+    const local = new Set(localIds);
+    const ids = new Set(local);
     do {
       const page = await this.store.list(prefix, {
         maxKeys: this.pageSize,
@@ -953,6 +960,22 @@ export class ProjectSyncCoordinator {
       continuationToken = page.nextContinuationToken ?? undefined;
     } while (continuationToken !== undefined && scanned < this.maxScanKeys);
 
+    return this.readProjects(registry, ids, knownRevisions, scanned, local);
+  }
+
+  async readProjects(
+    registry: TrustRegistry,
+    ids: Iterable<string>,
+    knownRevisions?: ReadonlyMap<string, number>,
+    scanned = 0,
+    includeCurrentDeletion: ReadonlySet<string> = new Set(),
+  ): Promise<RestoreResult> {
+    verifyTrustRegistry(registry);
+    const applied: AppliedProject[] = [];
+    const quarantined: QuarantinedProject[] = [];
+    const deleted: DeletedProject[] = [];
+    const absent: string[] = [];
+    const readErrors: RestoreResult["readErrors"] = [];
     for (const id of ids) {
       const projectId = id as ProjectId;
       const last = knownRevisions?.get(projectId);
@@ -965,8 +988,12 @@ export class ProjectSyncCoordinator {
         // project is gone; a later re-publish resurrects it.
         if (tombstone !== null && tombstone.revision >= headRevision) {
           try {
+            // A local draft may intentionally recreate a previously deleted project.
+            // Return that exact deletion to the caller while still rejecting older records.
+            const floor =
+              last !== undefined && includeCurrentDeletion.has(id) ? Math.max(0, last - 1) : last;
             const verified = verifyTombstone(tombstone, registry, {
-              ...(last !== undefined ? { lastAppliedRevision: last } : {}),
+              ...(floor !== undefined ? { lastAppliedRevision: floor } : {}),
             });
             deleted.push({
               projectId: verified.project,
@@ -979,7 +1006,7 @@ export class ProjectSyncCoordinator {
               // An unauthenticated or replayed deletion is refused outright —
               // otherwise bucket write access alone would destroy projects.
               // `rollback` just means we already processed it; not a problem.
-              if (err.code !== "rollback") {
+              if (err.code !== "rollback" || includeCurrentDeletion.has(id)) {
                 quarantined.push({
                   projectId,
                   reason: `deletion refused: ${err.message}`,
@@ -991,7 +1018,10 @@ export class ProjectSyncCoordinator {
           continue;
         }
 
-        if (head === null) continue;
+        if (head === null) {
+          absent.push(id);
+          continue;
+        }
         if (head.kind === "malformed") {
           quarantined.push({ projectId, reason: head.reason, code: "malformed" });
           continue;
@@ -1000,16 +1030,24 @@ export class ProjectSyncCoordinator {
         if ("config" in result) applied.push(result);
         else quarantined.push(result);
       } catch (err) {
-        // Transport/other error for one project: quarantine it, keep going.
-        quarantined.push({
-          projectId,
-          reason: `read failed: ${(err as Error).message}`,
-          code: "malformed",
-        });
+        if (err instanceof VerificationError || isStoreErrorKind(err, "Malformed")) {
+          quarantined.push({
+            projectId,
+            reason: "Invalid stored project record",
+            code: "malformed",
+          });
+        } else {
+          const kind = isStoreErrorKind(err, "AuthFailed")
+            ? "AuthFailed"
+            : isStoreErrorKind(err, "Unreachable")
+              ? "Unreachable"
+              : "ReadFailed";
+          readErrors.push({ projectId, kind });
+        }
       }
     }
 
-    return { applied, quarantined, deleted, scanned };
+    return { applied, quarantined, deleted, scanned, absent, readErrors };
   }
 }
 

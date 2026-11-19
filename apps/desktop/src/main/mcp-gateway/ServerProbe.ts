@@ -207,7 +207,7 @@ export async function probeServer(
       protocolVersion: LATEST_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: {
-        name: options.clientName ?? "Covebird",
+        name: options.clientName ?? "Sekvona",
         version: options.clientVersion ?? "0.0.0",
       },
     });
@@ -311,7 +311,7 @@ function messageOf(err: unknown): string {
 /** Actionable advice for a JSON-RPC-level refusal. */
 function hintForRpc(message: string): string | null {
   if (/unsupported|protocol.?version/i.test(message)) {
-    return "The server may speak a different MCP protocol version than this build of Covebird.";
+    return "The server may speak a different MCP protocol version than this build of Sekvona.";
   }
   return null;
 }

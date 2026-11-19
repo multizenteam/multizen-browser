@@ -54,7 +54,7 @@ export function ChromiumBootstrapModal(): JSX.Element | null {
 function titleFor(status: ChromiumStatus): string {
   switch (status.kind) {
     case "missing":
-      return "Setting up Covebird";
+      return "Setting up Sekvona";
     case "fetching-manifest":
       return "Looking up the browser runtime";
     case "downloading":
@@ -66,7 +66,7 @@ function titleFor(status: ChromiumStatus): string {
     case "error":
       return "Setup failed";
     default:
-      return "Covebird";
+      return "Sekvona";
   }
 }
 

@@ -1,21 +1,23 @@
 <div align="center">
-  <img src="branding/mark.svg" width="96" height="96" alt="Covebird" />
-  <h1>Covebird</h1>
-  <p><strong>Every identity. Its own lane.</strong></p>
+  <img src="branding/mark.svg" width="96" height="96" alt="Sekvona" />
+  <h1>Sekvona</h1>
+  <p><strong>A browser workspace for every project.</strong></p>
   <p>Independent browser workspaces, encrypted Cloud Sync, and an MCP gateway.</p>
 </div>
 
-Covebird is the independently branded continuation of this fork. The rebrand is in development; the current published release is still MultiZen 0.4.3.
+Sekvona is the new name for this fork of MultiZen. Existing installations keep their profiles and settings. Releases preceding the rename use the MultiZen name.
+
+## Contributing
+
+Branch from `development` using `feature/<description>`. Open feature PRs against `development`, then promote tested changes to `main` through a release PR. See [branch rules](AGENTS.md).
 
 ## Upstream updates without losing our features
 
 [Brand and integration guide](branding/README.md). Original MultiZen improvements are merged into an isolated review branch. Conflicts, edits to fork-owned code, or failing compatibility tests stop the integration. Nothing automatically merges into main or publishes a release.
 
-![Covebird onboarding preview](branding/preview.png)
-
 ## What it is
 
-Covebird is a desktop app that runs a library of isolated browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy, and runs on your choice of engine — CloakBrowser (Chromium) or Camoufox (Firefox). A local MCP server on `127.0.0.1:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot, evaluate JS, cookies, tabs, waits) to any MCP client.
+Sekvona is a desktop app that runs a library of isolated browser profiles. Each profile has its own cookies, login state, fingerprint, and proxy, and runs on your choice of engine — CloakBrowser (Chromium) or Camoufox (Firefox). A local MCP server on `127.0.0.1:7777` exposes browser-drive tools (navigate, click, type, extract, screenshot, evaluate JS, cookies, tabs, waits) to any MCP client.
 
 The result: your AI agent in Cursor or Claude Desktop can complete real authenticated workflows. Cookies and session state survive between launches, so logins and context carry over across AI sessions.
 
@@ -23,37 +25,38 @@ The result: your AI agent in Cursor or Claude Desktop can complete real authenti
 
 ### macOS
 
-Download the architecture-matched DMG from [this fork's releases](https://github.com/irensaltali/multizen-browser/releases/latest), then drag Covebird into Applications. This fork includes Cloud Sync and the MCP gateway. Use this repository’s builds; upstream installers do not include the fork additions.
+Download the architecture-matched DMG from [this fork's releases](https://github.com/irensaltali/multizen-browser/releases/latest), then drag Sekvona into Applications. This fork includes Cloud Sync and the MCP gateway. Use this repository’s builds; upstream installers do not include the fork additions.
 
 The Mac build uses ad-hoc signing. If macOS blocks the downloaded app, run:
 
 ```sh
-xattr -cr /Applications/Covebird.app
+xattr -cr /Applications/Sekvona.app
 ```
 
 ### Linux
 
+Download the AppImage from [this fork’s releases](https://github.com/irensaltali/multizen-browser/releases/latest). Use its downloaded filename in the commands below.
+
 ```sh
-curl -LO https://github.com/irensaltali/multizen-browser/releases/latest/download/Covebird-linux-x86_64.AppImage
-chmod +x Covebird-linux-x86_64.AppImage
-./Covebird-linux-x86_64.AppImage
+chmod +x Sekvona-linux-x86_64.AppImage
+./Sekvona-linux-x86_64.AppImage
 ```
 
 Some distros need `libfuse2` (`apt install libfuse2t64` on Ubuntu 24.04+).
 
-On Ubuntu 24.04+ (and other kernels that restrict unprivileged user namespaces) the browser's sandbox is blocked by default. On the first affected launch Covebird offers a one-time **secure setup**: it installs a small AppArmor profile that re-permits the sandbox for just this browser (one password prompt). The sandbox then stays on with no warning banner. You can also run or re-run it later from Settings. If you decline or it can't run, Covebird launches the browser without the sandbox so it still works.
+On Ubuntu 24.04+ (and other kernels that restrict unprivileged user namespaces) the browser's sandbox is blocked by default. On the first affected launch Sekvona offers a one-time **secure setup**: it installs a small AppArmor profile that re-permits the sandbox for just this browser (one password prompt). The sandbox then stays on with no warning banner. You can also run or re-run it later from Settings. If you decline or it can't run, Sekvona launches the browser without the sandbox so it still works.
 
 Prefer to do it by hand? Settings shows the exact command; it writes `/etc/apparmor.d/multizen-cloakbrowser` and loads it with `apparmor_parser`. To force sandbox-off regardless, launch the AppImage with `--no-sandbox`.
 
 ### Windows
 
-Download [Covebird-win-x64.exe](https://github.com/irensaltali/multizen-browser/releases/latest/download/Covebird-win-x64.exe). SmartScreen may flag the installer as unrecognized on first download. Click **More info**, then **Run anyway**.
+Download the Windows x64 installer from [this fork’s releases](https://github.com/irensaltali/multizen-browser/releases/latest). SmartScreen may flag the installer as unrecognized on first download. Click **More info**, then **Run anyway**.
 
 ## How it works
 
 ```
 +----------------------+         +-----------------------+
-|  Cursor / Claude     |  MCP    |  Covebird Desktop App |
+|  Cursor / Claude     |  MCP    |  Sekvona Desktop App |
 |  Desktop / Cline     | <-----> |  127.0.0.1:7777       |
 +----------------------+         +-----------+-----------+
                                              |
@@ -143,16 +146,16 @@ http_headers = { Authorization = "Bearer <token>" }
 
 Restart your client. The agent now has the full tool set — profile lifecycle (`list_profiles`, `launch_profile`, `close_profile`), page driving (`navigate`, `click`, `type`, `extract`, `screenshot`, `evaluate_js`), tabs (`list_tabs`, `new_tab`, `activate_tab`, `close_tab`), cookies (`get_cookies`, `set_cookies`), waits (`wait_for_load`, `wait_for_navigation`, `wait_for_selector`), and raw `cdp_send`.
 
-## Projects — let Covebird write the agent config for you
+## Projects — let Sekvona write the agent config for you
 
 The **Projects** screen (⌘2) is the alternative to editing the config files above
-by hand. A project is a named bundle of MCP endpoints that Covebird installs into
+by hand. A project is a named bundle of MCP endpoints that Sekvona installs into
 the folders you nominate, for the agents you pick.
 
 A project holds four things:
 
 - **Upstream MCP servers** — `stdio` (command + args) or `http` (URL) servers that
-  Covebird proxies, each becoming its own endpoint at
+  Sekvona proxies, each becoming its own endpoint at
   `http://127.0.0.1:7777/mcp/proxies/<project>/<server>`.
 - **A browser profile** (optional) — bind one and the project also serves
   `http://127.0.0.1:7777/mcp/projects/<project>/browser`, the browser-drive tools
@@ -162,7 +165,7 @@ A project holds four things:
 - **Per-folder agents** — for each folder, any of **Claude Code**, **Cursor**,
   **Codex**, **kiro-cli**.
 
-For every folder × agent pair Covebird maintains that agent's workspace config:
+For every folder × agent pair Sekvona maintains that agent's workspace config:
 
 | Agent | File it manages |
 | --- | --- |
@@ -171,13 +174,13 @@ For every folder × agent pair Covebird maintains that agent's workspace config:
 | Codex | `<folder>/.codex/config.toml` |
 | kiro-cli | `<folder>/.kiro/settings/mcp.json` |
 
-Writes are **merge-only and reversible**. Covebird owns exactly the entries it
-created (named `multizen_<project>_<server>`) and leaves every other server,
+Writes are **merge-only and reversible**. Sekvona owns exactly the entries it
+created (named `m_<short-project>_<short-server>`) and leaves every other server,
 setting, key order, indentation, and — in the TOML case — every hand-written
 comment untouched. Each write is a backup-then-atomic-rename with a read-back
 verify, and it aborts rather than clobbering a file that changed underneath it.
 Removing a server, unselecting an agent, unlinking a folder, or deleting the
-project removes only Covebird's own entries. If a file can't be cleaned up, the
+project removes only Sekvona's own entries. If a file can't be cleaned up, the
 project is kept and the failure is reported instead of leaving orphaned entries
 behind.
 
@@ -185,7 +188,7 @@ Each folder row shows the managed file path, whether it is up to date, and — w
 something fails — the reason plus what to do about it, with a retry button.
 
 **Secrets never enter these files.** Anywhere a server needs a credential you can
-either paste the value — Covebird puts it in your OS keychain and writes only a
+either paste the value — Sekvona puts it in your OS keychain and writes only a
 `${NAME}` reference into the project config — or name an environment variable to
 read it from at launch. Either way the config, and therefore anything that syncs
 to another device or lands in an agent's config file, holds a reference and never
@@ -254,13 +257,15 @@ yarn typecheck
 yarn test
 git add package.json apps/desktop/package.json
 git commit -m "chore(release): 0.5.1"
-git tag -a v0.5.1 -m "Covebird 0.5.1"
+git tag -a v0.5.1 -m "Sekvona 0.5.1"
 git push origin main v0.5.1
 ```
 
 The `Release` workflow verifies the tag, runs tests, and packages Apple Silicon, Intel, Windows, and Linux builds. It validates artifact hashes and combines the Mac architecture feeds before publishing a completed GitHub Release. Failed builds never update the public feed. Publishing uses the repository's built-in `GITHUB_TOKEN`; no personal token is needed. For a failed run, fix the cause and publish a new version, or rerun the same workflow if the failure was transient. If only the workflow needs a fix (such as a retired runner), dispatch `Release` from `main` with the existing `release_tag`; all builds still check out and verify that tag. Do not move published tags.
 
 `yarn dist:mac arm64` creates a local installer without publishing. The separate `Build macOS distributables` workflow is manual and produces downloadable Actions artifacts only.
+
+For a local macOS CI build, run `dagu start --default-working-dir "$PWD" .dagu/sekvona-mac.yaml` from the repository root on a Mac with Yarn and Dagu installed. This manual job builds the current committed HEAD in a temporary worktree for the host architecture, verifies the DMG and ZIP, and saves them under `dist/ci/`.
 
 Preserve fork features when incorporating upstream: fetch `upstream`, merge its `master` into this fork's `main`, resolve conflicts, and run the test suite. Do not reset `main` to upstream or change the fork's update destination.
 
@@ -397,9 +402,9 @@ Things landing in upcoming releases.
 - **Behavioral injection**: humanized mouse paths, keystroke timing, scroll jitter applied at the CDP input layer.
 - **Team workspaces**: shared profile pool with audit log.
 
-## Why Covebird vs the alternatives
+## Why Sekvona vs the alternatives
 
-| | Covebird | Browserbase / Hyperbrowser | GoLogin / AdsPower / Multilogin |
+| | Sekvona | Browserbase / Hyperbrowser | GoLogin / AdsPower / Multilogin |
 | --- | :---: | :---: | :---: |
 | Native MCP server | yes | yes | profile CRUD only |
 | Drives the browser through MCP | yes | yes | no |
@@ -422,10 +427,10 @@ Building a multi-account browser is dual-use. We support QA testing across roles
   <br/>
   <sub>
     Built in transit by <a href="https://github.com/oboshto">@oboshto</a>.<br/>
-    Star this repo if Covebird is useful, it helps a lot.
+    Star this repo if Sekvona is useful, it helps a lot.
   </sub>
 </div>
 
 ## Attribution
 
-Based on [MultiZen](https://github.com/multizenteam/multizen-browser). Original MIT license and copyright notices are retained in [LICENSE](LICENSE). Covebird is an independent fork.
+Based on [MultiZen](https://github.com/multizenteam/multizen-browser). Original MIT license and copyright notices are retained in [LICENSE](LICENSE). Sekvona is an independent fork.

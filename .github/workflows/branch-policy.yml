@@ -1,0 +1,21 @@
+name: Branch policy
+on:
+  pull_request:
+    branches: [main, development]
+    types: [opened, reopened, synchronize, edited]
+permissions: {}
+jobs:
+  route:
+    name: Branch route
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate pull request branches
+        env:
+          SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          case "$GITHUB_BASE_REF:$GITHUB_HEAD_REF" in
+            development:feature/?*) exit 0 ;;
+            main:development) test "$SOURCE_REPO" = "$GITHUB_REPOSITORY" && exit 0 ;;
+          esac
+          echo "::error::Open feature/* PRs against development. Promote development to main from this repository."
+          exit 1

@@ -151,7 +151,7 @@ export class HttpConnector {
           this.phase = "idle";
       };
       // Validate the actual live session before exposing it to downstream agents.
-      const client = new Client({ name: "Covebird", version: "0.0.0" });
+      const client = new Client({ name: "Sekvona", version: "0.0.0" });
       const signal = AbortSignal.timeout(10_000);
       const onmessage = transport.onmessage;
       const onclose = transport.onclose;

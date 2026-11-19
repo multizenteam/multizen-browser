@@ -29,7 +29,7 @@ export function TopBar({ totalCount, runningCount, mcpUrl, onCmdK, onSettings }:
           isn't selectable and pointer events fall through to the drag region. */}
       <div className="flex items-center gap-2 ml-2 pointer-events-none">
         <Cube size={20} />
-        <span className="font-bold text-[13px] tracking-tight text-slate-100">Covebird</span>
+        <span className="font-bold text-[13px] tracking-tight text-slate-100">Sekvona</span>
       </div>
 
       {/* Search trigger — center, opens command palette */}

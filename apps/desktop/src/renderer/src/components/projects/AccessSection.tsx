@@ -17,7 +17,7 @@ import { Field, Section } from "./ProjectDetail";
  * When a token is required, generated agent configuration references an
  * environment VARIABLE rather than embedding the token — so the agent must be
  * launched with that variable exported. The token itself is shown exactly once,
- * when it is minted; afterwards Covebird can only report that one exists.
+ * when it is minted; afterwards Sekvona can only report that one exists.
  */
 
 export interface AccessSectionProps {
@@ -135,7 +135,7 @@ export function AccessSection({
               label="Token"
               hint={
                 project.localAuth.tokenPresent
-                  ? "A token exists. Covebird cannot show it again — generate a new one if you have lost it."
+                  ? "A token exists. Sekvona cannot show it again — generate a new one if you have lost it."
                   : "No token yet. Generate one and copy it into the environment variable below."
               }
             >
@@ -160,7 +160,7 @@ export function AccessSection({
             {envName !== null && (
               <Field
                 label="Variable"
-                hint="Export this variable — with the token as its value — in the environment where you launch your agent. Covebird writes only this NAME into agent configuration."
+                hint="Export this variable — with the token as its value — in the environment where you launch your agent. Sekvona writes only this NAME into agent configuration."
               >
                 <CopyRow value={envName} label="Copy variable name" />
               </Field>
@@ -232,7 +232,7 @@ export function AccessSection({
         open={revealed !== null}
         onClose={() => setRevealed(null)}
         title="Copy your token now"
-        subtitle="This is the only time Covebird can show it. Afterwards it can only confirm that a token exists."
+        subtitle="This is the only time Sekvona can show it. Afterwards it can only confirm that a token exists."
         width={520}
         footer={
           <Button variant="primary" size="sm" onClick={() => setRevealed(null)}>

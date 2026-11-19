@@ -120,7 +120,7 @@ export function Settings({ onImport }: Props): JSX.Element {
       <div className="max-w-[720px] mx-auto">
         <div className="text-lg font-bold tracking-tight text-slate-100 mb-1.5">Settings</div>
         <div className="text-[13px] text-slate-500 mb-5">
-          MCP server, archives, build info. Configuration is local — Covebird does not call any
+          MCP server, archives, build info. Configuration is local — Sekvona does not call any
           external API on your behalf.
         </div>
 
@@ -287,7 +287,7 @@ export function Settings({ onImport }: Props): JSX.Element {
           <Row
             icon={<ShieldAlert size={16} strokeWidth={1.5} />}
             title="Linux browser sandbox"
-            desc="This kernel restricts the browser's sandbox. Covebird can re-enable it for just this browser with a one-time system authorization — the sandbox stays on with no warning banner."
+            desc="This kernel restricts the browser's sandbox. Sekvona can re-enable it for just this browser with a one-time system authorization — the sandbox stays on with no warning banner."
           >
             <div className="flex items-center gap-2.5 flex-wrap">
               {sandbox.state === "active" ? (
@@ -384,7 +384,7 @@ export function Settings({ onImport }: Props): JSX.Element {
           desc={
             info?.platform === "darwin"
               ? "Auto-install isn't available on macOS yet — we'll notify you in-app to download the new version."
-              : "Covebird checks for updates in the background and installs them on restart."
+              : "Sekvona checks for updates in the background and installs them on restart."
           }
         >
           <div className="flex items-center gap-2.5 flex-wrap">
@@ -426,7 +426,7 @@ export function Settings({ onImport }: Props): JSX.Element {
 
         <Row icon={<Sparkles size={16} strokeWidth={1.5} />} title="About" desc="">
           <div className="mono text-[12px] text-slate-400 leading-relaxed">
-            Covebird v{info?.appVersion ?? "0.0.0"} · {info?.platform ?? "—"} · Electron{" "}
+            Sekvona v{info?.appVersion ?? "0.0.0"} · {info?.platform ?? "—"} · Electron{" "}
             {electronVersion()}
           </div>
           <div className="text-[12px] text-slate-400 leading-relaxed mt-2">

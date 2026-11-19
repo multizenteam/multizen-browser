@@ -47,7 +47,7 @@ describe("project id derivation", () => {
     expect(deriveProjectId("already-fine_1")).toBe("already-fine_1");
     expect(deriveProjectId("--leading and trailing--")).toBe("leading-and-trailing");
     expect(deriveProjectId("")).toBe("");
-    expect(deriveProjectId("x".repeat(80))).toHaveLength(64);
+    expect(deriveProjectId("x".repeat(80))).toHaveLength(24);
   });
 
   it("accepts only the gateway's id grammar", () => {

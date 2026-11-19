@@ -2,7 +2,7 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 
 /**
- * Covebird button system. Same status-pill DNA — soft tinted background +
+ * Sekvona button system. Same status-pill DNA — soft tinted background +
  * saturated foreground, with subtle inner ring. The brand-gradient `primary`
  * is the only "loud" variant; everything else is calm by design.
  *

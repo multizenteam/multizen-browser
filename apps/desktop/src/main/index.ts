@@ -133,7 +133,7 @@ let gatewayService: GatewayService | null = null;
 async function pickWorkspaceDirectory(): Promise<string | null> {
   const r = await dialog.showOpenDialog(mainWindow!, {
     title: "Choose a project directory",
-    message: "Covebird will write this project's MCP endpoints into the agents you select.",
+    message: "Sekvona will write this project's MCP endpoints into the agents you select.",
     properties: ["openDirectory", "createDirectory"],
   });
   if (r.canceled || !r.filePaths[0]) return null;
@@ -324,7 +324,7 @@ app.whenReady().then(async () => {
         cancelId: 1,
         message: "Enable the secure browser sandbox?",
         detail:
-          "This Linux kernel blocks the browser's sandbox. Covebird can re-enable it for " +
+          "This Linux kernel blocks the browser's sandbox. Sekvona can re-enable it for " +
           "just this browser with a one-time system authorization (you will be asked for " +
           "your password). Otherwise the browser launches without its sandbox.",
       });
@@ -348,7 +348,7 @@ app.whenReady().then(async () => {
     extensionStoreRoot,
     resolveSandboxDecision: (ctx) => linuxSandbox.resolveForLaunch(ctx),
     onSandboxInactive: (binaryPath) => linuxSandbox.markBinaryInactive(binaryPath),
-    // The companion's "Add to Covebird" button routes here (profile-scoped).
+    // The companion's "Add to Sekvona" button routes here (profile-scoped).
     // Confirm natively first: any script on the store page could trigger the
     // channel, so an explicit OS dialog makes a drive-by install impossible.
     onCompanionInstall: (profileId, extensionId) => {
@@ -362,7 +362,7 @@ app.whenReady().then(async () => {
         const profile = profileManager.get(profileId);
         const choice = await dialog.showMessageBox(mainWindow!, {
           type: "question",
-          buttons: ["Add to Covebird", "Cancel"],
+          buttons: ["Add to Sekvona", "Cancel"],
           defaultId: 0,
           cancelId: 1,
           message: "Add this extension to the profile?",
@@ -378,8 +378,7 @@ app.whenReady().then(async () => {
           // of making the user close + reopen it by hand.
           if (browserDriver.isRunning(profileId)) {
             await browserDriver.close(profileId).catch(() => {});
-            await syncController?.beforeLaunch(profileId);
-            await browserDriver.launch(profileId).catch((e: unknown) => {
+            await launchProfile(profileId).catch((e: unknown) => {
               // The profile is now closed and didn't reopen — tell the user so
               // they're not left wondering where their browser went.
               sendToRenderer("extensions:installed", {
@@ -435,6 +434,9 @@ app.whenReady().then(async () => {
     syncController = new SyncController({
       settingsStore,
       getSettings: () => cachedSettings as AppSettings,
+      onSyncMaterialsChanged: () => {
+        void gatewayService?.composeSyncIfReady().catch(() => {});
+      },
       onSettingsUpdated: (next) => {
         cachedSettings = next;
       },
@@ -503,7 +505,13 @@ app.whenReady().then(async () => {
     }
   };
 
+  function launchProfile(id: string) {
+    const start = () => browserDriver.launch(id);
+    return syncController ? syncController.launch(id, start) : start();
+  }
+
   const profileSyncLifecycle = {
+    launch: launchProfile,
     onCreated: (profileId: string): void => {
       profileManager.seedSyncEnabled(profileId);
       // force: a new/dirty profile does not move the readiness fingerprint, so a
@@ -518,9 +526,6 @@ app.whenReady().then(async () => {
       // force for the same reason as onCreated: the dirty flag is not part of the
       // readiness fingerprint. See SyncController.startAutoSync for the rationale.
       void syncController?.autoBootstrap({ force: true }).catch(() => undefined);
-    },
-    beforeLaunch: async (profileId: string): Promise<void> => {
-      await syncController?.beforeLaunch(profileId);
     },
     beforeDelete: (profileId: string): void => {
       // A profile bound to a gateway project is load-bearing for that project's
@@ -624,8 +629,7 @@ app.whenReady().then(async () => {
         listProfiles: () =>
           profileManager.list().map((p) => ({ id: p.id, name: p.name })),
         openOAuthUrl: async (profileId, url) => {
-          if (syncController) await syncController.beforeLaunch(profileId);
-          await browserDriver.launch(profileId);
+          await launchProfile(profileId);
           await browserDriver.openTab(profileId, url);
         },
         makeBoundServer: (_projectId, _boundProfileId) => ({
@@ -637,7 +641,7 @@ app.whenReady().then(async () => {
         // Compose S3 config sync only when Cloud Sync is ready. The password
         // never leaves the returned object's use inside the sync bridge.
         ...(syncController
-          ? { syncMaterials: () => syncController!.gatewaySyncMaterials() }
+          ? { syncTarget: () => syncController!.gatewayTargetId(), syncMaterials: () => syncController!.gatewaySyncMaterials() }
           : {}),
       });
       await gatewayService.start();
@@ -834,10 +838,7 @@ app.whenReady().then(async () => {
     // unsynced profiles pass straight through (beforeLaunch no-ops for them),
     // preserving existing behavior exactly. beforeLaunch also marks the
     // sync-enabled profile dirty (writable session incoming).
-    if (syncController) {
-      await syncController.beforeLaunch(id);
-    }
-    return browserDriver.launch(id);
+    return launchProfile(id);
   });
   ipcMain.handle("profiles:close", (_e, id: string) => browserDriver.close(id));
 
@@ -1085,7 +1086,7 @@ app.whenReady().then(async () => {
       const result = await dialog.showSaveDialog(mainWindow ?? undefined!, {
         title: "Export profile",
         defaultPath: `${profile.name.replace(/[^a-z0-9-_]+/gi, "_")}.mzar`,
-        filters: [{ name: "Covebird archive", extensions: ["mzar"] }],
+        filters: [{ name: "Sekvona archive", extensions: ["mzar"] }],
       });
       if (result.canceled || !result.filePath) return { ok: false, reason: "cancelled" };
       // Bundle the profile's shared-store extensions so importing on another
@@ -1107,7 +1108,7 @@ app.whenReady().then(async () => {
     async (_e, passphrase: string): Promise<{ ok: true; id: string } | { ok: false; reason: string }> => {
       const result = await dialog.showOpenDialog(mainWindow ?? undefined!, {
         title: "Import profile",
-        filters: [{ name: "Covebird archive", extensions: ["mzar"] }],
+        filters: [{ name: "Sekvona archive", extensions: ["mzar"] }],
         properties: ["openFile"],
       });
       if (result.canceled || result.filePaths.length === 0) {
@@ -1137,7 +1138,7 @@ app.whenReady().then(async () => {
           void dialog.showMessageBox(mainWindow ?? undefined!, {
             type: "info",
             message: "Engine not available",
-            detail: `This profile was exported with an engine this version of Covebird doesn't have (${String(recordedEngine)}). It will run on your default engine instead.`,
+            detail: `This profile was exported with an engine this version of Sekvona doesn't have (${String(recordedEngine)}). It will run on your default engine instead.`,
           });
         }
         // Insert the row verbatim so the DB entry points at the restored files
@@ -1188,7 +1189,7 @@ app.whenReady().then(async () => {
   const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
   process.stderr.write(`[multizen] fatal startup error:\n${detail}\n`);
   dialog.showErrorBox(
-    "Covebird failed to start",
+    "Sekvona failed to start",
     `A startup step failed:\n\n${e instanceof Error ? e.message : String(e)}\n\n` +
       "Please report this on Discord/GitHub with this message.",
   );
@@ -1231,6 +1232,7 @@ app.on("before-quit", async (e) => {
   e.preventDefault();
   try {
     if (credentialSyncTimer) clearInterval(credentialSyncTimer);
+    await syncController?.prepareToQuit();
     await browserDriver?.closeAll();
     await syncController?.shutdown();
     await credentialPushQueue;

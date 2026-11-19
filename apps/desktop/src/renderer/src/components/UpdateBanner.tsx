@@ -35,7 +35,7 @@ export function UpdateBanner({ suppressed }: { suppressed?: boolean }): JSX.Elem
     return (
       <Bar tone="info">
         <RefreshCw size={13} className="animate-spin text-purple-300 shrink-0" />
-        <span>Downloading Covebird {version}…</span>
+        <span>Downloading Sekvona {version}…</span>
         <span className="mono text-[11px] text-slate-400">{status.percent}%</span>
         <div className="flex-1" />
       </Bar>
@@ -47,7 +47,7 @@ export function UpdateBanner({ suppressed }: { suppressed?: boolean }): JSX.Elem
       <Bar tone="brand">
         <Download size={13} className="text-purple-200 shrink-0" />
         <span>
-          Covebird <b className="font-semibold">{version}</b> is ready to install.
+          Sekvona <b className="font-semibold">{version}</b> is ready to install.
         </span>
         <div className="flex-1" />
         <BannerButton primary onClick={() => void window.multizen.update.install()}>
@@ -64,7 +64,7 @@ export function UpdateBanner({ suppressed }: { suppressed?: boolean }): JSX.Elem
       <Bar tone="brand">
         <Download size={13} className="text-purple-200 shrink-0" />
         <span>
-          Covebird <b className="font-semibold">{version}</b> is available.
+          Sekvona <b className="font-semibold">{version}</b> is available.
         </span>
         <div className="flex-1" />
         <BannerButton primary onClick={() => void window.multizen.update.download(version)}>

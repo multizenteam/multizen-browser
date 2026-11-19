@@ -91,11 +91,11 @@ test("installing into a missing file produces a valid, self-delimiting block", (
   assert.equal(
     out,
     `# >>> multizen:zabit — managed by MultiZen, do not edit inside this block
-[mcp_servers.multizen_zabit_docs]
+[mcp_servers.m_zabit_docs]
 url = "${BASE}/mcp/proxies/zabit/docs"
 bearer_token_env_var = "MULTIZEN_PROJECT_ZABIT_A1B2C3_TOKEN"
 
-[mcp_servers.multizen_zabit_browser]
+[mcp_servers.m_zabit_browser]
 url = "${BASE}/mcp/projects/zabit/browser"
 
 # <<< multizen:zabit
@@ -103,12 +103,12 @@ url = "${BASE}/mcp/projects/zabit/browser"
   );
   // And it parses as real TOML with the expected tables.
   const s = servers(out);
-  assert.equal(s.multizen_zabit_docs?.url, `${BASE}/mcp/proxies/zabit/docs`);
+  assert.equal(s.m_zabit_docs?.url, `${BASE}/mcp/proxies/zabit/docs`);
   assert.equal(
-    s.multizen_zabit_docs?.bearer_token_env_var,
+    s.m_zabit_docs?.bearer_token_env_var,
     "MULTIZEN_PROJECT_ZABIT_A1B2C3_TOKEN",
   );
-  assert.equal(s.multizen_zabit_browser?.bearer_token_env_var, undefined);
+  assert.equal(s.m_zabit_browser?.bearer_token_env_var, undefined);
 });
 
 test("auth is emitted as bearer_token_env_var, never as a token value", () => {
@@ -141,7 +141,7 @@ test("existing comments and settings are preserved byte-for-byte outside the blo
   assert.deepEqual(Object.keys(s).sort(), [
     "context7",
     "figma",
-    "multizen_zabit_docs",
+    "m_zabit_docs",
   ]);
   assert.equal(s.figma?.bearer_token_env_var, "FIGMA_OAUTH_TOKEN", "untouched");
 });
@@ -186,7 +186,7 @@ test("an update replaces the block in place without moving it", () => {
     projectId: "p",
     current: reordered,
     desired: [proxy("p", "a"), proxy("p", "b")],
-    ownedKeys: ["multizen_p_a"],
+    ownedKeys: ["m_p_a"],
   });
   assert.equal(
     second.endsWith("# a trailing comment the user added\n"),
@@ -196,8 +196,8 @@ test("an update replaces the block in place without moving it", () => {
   assert.deepEqual(Object.keys(servers(second)).sort(), [
     "context7",
     "figma",
-    "multizen_p_a",
-    "multizen_p_b",
+    "m_p_a",
+    "m_p_b",
   ]);
 });
 
@@ -208,8 +208,8 @@ test("two projects keep independent blocks in one file", () => {
   assert.deepEqual(Object.keys(servers(doc)).sort(), [
     "context7",
     "figma",
-    "multizen_alpha_s",
-    "multizen_beta_s",
+    "m_alpha_s",
+    "m_beta_s",
   ]);
   assert.equal(doc.includes("# >>> multizen:alpha"), true);
   assert.equal(doc.includes("# >>> multizen:beta"), true);
@@ -219,13 +219,13 @@ test("two projects keep independent blocks in one file", () => {
     projectId: "alpha",
     current: doc,
     desired: [],
-    ownedKeys: ["multizen_alpha_s"],
+    ownedKeys: ["m_alpha_s"],
   });
   assert.doesNotThrow(() => tomlParse(afterAlpha));
   assert.deepEqual(Object.keys(servers(afterAlpha)).sort(), [
     "context7",
     "figma",
-    "multizen_beta_s",
+    "m_beta_s",
   ]);
   assert.equal(afterAlpha.includes("multizen:alpha"), false, "alpha's markers are gone");
   assert.equal(afterAlpha.includes("# My Codex configuration"), true);
@@ -243,7 +243,7 @@ test("a full uninstall removes the block and restores the user's document", () =
     projectId: "p",
     current: installed,
     desired: [],
-    ownedKeys: ["multizen_p_a", "multizen_p_browser"],
+    ownedKeys: ["m_p_a", "m_p_browser"],
   });
   assert.equal(uninstalled.includes("multizen"), false, "no MultiZen trace remains");
   assert.deepEqual(Object.keys(servers(uninstalled)).sort(), ["context7", "figma"]);
@@ -265,7 +265,7 @@ test("uninstalling from a missing file yields no file content", () => {
 
 test("a table defined outside our block is refused, not replaced", () => {
   const hostile = `${EXISTING}
-[mcp_servers.multizen_p_s]
+[mcp_servers.m_p_s]
 url = "https://someone-elses.example.com/mcp"
 `;
   assert.throws(
@@ -273,14 +273,14 @@ url = "https://someone-elses.example.com/mcp"
     (e: ConfigFileError) =>
       e instanceof ConfigFileError &&
       e.code === "collision" &&
-      e.message.includes("multizen_p_s") &&
+      e.message.includes("m_p_s") &&
       typeof e.hint === "string",
   );
 });
 
 test("orphaned MultiZen tables whose markers were deleted are reported, not duplicated", () => {
   const orphaned = `${EXISTING}
-[mcp_servers.multizen_p_a]
+[mcp_servers.m_p_a]
 url = "${BASE}/mcp/proxies/p/a"
 `;
   assert.throws(
@@ -289,7 +289,7 @@ url = "${BASE}/mcp/proxies/p/a"
         projectId: "p",
         current: orphaned,
         desired: [],
-        ownedKeys: ["multizen_p_a"],
+        ownedKeys: ["m_p_a"],
       }),
     (e: ConfigFileError) => e.code === "collision" && /markers were removed/.test(e.message),
   );
@@ -325,7 +325,7 @@ test("marker corruption (a begin with no end) is treated as no block", () => {
   const corrupted = `${EXISTING}\n# >>> multizen:p — managed by MultiZen, do not edit inside this block\n`;
   const out = render({ projectId: "p", current: corrupted, desired: [proxy("p", "s")] });
   assert.doesNotThrow(() => tomlParse(out));
-  assert.equal(servers(out).multizen_p_s?.url, `${BASE}/mcp/proxies/p/s`);
+  assert.equal(servers(out).m_p_s?.url, `${BASE}/mcp/proxies/p/s`);
   assert.equal(out.includes("# My Codex configuration"), true, "user content survived");
 });
 
@@ -333,11 +333,11 @@ test("values are TOML-escaped so an odd URL cannot break the document", () => {
   const out = codexAdapter.render({
     projectId: "p",
     current: null,
-    desired: [{ key: "multizen_p_s", url: 'http://x/"quoted"\\path' }],
+    desired: [{ key: "m_p_s", url: 'http://x/"quoted"\\path' }],
     ownedKeys: [],
   });
   assert.doesNotThrow(() => tomlParse(out));
-  assert.equal(servers(out).multizen_p_s?.url, 'http://x/"quoted"\\path');
+  assert.equal(servers(out).m_p_s?.url, 'http://x/"quoted"\\path');
 });
 
 test("quoted/dotted identifiers elsewhere in the document survive a round trip", () => {
@@ -351,5 +351,5 @@ enabled = true
   assert.doesNotThrow(() => tomlParse(out));
   assert.equal(out.includes('[mcp_servers."weird.name"]'), true);
   assert.equal(out.includes('[plugins."sample@test".mcp_servers.sample]'), true);
-  assert.ok(servers(out).multizen_p_s);
+  assert.ok(servers(out).m_p_s);
 });

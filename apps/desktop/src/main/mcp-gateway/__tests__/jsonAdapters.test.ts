@@ -44,8 +44,8 @@ function render(
   adapter: AgentAdapter,
   args: { current: string | null; desired: readonly DesiredEndpoint[]; ownedKeys: readonly string[] },
 ): string {
-  const sample = args.desired[0]?.key ?? args.ownedKeys[0] ?? "multizen_p_x";
-  const projectId = /^multizen_(.+?)_/.exec(sample)?.[1] ?? "p";
+  const sample = args.desired[0]?.key ?? args.ownedKeys[0] ?? "m_p_x";
+  const projectId = /^m_(.+?)_/.exec(sample)?.[1] ?? "p";
   return adapter.render({ ...args, projectId });
 }
 
@@ -56,10 +56,10 @@ function servers(text: string): Record<string, Record<string, unknown>> {
 // ── naming ──────────────────────────────────────────────────────────────────
 
 test("entry keys are deterministic, namespaced, and recognizable", () => {
-  assert.equal(proxyEntryKey("proj", "srv"), "multizen_proj_srv");
-  assert.equal(browserEntryKey("proj"), "multizen_proj_browser");
-  assert.equal(isMultizenKeyFor("proj", "multizen_proj_srv"), true);
-  assert.equal(isMultizenKeyFor("proj", "multizen_other_srv"), false);
+  assert.equal(proxyEntryKey("proj", "srv"), "m_proj_srv");
+  assert.equal(browserEntryKey("proj"), "m_proj_browser");
+  assert.equal(isMultizenKeyFor("proj", "m_proj_srv"), true);
+  assert.equal(isMultizenKeyFor("proj", "m_other_srv"), false);
   assert.equal(isMultizenKeyFor("proj", "someones_server"), false);
   // Keys use only characters every agent accepts for a server name.
   assert.match(proxyEntryKey("my-proj", "my-srv"), /^[A-Za-z0-9_-]+$/);
@@ -84,7 +84,7 @@ test("Claude Code writes .mcp.json with an explicit http type", () => {
     desired: [proxy("proj", "srv")],
     ownedKeys: [],
   });
-  const entry = servers(out)["multizen_proj_srv"];
+  const entry = servers(out)["m_proj_srv"];
   assert.equal(entry?.type, "http", "a url entry without a type is a Claude config error");
   assert.equal(entry?.url, `${BASE}/mcp/proxies/proj/srv`);
   assert.equal(entry?.headers, undefined, "no auth header when the project has no auth");
@@ -97,7 +97,7 @@ test("Cursor writes .cursor/mcp.json and uses ${env:NAME} interpolation", () => 
     desired: [proxy("proj", "srv", "MULTIZEN_PROJECT_PROJ_ABC123_TOKEN")],
     ownedKeys: [],
   });
-  const entry = servers(out)["multizen_proj_srv"];
+  const entry = servers(out)["m_proj_srv"];
   assert.equal(entry?.url, `${BASE}/mcp/proxies/proj/srv`);
   assert.deepEqual(entry?.headers, {
     Authorization: "Bearer ${env:MULTIZEN_PROJECT_PROJ_ABC123_TOKEN}",
@@ -111,7 +111,7 @@ test("Kiro writes .kiro/settings/mcp.json and uses ${NAME} interpolation", () =>
     desired: [proxy("proj", "srv", "TOK")],
     ownedKeys: [],
   });
-  const entry = servers(out)["multizen_proj_srv"];
+  const entry = servers(out)["m_proj_srv"];
   assert.deepEqual(entry?.headers, { Authorization: "Bearer ${TOK}" });
 });
 
@@ -172,7 +172,7 @@ test("unrelated servers AND unrelated top-level fields are preserved", () => {
     const s = servers(out);
     assert.deepEqual(s.theirServer, { command: "npx", args: ["-y", "their-mcp"] });
     assert.deepEqual(s.anotherRemote, { url: "https://api.example.com/mcp" });
-    assert.ok(s.multizen_proj_srv, "ours was added alongside");
+    assert.ok(s.m_proj_srv, "ours was added alongside");
   }
 });
 
@@ -187,7 +187,7 @@ test("existing key order is preserved and new entries append", () => {
     desired: [proxy("p", "s")],
     ownedKeys: [],
   });
-  assert.deepEqual(Object.keys(servers(out)), ["alpha", "beta", "multizen_p_s"]);
+  assert.deepEqual(Object.keys(servers(out)), ["alpha", "beta", "m_p_s"]);
 });
 
 test("an updated owned entry keeps its original position (minimal diff)", () => {
@@ -196,15 +196,15 @@ test("an updated owned entry keeps its original position (minimal diff)", () => 
     desired: [proxy("p", "s")],
     ownedKeys: [],
   });
-  assert.deepEqual(Object.keys(servers(first)), ["alpha", "multizen_p_s"]);
+  assert.deepEqual(Object.keys(servers(first)), ["alpha", "m_p_s"]);
   // Re-render with a changed URL; position must not move to the end.
   const second = render(claudeCodeAdapter, {
     current: first,
-    desired: [{ key: "multizen_p_s", url: `${BASE}/mcp/proxies/p/s2` }],
-    ownedKeys: ["multizen_p_s"],
+    desired: [{ key: "m_p_s", url: `${BASE}/mcp/proxies/p/s2` }],
+    ownedKeys: ["m_p_s"],
   });
-  assert.deepEqual(Object.keys(servers(second)), ["alpha", "multizen_p_s"]);
-  assert.equal(servers(second)["multizen_p_s"]?.url, `${BASE}/mcp/proxies/p/s2`);
+  assert.deepEqual(Object.keys(servers(second)), ["alpha", "m_p_s"]);
+  assert.equal(servers(second)["m_p_s"]?.url, `${BASE}/mcp/proxies/p/s2`);
 });
 
 test("re-rendering an already-installed file is byte-identical (idempotent)", () => {
@@ -247,9 +247,9 @@ test("owned entries no longer desired are removed; others are untouched", () => 
     ownedKeys: [],
   });
   assert.deepEqual(Object.keys(servers(installed)).sort(), [
-    "multizen_p_a",
-    "multizen_p_b",
-    "multizen_p_browser",
+    "m_p_a",
+    "m_p_b",
+    "m_p_browser",
     "theirs",
   ]);
 
@@ -257,9 +257,9 @@ test("owned entries no longer desired are removed; others are untouched", () => 
   const updated = render(claudeCodeAdapter, {
     current: installed,
     desired: [proxy("p", "a")],
-    ownedKeys: ["multizen_p_a", "multizen_p_b", "multizen_p_browser"],
+    ownedKeys: ["m_p_a", "m_p_b", "m_p_browser"],
   });
-  assert.deepEqual(Object.keys(servers(updated)).sort(), ["multizen_p_a", "theirs"]);
+  assert.deepEqual(Object.keys(servers(updated)).sort(), ["m_p_a", "theirs"]);
 });
 
 test("a full uninstall removes every owned entry and leaves the rest intact", () => {
@@ -275,7 +275,7 @@ test("a full uninstall removes every owned entry and leaves the rest intact", ()
   const uninstalled = render(kiroCliAdapter, {
     current: installed,
     desired: [],
-    ownedKeys: ["multizen_p_a", "multizen_p_browser"],
+    ownedKeys: ["m_p_a", "m_p_browser"],
   });
   assert.deepEqual(Object.keys(servers(uninstalled)), ["theirs"]);
   assert.equal(parse(uninstalled).extra, true, "unrelated top-level field survived");
@@ -292,15 +292,15 @@ test("removal only touches THIS project's owned keys", () => {
     desired: [proxy("beta", "s")],
     ownedKeys: [],
   });
-  assert.deepEqual(Object.keys(servers(doc)).sort(), ["multizen_alpha_s", "multizen_beta_s"]);
+  assert.deepEqual(Object.keys(servers(doc)).sort(), ["m_alpha_s", "m_beta_s"]);
 
   // Uninstalling project alpha must leave project beta installed.
   const afterAlphaRemoved = render(claudeCodeAdapter, {
     current: doc,
     desired: [],
-    ownedKeys: ["multizen_alpha_s"],
+    ownedKeys: ["m_alpha_s"],
   });
-  assert.deepEqual(Object.keys(servers(afterAlphaRemoved)), ["multizen_beta_s"]);
+  assert.deepEqual(Object.keys(servers(afterAlphaRemoved)), ["m_beta_s"]);
 });
 
 test("a disabled project (no desired endpoints) with no prior install is a clean no-op", () => {
@@ -313,7 +313,7 @@ test("a disabled project (no desired endpoints) with no prior install is a clean
 
 test("a same-named entry MultiZen does not own is refused, not overwritten", () => {
   const current = JSON.stringify(
-    { mcpServers: { multizen_p_s: { command: "not-ours", args: [] } } },
+    { mcpServers: { m_p_s: { command: "not-ours", args: [] } } },
     null,
     2,
   );
@@ -324,7 +324,7 @@ test("a same-named entry MultiZen does not own is refused, not overwritten", () 
         e instanceof ConfigFileError &&
         e.code === "collision" &&
         typeof e.hint === "string" &&
-        e.message.includes("multizen_p_s"),
+        e.message.includes("m_p_s"),
       adapter.agent,
     );
   }
@@ -332,16 +332,16 @@ test("a same-named entry MultiZen does not own is refused, not overwritten", () 
 
 test("an owned key IS allowed to be replaced", () => {
   const current = JSON.stringify(
-    { mcpServers: { multizen_p_s: { type: "http", url: "old" } } },
+    { mcpServers: { m_p_s: { type: "http", url: "old" } } },
     null,
     2,
   );
   const out = render(claudeCodeAdapter, {
     current,
     desired: [proxy("p", "s")],
-    ownedKeys: ["multizen_p_s"],
+    ownedKeys: ["m_p_s"],
   });
-  assert.equal(servers(out)["multizen_p_s"]?.url, `${BASE}/mcp/proxies/p/s`);
+  assert.equal(servers(out)["m_p_s"]?.url, `${BASE}/mcp/proxies/p/s`);
 });
 
 test("malformed JSON is refused with an actionable hint and never rewritten", () => {
@@ -392,14 +392,14 @@ test("golden: Claude Code full install with auth + browser", () => {
     out,
     `{
   "mcpServers": {
-    "multizen_zabit_docs": {
+    "m_zabit_docs": {
       "type": "http",
       "url": "${BASE}/mcp/proxies/zabit/docs",
       "headers": {
         "Authorization": "Bearer \${MULTIZEN_PROJECT_ZABIT_A1B2C3_TOKEN}"
       }
     },
-    "multizen_zabit_browser": {
+    "m_zabit_browser": {
       "type": "http",
       "url": "${BASE}/mcp/projects/zabit/browser"
     }
@@ -419,13 +419,13 @@ test("golden: Cursor full install with auth + browser", () => {
     out,
     `{
   "mcpServers": {
-    "multizen_zabit_docs": {
+    "m_zabit_docs": {
       "url": "${BASE}/mcp/proxies/zabit/docs",
       "headers": {
         "Authorization": "Bearer \${env:MULTIZEN_PROJECT_ZABIT_A1B2C3_TOKEN}"
       }
     },
-    "multizen_zabit_browser": {
+    "m_zabit_browser": {
       "url": "${BASE}/mcp/projects/zabit/browser"
     }
   }
@@ -444,13 +444,13 @@ test("golden: Kiro full install with auth + browser", () => {
     out,
     `{
   "mcpServers": {
-    "multizen_zabit_docs": {
+    "m_zabit_docs": {
       "url": "${BASE}/mcp/proxies/zabit/docs",
       "headers": {
         "Authorization": "Bearer \${MULTIZEN_PROJECT_ZABIT_A1B2C3_TOKEN}"
       }
     },
-    "multizen_zabit_browser": {
+    "m_zabit_browser": {
       "url": "${BASE}/mcp/projects/zabit/browser"
     }
   }
@@ -463,4 +463,21 @@ test("agents that impose an extra precondition carry an operator hint", () => {
   assert.equal(typeof claudeCodeAdapter.postInstallHint, "string", "project approval");
   assert.equal(typeof kiroCliAdapter.postInstallHint, "string", "approved env vars");
   assert.equal(cursorAdapter.postInstallHint, undefined, "Cursor needs no extra step");
+});
+
+test("long identifiers stay bounded and the browser route has its own name", () => {
+  const id = "a".repeat(64);
+  assert.ok(proxyEntryKey(id, id).length <= 25);
+  assert.notEqual(proxyEntryKey(id, "browser"), browserEntryKey(id));
+  assert.notEqual(proxyEntryKey("a_b", "c"), proxyEntryKey("a", "b_c"));
+});
+
+test("migration removes only recorded legacy entries", () => {
+  const result = cursorAdapter.render({
+    projectId: "proj",
+    current: JSON.stringify({ mcpServers: { multizen_proj_srv: {}, multizen_proj_custom: {} } }),
+    desired: [proxy("proj", "srv")],
+    ownedKeys: ["multizen_proj_srv"],
+  });
+  assert.deepEqual(Object.keys(servers(result)).sort(), ["m_proj_srv", "multizen_proj_custom"]);
 });

@@ -1,3 +1,4 @@
+import { shortenProjectName, NEW_PROJECT_ID_LIMIT, PROJECT_NAME_LIMIT } from "../../../../main/mcp-gateway/projectNames";
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import { AlertTriangle, Check, FolderPlus, Plus, X } from "lucide-react";
 
@@ -41,7 +42,7 @@ export interface NewProjectWizardProps {
 
 /**
  * Derive a safe project id from a display name: lower-case, non-id characters
- * collapsed to `-`, trimmed to the gateway's 64-character id grammar.
+ * collapsed to `-`, trimmed to the gateway's new-project id grammar.
  */
 export function deriveProjectId(name: string): string {
   return name
@@ -49,12 +50,13 @@ export function deriveProjectId(name: string): string {
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/-{2,}/g, "-")
     .replace(/^[-_]+|[-_]+$/g, "")
-    .slice(0, 64);
+    .slice(0, NEW_PROJECT_ID_LIMIT)
+    .replace(/[-_]+$/, "");
 }
 
-/** The gateway's id grammar: 1–64 chars of [a-z0-9_-]. */
+/** The gateway's id grammar: 1–24 chars of [a-z0-9_-]. */
 export function isValidProjectId(id: string): boolean {
-  return /^[a-z0-9_-]{1,64}$/.test(id);
+  return id.length <= NEW_PROJECT_ID_LIMIT && /^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/.test(id);
 }
 
 type StepId = "identity" | "profile" | "server" | "folders";
@@ -478,13 +480,13 @@ function IdentityStep({
     <div>
       <label className="block mb-4">
         <span className="block text-[11px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">
-          Name
+          Name (max {PROJECT_NAME_LIMIT})
         </span>
         <input
           data-autofocus
           type="text"
           value={name}
-          onChange={(e) => onName(e.target.value)}
+          onChange={(e) => onName(shortenProjectName(e.target.value))}
           placeholder="Zabit"
           aria-label="Project name"
           className="w-full text-[13px] text-slate-200 outline-none"
@@ -504,6 +506,7 @@ function IdentityStep({
         </span>
         <input
           type="text"
+          maxLength={NEW_PROJECT_ID_LIMIT}
           value={id}
           onChange={(e) => onId(e.target.value)}
           aria-label="Project id"
@@ -741,7 +744,7 @@ function FoldersStep({
   return (
     <div>
       <p className="text-[12px] text-slate-400 leading-relaxed mb-3">
-        Choose the folders whose coding agents should see this project’s servers. Covebird
+        Choose the folders whose coding agents should see this project’s servers. Sekvona
         merges its entries into each selected agent’s configuration and leaves everything
         else in those files alone.
       </p>

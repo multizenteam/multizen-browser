@@ -2,7 +2,7 @@ name: Fork compatibility
 on:
   pull_request:
   push:
-    branches: [main, 'feat/**', 'integrate/**']
+    branches: [main, development, 'feature/**']
 permissions:
   contents: read
 jobs:

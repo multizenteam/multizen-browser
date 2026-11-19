@@ -11,7 +11,7 @@ import { cn } from "../../lib/cn";
  *
  * A credential can be given two ways, and the distinction matters:
  *
- *   - **Paste the value.** Covebird puts it in OS secure storage and writes only
+ *   - **Paste the value.** Sekvona puts it in OS secure storage and writes only
  *     a `${NAME}` reference into the project config, so the value never lands in
  *     a config file and never syncs to another device. This is the default,
  *     because it is what most operators actually want.
@@ -494,8 +494,8 @@ export function ServerForm({
         {draft.refs.length === 0 ? (
           <div className="text-[11px] text-slate-500 leading-relaxed">
             {isStdio
-              ? "Add a variable when the server needs a token. Paste the value and Covebird keeps it in your OS keychain, or point at an environment variable instead."
-              : "Add a header when the server needs authentication. Paste the value and Covebird keeps it in your OS keychain, or point at an environment variable instead."}
+              ? "Add a variable when the server needs a token. Paste the value and Sekvona keeps it in your OS keychain, or point at an environment variable instead."
+              : "Add a header when the server needs authentication. Paste the value and Sekvona keeps it in your OS keychain, or point at an environment variable instead."}
           </div>
         ) : (
           <div className="space-y-2">

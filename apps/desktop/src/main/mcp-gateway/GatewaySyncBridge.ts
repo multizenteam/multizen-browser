@@ -25,15 +25,13 @@
 import {
   ProjectSyncCoordinator,
   TrustRegistrySync,
-  type AppliedProject,
   type ArchivedRevision,
   type ConflictOutcome,
-  type DeletedProject,
   type HistoryEntry,
   type PendingDevice,
   type ProjectConfig,
   type PublishResult,
-  type QuarantinedProject,
+  type RestoreResult,
   type SigningKey,
   type SyncObjectStore,
   type TrustRegistry,
@@ -51,15 +49,7 @@ export interface GatewaySyncBridgeConfig {
 }
 
 /** Result of one whole-library config-sync pass. */
-export interface GatewaySyncResult {
-  /** Verified, ready-to-apply projects (enabled AND disabled). */
-  readonly applied: readonly AppliedProject[];
-  /** Rejected/quarantined records — never auto-started. */
-  readonly quarantined: readonly QuarantinedProject[];
-  /** Projects deleted on another device, verified and awaiting local cleanup. */
-  readonly deleted: readonly DeletedProject[];
-  /** Number of remote head keys scanned. */
-  readonly scanned: number;
+export interface GatewaySyncResult extends RestoreResult {
   /** The self-verified trust registry used for this pass. */
   readonly registry: TrustRegistry;
 }
@@ -129,10 +119,16 @@ export class GatewaySyncBridge {
    */
   async restoreAll(
     knownRevisions?: ReadonlyMap<string, number>,
+    localIds: Iterable<string> = [],
   ): Promise<GatewaySyncResult> {
     const registry = await this.ensureTrustRegistry();
-    const result = await this.coordinator.restoreAll(registry, knownRevisions);
+    const result = await this.coordinator.restoreAll(registry, knownRevisions, localIds);
     return { ...result, registry };
+  }
+
+  async inspect(id: string) {
+    const registry = await this.ensureTrustRegistry();
+    return this.coordinator.readProjects(registry, [id]);
   }
 
   /**
@@ -140,8 +136,8 @@ export class GatewaySyncBridge {
    * returns a {@link ConflictOutcome} carrying the losing signed config for a
    * durable keep-both local copy. Never overwrites a newer remote.
    */
-  async publish(config: ProjectConfig, revision: number): Promise<PublishResult> {
-    return this.coordinator.publish(config, revision);
+  async publish(config: ProjectConfig, revision: number, allowRecreation = true): Promise<PublishResult> {
+    return this.coordinator.publish(config, revision, allowRecreation);
   }
 
   /**

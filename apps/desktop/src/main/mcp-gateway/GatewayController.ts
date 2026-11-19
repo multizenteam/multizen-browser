@@ -1,3 +1,4 @@
+import { NEW_PROJECT_ID_LIMIT, shortenProjectName } from "./projectNames.ts";
 /**
  * GatewayController — the serializable API surface behind the gateway IPC.
  *
@@ -235,6 +236,9 @@ export class GatewayController {
   }
 
   async createProject(input: CreateProjectInput): Promise<GatewayOpResult<ProjectView>> {
+    if (typeof input.id === "string" && input.id.length > NEW_PROJECT_ID_LIMIT) {
+      return fail("invalid", `New project IDs allow at most ${NEW_PROJECT_ID_LIMIT} characters.`);
+    }
     if (this.service.configOf(input.id)) {
       return fail("conflict", `project ${input.id} already exists`);
     }
@@ -243,7 +247,7 @@ export class GatewayController {
       config = parseProjectConfig({
         configVersion: CONFIG_VERSION,
         id: input.id,
-        ...(input.label !== undefined ? { label: input.label } : {}),
+        ...(input.label !== undefined ? { label: typeof input.label === "string" ? shortenProjectName(input.label) : input.label } : {}),
         enabled: input.enabled ?? false,
         ...(input.browserProfileId !== undefined
           ? { browserProfileId: input.browserProfileId }
@@ -276,7 +280,7 @@ export class GatewayController {
     try {
       const next = parseProjectConfig({
         ...toRaw(config),
-        ...(patch.label !== undefined ? { label: patch.label } : {}),
+        ...(patch.label !== undefined ? { label: typeof patch.label === "string" ? shortenProjectName(patch.label) : patch.label } : {}),
         ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
         ...(patch.browserProfileId !== undefined
           ? patch.browserProfileId === null

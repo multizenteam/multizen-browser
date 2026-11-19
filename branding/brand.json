@@ -1,7 +1,7 @@
 {
-  "name": "Covebird",
-  "slug": "covebird",
-  "tagline": "Every identity. Its own lane.",
+  "name": "Sekvona",
+  "slug": "sekvona",
+  "tagline": "A browser workspace for every project.",
   "description": "An independent browser workspace for profiles, agents, and encrypted sync.",
   "repository": "irensaltali/multizen-browser",
   "homepage": "https://github.com/irensaltali/multizen-browser",
@@ -15,7 +15,7 @@
     "ipcNamespace": "multizen"
   },
   "logo": {
-    "name": "Harbor",
-    "source": "branding/logos/pipit/01-harbor-icon.svg"
+    "name": "Sekvona Tabs",
+    "source": "branding/mark.svg"
   }
 }

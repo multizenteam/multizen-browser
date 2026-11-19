@@ -15,4 +15,4 @@ const body = Buffer.concat(chunks), header = Buffer.alloc(8);
 header.write('icns'); header.writeUInt32BE(body.length + 8, 4);
 write('build/icon.icns', Buffer.concat([header, body]));
 copyFileSync('branding/mark.svg', 'apps/desktop/src/renderer/public/brand-mark.svg');
-console.log('Rendered Covebird application icons.');
+console.log('Rendered Sekvona application icons.');

@@ -34,6 +34,7 @@ import {
   projectConfigToJson,
   referencedEnvNames as gatewayReferencedEnvNames,
   SyncedDocumentStore,
+  storeErrorKind,
   type DocumentPublishResult,
   type DocumentReadResult,
   type DocumentScope,
@@ -77,8 +78,30 @@ import type {
   WorkspaceBindingView,
 } from "./types.ts";
 
+interface PendingEdit {
+  id: string;
+  base: number;
+  config: ReturnType<typeof projectConfigToJson>;
+  hash: string;
+  // A prior write may have reached storage before its response was lost.
+  attemptedHash?: string;
+  installLocally: boolean;
+  recreatesDeletion: boolean;
+}
+
+interface ProjectLedger {
+  pending: Record<string, PendingEdit>;
+  migrated: Record<string, boolean>;
+}
+
 /** Durable per-project sync/verification state (never carries secrets). */
 interface GatewayState {
+  target?: string;
+  ledgers: Record<string, ProjectLedger>;
+  targetStates: Record<
+    string,
+    Pick<GatewayState, "revisions" | "conflicts" | "quarantine" | "documentRevisions">
+  >;
   /** projectId -> last applied config revision (rollback protection). */
   revisions: Record<string, number>;
   /** projectId -> quarantine record. */
@@ -99,11 +122,15 @@ interface GatewayState {
  * unrecoverable and the next sync pass silently overwrote it with the remote.
  */
 interface ConflictRecord extends ConflictView {
+  /** Verified winner, used to finish applying a same-revision conflict after a restart. */
+  readonly winnerHash?: string;
   /** Canonical JSON of the local config that lost the race. */
   readonly losingConfigJson: unknown;
 }
 
 const EMPTY_STATE: GatewayState = {
+  ledgers: {},
+  targetStates: {},
   revisions: {},
   quarantine: {},
   conflicts: {},
@@ -207,7 +234,9 @@ export interface GatewayServiceDeps {
    * startup and on explicit re-sync. The password never leaves the returned
    * object's use inside {@link GatewaySyncBridge}.
    */
+  readonly syncTarget?: () => string | undefined;
   readonly syncMaterials?: () => Promise<{
+    targetId?: string;
     store: import("@multizen/mcp-gateway").SyncObjectStore;
     controlPrefix: string;
     password: string;
@@ -243,6 +272,29 @@ export class GatewayService {
     conflicts: 0,
     running: false,
   };
+  private projectWork: Promise<void> = Promise.resolve();
+  private uploads: Promise<void> = Promise.resolve();
+  private stateWrites: Promise<void> = Promise.resolve();
+
+  // Local saves can commit while storage is acknowledging an earlier edit.
+  // Destructive changes, target switches and remote application drain uploads first.
+  private sequence<T>(work: () => Promise<T>, waitForUploads = true): Promise<T> {
+    const task = this.projectWork.then(async () => {
+      if (waitForUploads) await this.uploads;
+      return work();
+    });
+    this.projectWork = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
+  }
+
+  private ledger(): ProjectLedger {
+    const key = this.state.target ?? "unconfigured";
+    return (this.state.ledgers[key] ??= { pending: {}, migrated: {} });
+  }
+
   private syncInFlight: Promise<void> | null = null;
   private autoSyncTimer: ReturnType<typeof setInterval> | null = null;
   private lastAutoSyncAt = 0;
@@ -359,11 +411,26 @@ export class GatewayService {
     await this.store.init();
     await this.workspaces.load();
     await this.loadState();
+    for (const ledger of Object.values(this.state.ledgers)) {
+      for (const edit of Object.values(ledger.pending)) {
+        if (!edit.installLocally) continue;
+        await this.store.save(parseProjectConfig(edit.config));
+        edit.installLocally = false;
+        await this.saveState();
+      }
+    }
     await this.loadLocalConfigs();
     // Compose S3 sync if Cloud Sync is ready; local-only otherwise.
     await this.composeSyncIfReady();
     await this.syncNow().catch(() => {});
     await this.reconcile();
+    const legacyProjects = new Set(this.workspaces.listAll()
+      .filter(binding => binding.agents.some(agent =>
+        agent.ownedKeys.some(key => key.startsWith("multizen_"))))
+      .map(binding => binding.projectId));
+    for (const id of legacyProjects) {
+      if (this.configs.has(id)) await this.agentConfigs.reconcileProject(id);
+    }
     this.startAutoSync();
   }
 
@@ -371,6 +438,9 @@ export class GatewayService {
   async shutdown(): Promise<void> {
     // Stop the scheduler first so a tick cannot start a pass mid-teardown.
     this.stopAutoSync();
+    await this.projectWork;
+    await this.uploads;
+    await this.stateWrites;
     await this.httpRouter.shutdown().catch(() => {});
     await this.runtime.shutdown().catch(() => {});
     for (const bound of this.boundServers.values()) {
@@ -622,7 +692,11 @@ export class GatewayService {
   // ── S3 config sync ──────────────────────────────────────────────────────
 
   /** Compose the S3 sync bridge if Cloud Sync materials are available. */
-  async composeSyncIfReady(): Promise<boolean> {
+  composeSyncIfReady(): Promise<boolean> {
+    return this.sequence(() => this.composeBridge());
+  }
+
+  private async composeBridge(): Promise<boolean> {
     if (!this.deps.syncMaterials) {
       this.sync = null;
       this.documents = null;
@@ -630,6 +704,34 @@ export class GatewayService {
       return false;
     }
     const mats = await this.deps.syncMaterials().catch(() => null);
+    const target =
+      mats?.targetId ?? this.deps.syncTarget?.() ?? (mats && JSON.stringify([mats.controlPrefix]));
+    if (target && this.state.target !== target) {
+      if (this.state.target) {
+        const { revisions, conflicts, quarantine, documentRevisions } = this.state;
+        this.state.targetStates[this.state.target] = {
+          revisions,
+          conflicts,
+          quarantine,
+          documentRevisions,
+        };
+        Object.assign(
+          this.state,
+          this.state.targetStates[target] ?? {
+            revisions: {},
+            conflicts: {},
+            quarantine: {},
+            documentRevisions: {},
+          },
+        );
+      } else {
+        const local = this.state.ledgers.unconfigured;
+        if (local) this.state.ledgers[target] = local;
+        delete this.state.ledgers.unconfigured;
+      }
+      this.state.target = target;
+      await this.saveState();
+    }
     if (!mats) {
       this.sync = null;
       this.documents = null;
@@ -697,7 +799,7 @@ export class GatewayService {
   async syncNow(): Promise<void> {
     if (!this.sync) return;
     if (this.syncInFlight) return this.syncInFlight;
-    const run = this.doSync().finally(() => {
+    const run = this.sequence(() => this.doSync()).finally(() => {
       this.syncInFlight = null;
     });
     this.syncInFlight = run;
@@ -709,13 +811,85 @@ export class GatewayService {
     this.syncStatus = { ...this.syncStatus, running: true };
     try {
       const known = new Map(Object.entries(this.state.revisions));
-      const result = await this.sync.restoreAll(known);
+      const ledger = this.ledger();
+      const otherPending = new Set(
+        Object.entries(this.state.ledgers)
+          .filter(([target]) => target !== this.state.target)
+          .flatMap(([, other]) => Object.keys(other.pending)),
+      );
+      const candidates = [...this.configs.keys()].filter(
+        (id) => !ledger.migrated[id] && !otherPending.has(id),
+      );
+      const result = await this.sync.restoreAll(known, [
+        ...this.configs.keys(),
+        ...Object.keys(ledger.pending),
+      ]);
+      const migrating = new Set(candidates);
+      const publishErrors: string[] = [];
+      for (const id of result.absent) {
+        const local = this.configs.get(id);
+        if (!ledger.pending[id] && migrating.has(id) && local) this.stageEdit(local, 0, false);
+        const edit = ledger.pending[id];
+        if (edit) {
+          if (edit.base > 0) {
+            // A previously acknowledged head disappeared. Do not restart its revision history.
+            publishErrors.push(id);
+            continue;
+          }
+          await this.saveState();
+          if (!(await this.publishPending(id))) publishErrors.push(id);
+        }
+      }
       // Persist accepted configs locally (never overwriting a newer local
       // revision) and update the runtime desired set.
       for (const applied of result.applied) {
+        if (otherPending.has(applied.projectId) && !ledger.pending[applied.projectId]) continue;
         const prior = this.state.revisions[applied.projectId] ?? 0;
-        if (applied.revision < prior) continue; // rollback guard
-        if (applied.revision === prior) {
+        if (applied.revision < prior) continue;
+        const id = applied.projectId;
+        const localConfig = this.configs.get(id);
+        const edit = ledger.pending[id];
+        const remoteHash = hashConfig(applied.config);
+        const legacy = migrating.has(id) && !edit && localConfig !== undefined;
+        let installRemote = false;
+        if (edit) {
+          if (remoteHash === edit.hash && applied.revision >= edit.base) {
+            delete ledger.pending[id];
+            ledger.migrated[id] = true;
+          } else if (
+            applied.revision === edit.base ||
+            (applied.revision === edit.base + 1 &&
+              remoteHash === edit.attemptedHash &&
+              applied.signer === this.sync.selfDeviceId)
+          ) {
+            edit.base = applied.revision;
+            this.state.revisions[id] = applied.revision;
+            await this.saveState();
+            if (!(await this.publishPending(id))) publishErrors.push(id);
+            continue;
+          } else {
+            this.keepConflict(id, edit, applied.revision, applied.signer, remoteHash);
+            installRemote = true;
+          }
+        } else if (legacy && hashConfig(localConfig) !== remoteHash) {
+          this.keepConflict(
+            id,
+            this.stageEdit(localConfig, prior, false),
+            applied.revision,
+            applied.signer,
+            remoteHash,
+          );
+          installRemote = true;
+        }
+        ledger.migrated[id] = true;
+        if (installRemote) await this.saveState();
+        const savedConflict = this.state.conflicts[id]?.some(
+          (record) =>
+            record.remoteRevision === applied.revision && record.winnerHash === remoteHash &&
+            localConfig &&
+            hashConfig(parseProjectConfig(record.losingConfigJson)) === hashConfig(localConfig),
+        );
+        if (applied.revision === prior && !installRemote && !savedConflict) {
           const local = this.configs.get(applied.projectId);
           if (local !== undefined && hashConfig(local) === hashConfig(applied.config)) {
             // Normal idempotent re-read of the cloud head already applied here.
@@ -747,8 +921,24 @@ export class GatewayService {
       // no longer exists; a cleanup failure is reported and retried rather than
       // orphaning them.
       for (const d of result.deleted) {
+        if (otherPending.has(d.projectId) && !ledger.pending[d.projectId]) continue;
         const prior = this.state.revisions[d.projectId] ?? 0;
-        if (d.revision <= prior) continue; // already processed
+        if (d.revision < prior) continue;
+        const edit = ledger.pending[d.projectId];
+        if (edit && edit.base === d.revision && edit.recreatesDeletion) {
+          // Explicit recreation after a deletion already applied on this device.
+          if (!(await this.publishPending(d.projectId))) publishErrors.push(d.projectId);
+          continue;
+        }
+        if (d.revision === prior && !this.configs.has(d.projectId)) continue;
+        const local = this.configs.get(d.projectId);
+        const pending =
+          ledger.pending[d.projectId] ??
+          ((migrating.has(d.projectId) || d.revision === prior) && local
+            ? this.stageEdit(local, prior, false) : undefined);
+        if (pending) this.keepConflict(d.projectId, pending, d.revision, d.signer);
+        ledger.migrated[d.projectId] = true;
+        await this.saveState();
         const failures = await this.agentConfigs
           .uninstallProject(d.projectId)
           .catch((err: unknown) => [
@@ -767,7 +957,7 @@ export class GatewayService {
           continue;
         }
         await this.agentConfigs.forgetProject(d.projectId);
-        await this.removeConfig(d.projectId, d.revision);
+        await this.removeConfig(d.projectId, d.revision, true);
       }
 
       for (const q of result.quarantined) {
@@ -795,7 +985,15 @@ export class GatewayService {
       this.syncStatus = {
         ready: true,
         lastSyncAt: Date.now(),
-        lastError: null,
+        lastError: result.readErrors.length
+          ? result.readErrors
+              .map((e) => `${e.projectId}: ${e.kind}`)
+              .join(", ")
+              .slice(0, 200)
+          : publishErrors.length
+            ? (this.syncStatus.lastError ?? "Project upload pending. Retry Cloud Sync.")
+            : null,
+        unreadable: result.readErrors.length,
         applied: result.applied.length,
         quarantined: result.quarantined.length,
         conflicts: this.totalConflicts(),
@@ -805,36 +1003,108 @@ export class GatewayService {
       this.syncStatus = {
         ...this.syncStatus,
         running: false,
-        lastError: (err as Error).message.slice(0, 200),
+        lastError:
+          err && typeof err === "object" && "kind" in err && err.kind === "AuthFailed"
+            ? "Cloud storage rejected the credentials."
+            : "Cloud Sync could not complete. Retry Cloud Sync.",
       };
     }
   }
 
-  /** Publish a local config edit as the next signed revision (if sync ready). */
-  private async publishIfSyncing(config: ProjectConfig): Promise<void> {
-    if (!this.sync) return;
-    const next = (this.state.revisions[config.id] ?? 0) + 1;
-    const result = await this.sync.publish(config, next).catch(() => null);
-    if (!result) return;
-    if (GatewaySyncBridge.isConflict(result)) {
-      const list = this.state.conflicts[config.id] ?? [];
-      list.push({
-        projectId: config.id,
-        attemptedRevision: result.attemptedRevision,
-        remoteRevision: result.remoteRevision,
-        localSigner: result.metadata.localSigner,
-        remoteSigner: result.metadata.remoteSigner,
-        detectedAt: result.metadata.detectedAt,
-        reason: result.metadata.reason,
-        // Keep the actual losing config, not just a note that it lost.
-        losingConfigJson: projectConfigToJson(result.losingConfig),
-      });
-      this.state.conflicts[config.id] = list;
-      await this.saveState();
-      return;
+  private stageEdit(config: ProjectConfig, base: number, installLocally: boolean): PendingEdit {
+    const ledger = this.ledger();
+    const previous = ledger.pending[config.id];
+    const edit: PendingEdit = {
+      id: randomBytes(12).toString("hex"),
+      base: previous?.base ?? base,
+      config: projectConfigToJson(config),
+      hash: hashConfig(config),
+      installLocally,
+      recreatesDeletion: previous?.recreatesDeletion ?? (base > 0 && !this.configs.has(config.id)),
+      ...(previous?.attemptedHash ? { attemptedHash: previous.attemptedHash } : {}),
+    };
+    ledger.pending[config.id] = edit;
+    return edit;
+  }
+
+  private keepConflict(id: string, edit: PendingEdit, revision: number, signer: string, winnerHash?: string): void {
+    const list = (this.state.conflicts[id] ??= []);
+    const alreadySaved = list.some(record => record.remoteRevision === revision &&
+      record.remoteSigner === signer && hashConfig(parseProjectConfig(record.losingConfigJson)) === edit.hash);
+    if (!alreadySaved) list.push({
+      winnerHash,
+      projectId: id,
+      attemptedRevision: edit.base + 1,
+      remoteRevision: revision,
+      localSigner: this.sync!.selfDeviceId,
+      remoteSigner: signer,
+      detectedAt: new Date().toISOString(),
+      reason: "remote-newer",
+      losingConfigJson: edit.config,
+    });
+    delete this.ledger().pending[id];
+    this.ledger().migrated[id] = true;
+  }
+
+  private async publishPending(id: string): Promise<boolean> {
+    const bridge = this.sync;
+    const ledger = this.ledger();
+    const edit = ledger.pending[id];
+    if (!bridge || !edit || edit.installLocally) return false;
+    if (edit.attemptedHash && edit.attemptedHash !== edit.hash) {
+      // The old edit may be the committed parent of this newer one.
+      const verified = await bridge.inspect(id).catch(() => null);
+      if (!verified || verified.readErrors.length || verified.quarantined.length) return false;
+      const head = verified.applied[0];
+      if (
+        head?.revision === edit.base + 1 &&
+        head.signer === bridge.selfDeviceId &&
+        hashConfig(head.config) === edit.attemptedHash
+      ) {
+        edit.base = head.revision;
+        this.state.revisions[id] = head.revision;
+      }
     }
-    this.state.revisions[config.id] = result.revision;
+    if (ledger.pending[id]?.id !== edit.id) return false;
+    edit.attemptedHash = edit.hash;
     await this.saveState();
+    const result = await bridge
+      .publish(parseProjectConfig(edit.config), edit.base + 1, edit.recreatesDeletion)
+      .catch((error) => {
+        const kind = storeErrorKind(error) ?? "PublishFailed";
+        this.syncStatus = {
+          ...this.syncStatus,
+          lastError: `${id}: upload ${kind}. Retry Cloud Sync.`,
+        };
+        return null;
+      });
+    if (!result) return false;
+    if (GatewaySyncBridge.isConflict(result)) {
+      // Re-read and verify before interpreting an ambiguous acknowledgment or a concurrent edit.
+      const verified = await bridge.inspect(id).catch(() => null);
+      if (!verified) return false;
+      const head = verified.applied.find((p) => p.projectId === id);
+      const deleted = verified.deleted.find((p) => p.projectId === id);
+      if (!head && !deleted) return false;
+      if (head?.revision === edit.base + 1 && hashConfig(head.config) === edit.hash) {
+        this.state.revisions[id] = head.revision;
+      } else {
+        const winner = (head ?? deleted)!;
+        if (ledger.pending[id]?.id !== edit.id) return false;
+        this.keepConflict(id, edit, winner.revision, winner.signer, head && hashConfig(head.config));
+      }
+    } else {
+      this.state.revisions[id] = result.revision;
+    }
+    const current = ledger.pending[id];
+    if (current?.id === edit.id) delete ledger.pending[id];
+    else if (current && this.state.revisions[id] === edit.base + 1) {
+      current.base = edit.base + 1;
+      delete current.attemptedHash;
+    }
+    ledger.migrated[id] = true;
+    await this.saveState();
+    return true;
   }
 
   /**
@@ -918,8 +1188,31 @@ export class GatewayService {
 
   /** Persist a validated config, update runtime, publish if syncing. */
   async saveConfig(config: ProjectConfig): Promise<void> {
+    const { upload } = await this.sequence(async () => {
+      await this.saveConfigInternal(config);
+      const upload = this.uploads.then(async () => {
+        await this.publishPending(config.id);
+      });
+      this.uploads = upload.catch(() => {});
+      return { upload };
+    }, false);
+    await upload;
+  }
+
+  private async saveConfigInternal(
+    config: ProjectConfig,
+    resolvedRevision?: number,
+  ): Promise<void> {
     const validated = parseProjectConfig(projectConfigToJson(config));
+    const edit = this.stageEdit(
+      validated,
+      resolvedRevision ?? this.state.revisions[validated.id] ?? 0,
+      true,
+    );
+    if (resolvedRevision !== undefined) delete this.state.conflicts[validated.id];
+    await this.saveState();
     await this.store.save(validated);
+    edit.installLocally = false;
     await this.pruneOAuthForConfigChange(this.configs.get(validated.id), validated);
     this.configs.set(validated.id, validated);
     delete this.state.quarantine[validated.id];
@@ -932,7 +1225,6 @@ export class GatewayService {
     // changes what its directories should contain. Never throws: per-target
     // failures are recorded for retry.
     await this.agentConfigs.reconcileProject(validated.id).catch(() => undefined);
-    await this.publishIfSyncing(validated).catch(() => {});
   }
 
   private async pruneOAuthForConfigChange(
@@ -1005,6 +1297,21 @@ export class GatewayService {
   async deleteProjectSafely(
     projectId: string,
   ): Promise<{ deleted: boolean; failures: InstallFailure[]; syncError?: string }> {
+    return this.sequence(() => this.deleteProjectInternal(projectId));
+  }
+
+  private async deleteProjectInternal(projectId: string): Promise<{
+    deleted: boolean;
+    failures: InstallFailure[];
+    syncError?: string;
+  }> {
+    if (!this.sync && this.state.target) {
+      return {
+        deleted: false,
+        failures: [],
+        syncError: "Reconnect Cloud Sync to publish the deletion.",
+      };
+    }
     const failures = await this.agentConfigs.uninstallProject(projectId);
     if (failures.length > 0) return { deleted: false, failures };
 
@@ -1018,11 +1325,12 @@ export class GatewayService {
       try {
         await this.sync.publishTombstone(projectId, next);
         retainRevision = next;
-      } catch (err) {
+      } catch {
+        await this.agentConfigs.reconcileProject(projectId);
         return {
           deleted: false,
           failures: [],
-          syncError: `the deletion could not be published: ${(err as Error).message}`,
+          syncError: "The deletion could not be confirmed. Retry Cloud Sync.",
         };
       }
     }
@@ -1040,13 +1348,20 @@ export class GatewayService {
    * from resurrecting the project on the next pass, and stops the tombstone from
    * being reprocessed as a fresh deletion every pass thereafter.
    */
-  async removeConfig(projectId: string, retainRevision?: number): Promise<boolean> {
+  async removeConfig(
+    projectId: string,
+    retainRevision?: number,
+    preserveConflicts = false,
+  ): Promise<boolean> {
     const existed = await this.store.remove(projectId as never);
     this.configs.delete(projectId);
-    if (retainRevision !== undefined) this.state.revisions[projectId] = retainRevision;
-    else delete this.state.revisions[projectId];
+    if (retainRevision !== undefined) {
+      this.state.revisions[projectId] = retainRevision;
+      this.ledger().migrated[projectId] = true;
+    } else delete this.state.revisions[projectId];
     delete this.state.quarantine[projectId];
-    delete this.state.conflicts[projectId];
+    delete this.ledger().pending[projectId];
+    if (!preserveConflicts) delete this.state.conflicts[projectId];
     const bound = this.boundServers.get(projectId);
     if (bound) {
       await bound.close().catch(() => {});
@@ -1084,14 +1399,20 @@ export class GatewayService {
       const text = await fs.readFile(this.stateFile, "utf8");
       const parsed = JSON.parse(text) as Partial<GatewayState>;
       this.state = {
+        target: parsed.target,
+        ledgers: parsed.ledgers ?? {},
+        targetStates: parsed.targetStates ?? {},
         revisions: parsed.revisions ?? {},
         quarantine: parsed.quarantine ?? {},
         conflicts: parsed.conflicts ?? {},
         documentRevisions: parsed.documentRevisions ?? {},
       };
-    } catch {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       this.state = {
         ...EMPTY_STATE,
+        targetStates: {},
+        ledgers: {},
         revisions: {},
         quarantine: {},
         conflicts: {},
@@ -1100,9 +1421,15 @@ export class GatewayService {
     }
   }
 
-  private async saveState(): Promise<void> {
-    await fs.mkdir(path.dirname(this.stateFile), { recursive: true });
+  private saveState(): Promise<void> {
     const body = JSON.stringify(this.state);
+    const write = this.stateWrites.then(() => this.writeState(body));
+    this.stateWrites = write.catch(() => {});
+    return write;
+  }
+
+  private async writeState(body: string): Promise<void> {
+    await fs.mkdir(path.dirname(this.stateFile), { recursive: true });
     const tmp = `${this.stateFile}.${randomBytes(6).toString("hex")}.tmp`;
     const handle = await fs.open(tmp, "wx");
     try {
@@ -1121,7 +1448,11 @@ export class GatewayService {
   }
 
   syncStatusView(): GatewaySyncStatusView {
-    return { ...this.syncStatus, conflicts: this.totalConflicts() };
+    return {
+      ...this.syncStatus,
+      pending: Object.keys(this.ledger().pending).length,
+      conflicts: this.totalConflicts(),
+    };
   }
 
   quarantineList(): QuarantineView[] {
@@ -1131,7 +1462,7 @@ export class GatewayService {
   conflictList(): ConflictView[] {
     return Object.values(this.state.conflicts)
       .flat()
-      .map(({ losingConfigJson, ...view }) => ({
+      .map(({ losingConfigJson, winnerHash: _winnerHash, ...view }) => ({
         ...view,
         // Summarised against what is authoritative NOW, because that is the
         // comparison the operator is actually making: "what changes if I keep
@@ -1192,6 +1523,10 @@ export class GatewayService {
    * call the records stay, which is the point of keep-both.
    */
   async resolveConflicts(projectId: string, keep: "mine" | "theirs" = "theirs"): Promise<void> {
+    return this.sequence(() => this.resolveInternal(projectId, keep));
+  }
+
+  private async resolveInternal(projectId: string, keep: "mine" | "theirs"): Promise<void> {
     const records = this.state.conflicts[projectId] ?? [];
     if (records.length === 0) return;
 
@@ -1209,9 +1544,11 @@ export class GatewayService {
       }
       // Clear first so the republish (which may itself conflict) records a fresh
       // conflict rather than being mistaken for one of the ones we just resolved.
-      delete this.state.conflicts[projectId];
-      await this.saveState();
-      await this.saveConfig(config);
+      await this.saveConfigInternal(
+        config,
+        Math.max(latest.remoteRevision, this.lastRevision(projectId)),
+      );
+      await this.publishPending(projectId);
       return;
     }
 
