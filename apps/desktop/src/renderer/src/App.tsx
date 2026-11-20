@@ -5,6 +5,7 @@ import { Constellation } from "./components/profile/Constellation";
 import { ProfilesEmptyState } from "./components/profile/EmptyState";
 import { NewProfileSheet } from "./components/profile/NewProfileSheet";
 import { ProfileEditSheet } from "./components/profile/ProfileEditSheet";
+import { ProfilePreview } from "./components/profile/PreviewFrame";
 import type { Profile } from "@multizen/types";
 import { ActivityDrawer } from "./components/activity/ActivityDrawer";
 import { McpPanel } from "./components/mcp/McpPanel";
@@ -58,6 +59,17 @@ export function App(): JSX.Element {
     void window.multizen.chromium.status().then(apply);
     return window.multizen.chromium.onStatus(apply);
   }, []);
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  useEffect(() => {
+    if (!window.multizen?.settings) return;
+    const apply = (s: { virtualBrowserPreview: boolean }): void =>
+      setPreviewEnabled(s.virtualBrowserPreview !== false);
+    void window.multizen.settings.get().then(apply).catch(() => {});
+    return window.multizen.settings.onChanged(apply);
+  }, []);
+  useEffect(() => {
+    if (!previewEnabled) setExpandedProfileId(null);
+  }, [previewEnabled]);
   // Global toast when the companion "Add to MultiZen" button installs an
   // extension into a running profile (the edit sheet may not be open).
   useEffect(() => {
@@ -89,6 +101,17 @@ export function App(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>({ kind: "none" });
   const [toast, setToast] = useState<string | null>(null);
+  // Profile whose interactive browser is shown in the ~80vw/80vh expand
+  // modal. Auto-closes if that profile stops running (Stop / close / crash).
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
+  useEffect(() => {
+    if (
+      expandedProfileId !== null &&
+      !profiles.some((p) => p.id === expandedProfileId && p.isRunning === true)
+    ) {
+      setExpandedProfileId(null);
+    }
+  }, [expandedProfileId, profiles]);
 
   const refresh = useCallback(async () => {
     if (!window.multizen) return;
@@ -399,6 +422,9 @@ export function App(): JSX.Element {
                   onStop={closeProfile}
                   onExport={(id) => setModal({ kind: "export-passphrase", profileId: id })}
                   onDelete={(id) => setModal({ kind: "delete-confirm", profileId: id })}
+                  expandedProfileId={expandedProfileId}
+                  previewEnabled={previewEnabled}
+                  onExpand={(id) => { if (previewEnabled) setExpandedProfileId(id); }}
                 />
               )}
             </>
@@ -437,6 +463,22 @@ export function App(): JSX.Element {
             isRunning={profiles.some((p) => p.id === editingProfile.id && p.isRunning)}
             onSaved={() => void refresh()}
           />
+        )}
+      </Modal>
+
+      {/* Expanded interactive browser preview (~80% of the window). */}
+      <Modal
+        open={expandedProfileId !== null}
+        onClose={() => setExpandedProfileId(null)}
+        title={profiles.find((p) => p.id === expandedProfileId)?.name ?? "Browser"}
+        width={2400}
+        panelClassName="!w-[80vw] !max-w-[80vw] !h-[80vh] !max-h-[80vh]"
+        disableBlur
+      >
+        {expandedProfileId !== null && (
+          <div className="flex h-full w-full items-center justify-center">
+            <ProfilePreview profileId={expandedProfileId} variant="full" expanded />
+          </div>
         )}
       </Modal>
 

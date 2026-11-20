@@ -556,6 +556,33 @@ function buildAllowedDesktopScreens(): Set<string> {
 
 const ALLOWED_DESKTOP_SCREENS = buildAllowedDesktopScreens();
 
+const WIDE_SCREENS: ReadonlyArray<{ width: number; height: number; label: string }> = [
+  ...COMMON_DESKTOP_SCREENS,
+  { width: 3840, height: 2160, label: "3840 × 2160" },
+].filter((s) => Math.abs(s.width * 9 - s.height * 16) <= s.height);
+
+/** Snap any caller-supplied desktop size to the closest allowed 16:9 size. */
+export function snapTo16x9(screen: { width: number; height: number }): {
+  width: number;
+  height: number;
+} {
+  if (Math.abs(screen.width * 9 - screen.height * 16) <= screen.height) {
+    return { width: screen.width, height: screen.height };
+  }
+  const targetH = (screen.width * 9) / 16;
+  let best = WIDE_SCREENS[0]!;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const candidate of WIDE_SCREENS) {
+    const score =
+      Math.abs(candidate.width - screen.width) / screen.width +
+      Math.abs(candidate.height - targetH) / targetH;
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return { width: best.width, height: best.height };
+}
 function screenKey(s: { width: number; height: number }): string {
   return `${s.width}x${s.height}`;
 }
@@ -1400,14 +1427,14 @@ export function reconcileFingerprint(
   // ── Screen ──────────────────────────────────────────────────────────
   let screen: { width: number; height: number };
   if (patch.screen !== undefined) {
-    const key = screenKey(patch.screen);
+    screen = snapTo16x9(patch.screen);
+    const key = screenKey(screen);
     if (!ALLOWED_DESKTOP_SCREENS.has(key)) {
       throw new FingerprintReconcileError(
         "screen",
         `${patch.screen.width}x${patch.screen.height} is not an allowed desktop size`,
       );
     }
-    screen = { width: patch.screen.width, height: patch.screen.height };
     // Ensure a host-compatible desktop device that owns this screen.
     const ownsScreen = (d: DeviceSpec) =>
       d.screens.some((s) => s.width === screen.width && s.height === screen.height);

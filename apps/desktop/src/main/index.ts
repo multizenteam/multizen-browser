@@ -12,6 +12,7 @@ import {
   deviceCatalog,
   localeCatalog,
   findLocaleIdByCountry,
+  snapTo16x9,
 } from "@multizen/profile-manager";
 import {
   HttpTransport,
@@ -26,6 +27,7 @@ import type {
   ExtensionConfig,
   ProxyConfig,
   SandboxStatus,
+  PreviewInputEvent,
   UpdateStatus,
 } from "@multizen/types";
 import { isBrowserEngine, resolveEngine } from "@multizen/types";
@@ -44,6 +46,7 @@ import {
   readManifestIcon,
 } from "./extensions/extensionStore.ts";
 import { probeProxyGeo, type ProxyGeoResult } from "./proxyGeo.ts";
+import { ensureVirtualDisplay, stopVirtualDisplay } from "./virtualDisplay.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -171,10 +174,22 @@ app.whenReady().then(async () => {
   settingsStore = new SettingsStore(defaultSettingsPath(userData));
   cachedSettings = await settingsStore.load();
 
+  if (cachedSettings.virtualBrowserPreview) await ensureVirtualDisplay();
+
   profileManager = new ProfileManager({
     dbPath: join(dataRoot, "profiles.db"),
     profilesRoot: join(dataRoot, "profiles"),
   });
+
+  // Legacy profiles may carry non-16:9 screens; snap them on startup.
+  for (const summary of profileManager.list()) {
+    const screen = profileManager.get(summary.id)?.fingerprint.screen;
+    if (!screen) continue;
+    const target = snapTo16x9(screen);
+    if (target.width !== screen.width || target.height !== screen.height) {
+      profileManager.update(summary.id, { fingerprint: { screen: target } });
+    }
+  }
 
   // Reclaim shared store entries no profile references any more (e.g. left by a
   // crash mid-delete) plus stale staging dirs. Best-effort; never blocks startup.
@@ -375,6 +390,13 @@ app.whenReady().then(async () => {
     sendToRenderer("profiles:running-changed", change);
   });
 
+  // Forward live-preview frames to the renderer. The renderer can't reach the
+  // browser's CDP endpoint itself (Chromium's /json/* sends no CORS headers),
+  // so every frame crosses the IPC bridge.
+  browserDriver.on("preview-frame", (frame) => {
+    sendToRenderer("profiles:preview-frame", frame);
+  });
+
   // Background-probe proxies for profiles missing a cached country code
   // (existing rows from before the proxy_country migration, or rows where
   // the user changed proxy and we cleared the stale value). Runs once at
@@ -452,13 +474,41 @@ app.whenReady().then(async () => {
   ipcMain.handle("profiles:launch", (_e, id: string) => browserDriver.launch(id));
   ipcMain.handle("profiles:close", (_e, id: string) => browserDriver.close(id));
 
+  // Live preview IPC. The renderer never talks to the CDP endpoint itself
+  // (Chromium's /json/* sends no CORS headers) — the main process streams
+  // the screencast frames and pushes them over `profiles:preview-frame`.
+  ipcMain.handle("profiles:preview-start", (_e, id: string) =>
+    browserDriver.startPreview(id),
+  );
+  ipcMain.handle("profiles:preview-stop", (_e, id: string) =>
+    browserDriver.stopPreview(id),
+  );
+  ipcMain.handle("profiles:preview-focus", (_e, id: string) =>
+    browserDriver.focusPreview(id),
+  );
+  ipcMain.handle("profiles:preview-input", (_e, id: string, event: PreviewInputEvent) =>
+    chromiumDriver.dispatchPreviewInput(id, event),
+  );
+  ipcMain.handle("profiles:preview-quality", (_e, id: string, expanded: boolean) =>
+    chromiumDriver.setPreviewQuality(id, expanded),
+  );
+
   // Settings IPC
   ipcMain.handle("settings:get", () => settingsStore.load());
   ipcMain.handle("settings:update", async (_e, patch: Partial<AppSettings>) => {
+    const previewChanged = patch.virtualBrowserPreview !== undefined;
     cachedSettings = await settingsStore.update(patch);
     // Let the updaters react to their auto-update toggles without a restart.
     updater?.onSettingsChanged();
     engineUpdater?.onSettingsChanged();
+    if (previewChanged) {
+      // Running engines keep the display mode they were launched with, so
+      // restart them cleanly (sessions are saved) to apply the new mode.
+      await browserDriver?.closeAll();
+      if (cachedSettings.virtualBrowserPreview) await ensureVirtualDisplay();
+      else stopVirtualDisplay();
+    }
+    sendToRenderer("settings:changed", cachedSettings);
     return cachedSettings;
   });
 
@@ -823,7 +873,7 @@ app.on("before-quit", async (e) => {
   try {
     await browserDriver?.closeAll();
     await httpTransport?.stop();
-    profileManager?.close();
+    stopVirtualDisplay();
   } finally {
     app.exit(0);
   }

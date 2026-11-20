@@ -372,3 +372,55 @@ export interface SandboxStatus {
   /** Manual `sudo` command the user can run instead of the one-click setup. */
   manualCommand?: string;
 }
+
+/**
+ * One live-preview frame streamed from a running profile's browser.
+ * `data` is a base64 JPEG (no data: prefix) of the page viewport.
+ */
+export interface PreviewFrame {
+  profileId: ProfileId;
+  /** base64 JPEG, no data: URL prefix */
+  data: string;
+  /** viewport width in CSS px */
+  width: number;
+  /** viewport height in CSS px */
+  height: number;
+  /** monotonic frame counter, per profile */
+  seq: number;
+}
+
+/** Button carried by a preview pointer event, using CDP's button vocabulary. */
+export type PreviewPointerButton = "none" | "left" | "middle" | "right" | "back" | "forward";
+
+export interface PreviewMouseInput {
+  kind: "mouseMoved" | "mousePressed" | "mouseReleased" | "mouseWheel";
+  /** CSS pixels, relative to the page viewport top-left. */
+  x: number;
+  y: number;
+  /** CDP modifier bitmask: Alt=1, Control=2, Meta=4, Shift=8. */
+  modifiers: number;
+  /** CDP `buttons` bitmask: left=1, right=2, middle=4, back=8, forward=16. */
+  buttons: number;
+  button?: PreviewPointerButton;
+  clickCount?: number;
+  deltaX?: number;
+  deltaY?: number;
+}
+
+export interface PreviewKeyInput {
+  kind: "keyDown" | "rawKeyDown" | "keyUp" | "char";
+  key: string;
+  code: string;
+  windowsVirtualKeyCode: number;
+  nativeVirtualKeyCode?: number;
+  modifiers: number;
+  text?: string;
+  unmodifiedText?: string;
+}
+
+export interface PreviewTextInput {
+  kind: "insertText";
+  text: string;
+}
+
+export type PreviewInputEvent = PreviewMouseInput | PreviewKeyInput | PreviewTextInput;

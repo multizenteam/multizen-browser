@@ -45,6 +45,11 @@ export interface ModalProps {
   /** Additional class on the modal panel. */
   panelClassName?: string;
   children: ReactNode;
+  /**
+   * Skip backdrop-filter blur for high-frequency live content (e.g. the
+   * expanded browser preview), where compositing the blur starves the GPU.
+   */
+  disableBlur?: boolean;
 }
 
 // Track the modal stack so only the topmost handles ESC + backdrop. The
@@ -63,6 +68,7 @@ export function Modal({
   hideHeader,
   panelClassName,
   children,
+  disableBlur = false,
 }: ModalProps): JSX.Element | null {
   const idRef = useRef<number>(0);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -150,8 +156,9 @@ export function Modal({
       className="fixed inset-0 z-[80] flex items-center justify-center"
       style={{
         background: "rgba(5,6,10,0.55)",
-        backdropFilter: "blur(14px)",
-        WebkitBackdropFilter: "blur(14px)",
+        ...(disableBlur
+          ? {}
+          : { backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }),
         animation: closing ? undefined : "mz-fade-in 180ms ease-out",
       }}
     >
@@ -168,8 +175,9 @@ export function Modal({
           borderRadius: 18,
           boxShadow:
             "inset 0 0 0 1px rgba(255,255,255,0.08), 0 36px 96px -24px rgba(0,0,0,0.7), 0 0 0 1px rgba(168,85,247,0.06)",
-          backdropFilter: "blur(24px)",
-          WebkitBackdropFilter: "blur(24px)",
+          ...(disableBlur
+            ? {}
+            : { backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }),
           animation: "mz-modal-pop 220ms cubic-bezier(0.2,0.8,0.2,1)",
         }}
       >

@@ -13,7 +13,7 @@ import type {
   ExtensionConfig,
   BrowserEngine,
 } from "@multizen/types";
-import { defaultFingerprint } from "./fingerprint.js";
+import { defaultFingerprint, reconcileFingerprint } from "./fingerprint.js";
 
 interface ProfileRow {
   id: string;
@@ -244,7 +244,9 @@ export class ProfileManager {
       notes: patch.notes ?? existing.notes,
       tags: patch.tags ?? existing.tags,
       proxy: patch.proxy === null ? undefined : (patch.proxy ?? existing.proxy),
-      fingerprint: { ...existing.fingerprint, ...patch.fingerprint },
+      fingerprint: patch.fingerprint
+        ? reconcileFingerprint(existing.fingerprint, patch.fingerprint)
+        : existing.fingerprint,
       extensions: patch.extensions ?? existing.extensions,
       // null clears a custom icon (revert to the derived default); undefined keeps it.
       icon: patch.icon === null ? undefined : (patch.icon ?? existing.icon),

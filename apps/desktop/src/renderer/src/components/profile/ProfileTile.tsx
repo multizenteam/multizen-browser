@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, MoreHorizontal, Pencil, Play, RefreshCw, Square, Zap } from "lucide-react";
+import { Loader2, Maximize2, MoreHorizontal, Pencil, Play, RefreshCw, Square, Zap } from "lucide-react";
 import type { ProfileSummary } from "../../types";
 import {
   Avatar,
@@ -19,6 +19,7 @@ import { cn } from "../../lib/cn";
 import { profileEmoji } from "../../lib/profileEmoji";
 import { emojiTint } from "../../lib/emojiTint";
 import { useProxyHealth } from "../../lib/proxyHealth";
+import { ProfilePreview } from "./PreviewFrame";
 import type { ActivityEvent } from "../../types";
 
 export type TileState = "idle" | "running" | "ai" | "error";
@@ -55,6 +56,9 @@ interface Props {
   /** Chromium is winding down (window closed / Stop pressed) but not yet
    *  exited — show a "Terminating…" transitional state instead of "Stop". */
   terminating?: boolean;
+  expanded?: boolean;
+  previewEnabled?: boolean;
+  onExpand: () => void;
   onOpen: () => void;
   onLaunch: () => Promise<void> | void;
   onStop: () => Promise<void> | void;
@@ -65,6 +69,9 @@ interface Props {
 export function ProfileTile({
   profile,
   terminating = false,
+  expanded = false,
+  previewEnabled = true,
+  onExpand,
   onOpen,
   onLaunch,
   onStop,
@@ -72,6 +79,7 @@ export function ProfileTile({
   onDelete,
 }: Props): JSX.Element {
   const isRunning = profile.state !== "idle";
+  const canExpand = previewEnabled && isRunning && !terminating && profile.engine !== "camoufox";
   // Emoji avatar: user's custom `icon` if set, else a classifier-derived
   // default from name/tags/id, on a deterministic muted tile tint.
   const emoji = profileEmoji(profile.icon, profile.name, profile.tags, profile.id);
@@ -156,6 +164,11 @@ export function ProfileTile({
         <PillForState state={profile.state} />
       </button>
 
+      {/* Live browser preview — only while the profile is actually running.
+          The preview stream is refcounted per profile, so the grid card and
+          the list row can both show it without starting it twice. */}
+      {isRunning && !terminating && !expanded && <ProfilePreview profileId={profile.id} />}
+
       {/* Tags */}
       {profile.tags.length > 0 && (
         <div className="flex gap-1.5 flex-wrap">
@@ -231,16 +244,29 @@ export function ProfileTile({
             {pending ? "Launching…" : "Launch"}
           </Button>
         ) : (
-          <Button
-            variant="secondary"
-            size="md"
-            fullWidth
-            disabled={pending}
-            onClick={handleStop}
-            leftIcon={<Square size={10} fill="currentColor" strokeWidth={0} />}
-          >
-            {pending ? "Stopping…" : "Stop"}
-          </Button>
+          <div className="flex flex-1 gap-1.5">
+            <Button
+              variant="secondary"
+              size="md"
+              fullWidth
+              disabled={pending}
+              onClick={handleStop}
+              leftIcon={<Square size={10} fill="currentColor" strokeWidth={0} />}
+            >
+              {pending ? "Stopping…" : "Stop"}
+            </Button>
+            {canExpand && (
+              <Button
+                variant="secondary"
+                size="md"
+                title="Expand browser"
+                onClick={onExpand}
+                leftIcon={<Maximize2 size={11} />}
+              >
+                Expand
+              </Button>
+            )}
+          </div>
         )}
         <ActionMenu onEdit={onOpen} onExport={onExport} onDelete={onDelete} />
       </div>

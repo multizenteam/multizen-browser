@@ -13,7 +13,7 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
-import { Pill } from "../atoms";
+import { Pill, confirm } from "../atoms";
 import { relativeTime } from "../../lib/relativeTime";
 import type {
   AppSettings,
@@ -70,6 +70,23 @@ export function Settings({ onImport }: Props): JSX.Element {
     if (!settings) return;
     const next = await window.multizen.settings.update(p);
     setSettings(next);
+  }
+
+  async function setPreviewToggle(checked: boolean): Promise<void> {
+    if (checked && !settings?.virtualBrowserPreview && info?.platform === "linux") {
+      const seen = localStorage.getItem("multizen.xvfb.noticeSeen") === "1";
+      if (!seen) {
+        const ok = await confirm({
+          title: "Xvfb is required on Linux",
+          body: "The in-card preview runs browser profiles on a private Xvfb display. Install Xvfb first (for example: sudo pacman -S xorg-server-xvfb on Arch, or sudo apt install xvfb on Debian/Ubuntu). Without it, profiles will launch on the normal desktop instead.",
+          confirmLabel: "Enable preview",
+          cancelLabel: "Cancel",
+        });
+        if (!ok) return;
+        localStorage.setItem("multizen.xvfb.noticeSeen", "1");
+      }
+    }
+    await patch({ virtualBrowserPreview: checked });
   }
 
   async function checkForUpdates(): Promise<void> {
@@ -204,6 +221,22 @@ export function Settings({ onImport }: Props): JSX.Element {
               className="w-3.5 h-3.5 rounded accent-purple-500"
             />
             Auto-start MCP HTTP transport on app launch
+          </label>
+        </Row>
+
+        <Row
+          icon={<Eye size={16} strokeWidth={1.5} />}
+          title="In-card browser preview"
+          desc="On Linux this requires Xvfb to be installed. Turn off to open the browser window on the desktop instead. Running profiles restart when this changes."
+        >
+          <label className="flex items-center gap-2.5 text-[12px] text-slate-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.virtualBrowserPreview}
+              onChange={(e) => void setPreviewToggle(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-purple-500"
+            />
+            Show the live browser preview inside each profile card
           </label>
         </Row>
 

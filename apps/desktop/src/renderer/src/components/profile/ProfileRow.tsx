@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Loader2, MoreHorizontal, Play, RefreshCw, Square, Zap } from "lucide-react";
+import { ChevronRight, Loader2, Maximize2, MoreHorizontal, Play, RefreshCw, Square, Zap } from "lucide-react";
 import {
   Avatar,
   Flag,
@@ -20,6 +20,7 @@ import { emojiTint } from "../../lib/emojiTint";
 import { useProxyHealth } from "../../lib/proxyHealth";
 import type { TileData, TileState } from "./ProfileTile";
 import { PROFILE_TABLE_GRID_TEMPLATE } from "./ProfileTable";
+import { ProfilePreview } from "./PreviewFrame";
 
 const STATE_RING_COLOR: Record<TileState, string> = {
   idle: "rgba(148,163,184,0.3)",      // slate
@@ -32,6 +33,9 @@ interface Props {
   profile: TileData;
   /** Chromium winding down (window closed / Stop) but not yet exited. */
   terminating?: boolean;
+  expanded?: boolean;
+  previewEnabled?: boolean;
+  onExpand: () => void;
   onOpen: () => void;
   onLaunch: () => Promise<void> | void;
   onStop: () => Promise<void> | void;
@@ -43,6 +47,9 @@ interface Props {
 export function ProfileRow({
   profile,
   terminating = false,
+  expanded = false,
+  previewEnabled = true,
+  onExpand,
   onOpen,
   onLaunch,
   onStop,
@@ -50,6 +57,7 @@ export function ProfileRow({
   onDelete,
 }: Props): JSX.Element {
   const isRunning = profile.state !== "idle";
+  const canExpand = previewEnabled && isRunning && !terminating && profile.engine !== "camoufox";
   // Emoji avatar (parity with the grid card): user's custom `icon` if set, else
   // a classifier-derived default from name/tags/id, on a deterministic tint.
   const emoji = profileEmoji(profile.icon, profile.name, profile.tags, profile.id);
@@ -100,6 +108,11 @@ export function ProfileRow({
         >
           <Avatar emoji={emoji} tint={avatarTint} accent={profile.state === "ai"} size={26} />
         </div>
+        {/* Live preview thumbnail — list-view parity with the grid card, so the
+            feature is visible in both view modes. */}
+        {isRunning && !terminating && !expanded && (
+          <ProfilePreview profileId={profile.id} variant="compact" />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="text-[13px] font-semibold text-slate-100 truncate group-hover:text-white">
@@ -208,6 +221,19 @@ export function ProfileRow({
           >
             {pending ? "…" : "Stop"}
           </Button>
+        )}
+        {canExpand && (
+          <Button
+            variant="secondary"
+            size="sm"
+            title="Expand browser"
+            aria-label="Expand browser"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExpand();
+            }}
+            leftIcon={<Maximize2 size={11} />}
+          />
         )}
         <RowMenu onEdit={onOpen} onExport={onExport} onDelete={onDelete} />
       </div>

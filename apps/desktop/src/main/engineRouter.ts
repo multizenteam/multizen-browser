@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { resolveEngine } from "@multizen/types";
-import type { BrowserEngine, LaunchedProfile, ProfileId } from "@multizen/types";
+import type { BrowserEngine, LaunchedProfile, PreviewFrame, ProfileId } from "@multizen/types";
 import type { BrowserDriver } from "@multizen/mcp-server";
 import type { ProfileManager } from "@multizen/profile-manager";
 import type { EngineRegistry } from "./engineRegistry.ts";
@@ -17,6 +17,8 @@ import type { FirefoxBrowserDriver } from "./FirefoxBrowserDriver.ts";
 
 interface EngineRouterEvents {
   "running-changed": (change: RunningStateChange) => void;
+  /** A live-preview frame from a running profile's browser. */
+  "preview-frame": (frame: PreviewFrame) => void;
 }
 
 export interface EngineRouterOptions {
@@ -53,6 +55,7 @@ export class EngineRouter extends EventEmitter implements BrowserDriver {
     this.getDefaultEngine = opts.getDefaultEngine;
     this.chromiumDriver = opts.chromiumDriver;
     this.chromiumDriver.on("running-changed", (c) => this.onSubEvent(c));
+    this.chromiumDriver.on("preview-frame", (f) => this.emit("preview-frame", f));
   }
 
   override on<K extends keyof EngineRouterEvents>(event: K, listener: EngineRouterEvents[K]): this {
@@ -180,6 +183,32 @@ export class EngineRouter extends EventEmitter implements BrowserDriver {
   }
   closeTab(profileId: ProfileId, targetId: string, sessionId?: string): Promise<unknown> {
     return this.require(profileId).closeTab(profileId, targetId, sessionId);
+  }
+
+  // ── Live preview (Chromium-only: Camoufox/Firefox has no CDP) ────────────
+
+  /** Start the live preview. Returns false when the engine can't stream. */
+  async startPreview(profileId: ProfileId): Promise<boolean> {
+    const driver = this.bindings.get(profileId);
+    if (!driver) return false;
+    if (driver !== this.chromiumDriver) return false; // Camoufox: no CDP screencast.
+    return this.chromiumDriver.startPreview(profileId);
+  }
+
+  /** Stop the live preview (no-op when it isn't streaming). */
+  async stopPreview(profileId: ProfileId): Promise<void> {
+    const driver = this.bindings.get(profileId);
+    if (!driver) return;
+    if (driver !== this.chromiumDriver) return;
+    await this.chromiumDriver.stopPreview(profileId);
+  }
+
+  /** Bring the profile's real browser window to the front. */
+  async focusPreview(profileId: ProfileId): Promise<void> {
+    const driver = this.bindings.get(profileId);
+    if (!driver) return;
+    if (driver !== this.chromiumDriver) return;
+    await this.chromiumDriver.focusPreview(profileId);
   }
 
   async closeAll(): Promise<void> {
