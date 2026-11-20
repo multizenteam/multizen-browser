@@ -492,6 +492,19 @@ app.whenReady().then(async () => {
   ipcMain.handle("profiles:preview-quality", (_e, id: string, expanded: boolean) =>
     chromiumDriver.setPreviewQuality(id, expanded),
   );
+  ipcMain.handle("profiles:preview-tabs", (_e, id: string) => chromiumDriver.previewTabs(id));
+  ipcMain.handle("profiles:preview-navigate", (_e, id: string, url: string) =>
+    chromiumDriver.previewNavigate(id, url),
+  );
+  ipcMain.handle("profiles:preview-activate-tab", (_e, id: string, targetId: string) =>
+    chromiumDriver.previewActivateTab(id, targetId),
+  );
+  ipcMain.handle("profiles:preview-new-tab", (_e, id: string) =>
+    chromiumDriver.previewNewTab(id),
+  );
+  ipcMain.handle("profiles:preview-close-tab", (_e, id: string, targetId: string) =>
+    chromiumDriver.previewCloseTab(id, targetId),
+  );
 
   // Settings IPC
   ipcMain.handle("settings:get", () => settingsStore.load());

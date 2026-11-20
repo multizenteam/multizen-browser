@@ -97,6 +97,15 @@ export interface MultizenApi {
     previewFocus: (id: ProfileId) => Promise<void>;
     previewInput: (id: ProfileId, event: PreviewInputEvent) => Promise<void>;
     previewQuality: (id: ProfileId, expanded: boolean) => Promise<void>;
+    previewTabs: (
+      id: ProfileId,
+    ) => Promise<Array<{ targetId: string; url: string; active: boolean }>>;
+    previewNavigate: (id: ProfileId, url: string) => Promise<{ url: string }>;
+    previewActivateTab: (id: ProfileId, targetId: string) => Promise<void>;
+    /** Open a new tab in the live preview and follow it. */
+    previewNewTab: (id: ProfileId) => Promise<{ targetId: string }>;
+    /** Close a preview tab (never the profile's last tab). */
+    previewCloseTab: (id: ProfileId, targetId: string) => Promise<void>;
     onPreviewFrame: (cb: (frame: PreviewFrame) => void) => () => void;
   };
   settings: {

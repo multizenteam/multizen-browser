@@ -6,6 +6,7 @@ import { ProfilesEmptyState } from "./components/profile/EmptyState";
 import { NewProfileSheet } from "./components/profile/NewProfileSheet";
 import { ProfileEditSheet } from "./components/profile/ProfileEditSheet";
 import { ProfilePreview } from "./components/profile/PreviewFrame";
+import { BrowserToolbar } from "./components/profile/BrowserToolbar";
 import type { Profile } from "@multizen/types";
 import { ActivityDrawer } from "./components/activity/ActivityDrawer";
 import { McpPanel } from "./components/mcp/McpPanel";
@@ -471,6 +472,11 @@ export function App(): JSX.Element {
         open={expandedProfileId !== null}
         onClose={() => setExpandedProfileId(null)}
         title={profiles.find((p) => p.id === expandedProfileId)?.name ?? "Browser"}
+        headerExtra={
+          expandedProfileId !== null ? (
+            <BrowserToolbar profileId={expandedProfileId} />
+          ) : undefined
+        }
         width={2400}
         panelClassName="!w-[80vw] !max-w-[80vw] !h-[80vh] !max-h-[80vh]"
         disableBlur

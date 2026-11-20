@@ -122,6 +122,23 @@ const api = {
       ipcRenderer.invoke("profiles:preview-input", id, event),
     previewQuality: (id: ProfileId, expanded: boolean): Promise<void> =>
       ipcRenderer.invoke("profiles:preview-quality", id, expanded),
+    /** Tabs currently visible to the live preview. */
+    previewTabs: (
+      id: ProfileId,
+    ): Promise<Array<{ targetId: string; url: string; active: boolean }>> =>
+      ipcRenderer.invoke("profiles:preview-tabs", id),
+    /** Navigate the tab the live preview is following. */
+    previewNavigate: (id: ProfileId, url: string): Promise<{ url: string }> =>
+      ipcRenderer.invoke("profiles:preview-navigate", id, url),
+    /** Switch the live preview to another tab. */
+    previewActivateTab: (id: ProfileId, targetId: string): Promise<void> =>
+      ipcRenderer.invoke("profiles:preview-activate-tab", id, targetId),
+    /** Open a new tab in the live preview and follow it. */
+    previewNewTab: (id: ProfileId): Promise<{ targetId: string }> =>
+      ipcRenderer.invoke("profiles:preview-new-tab", id),
+    /** Close a preview tab (never the profile's last tab). */
+    previewCloseTab: (id: ProfileId, targetId: string): Promise<void> =>
+      ipcRenderer.invoke("profiles:preview-close-tab", id, targetId),
     onPreviewFrame: (cb: (frame: PreviewFrame) => void): (() => void) => {
       const listener = (_: unknown, frame: PreviewFrame): void => cb(frame);
       ipcRenderer.on("profiles:preview-frame", listener);

@@ -36,6 +36,8 @@ export interface ModalProps {
   title?: ReactNode;
   /** Optional subtitle line under the title. */
   subtitle?: ReactNode;
+  /** Optional full-width row below the title/subtitle/close row. */
+  headerExtra?: ReactNode;
   /** Modal max width in px. Default 560. */
   width?: number;
   /** Right-side action buttons in the footer. */
@@ -62,6 +64,7 @@ export function Modal({
   onClose,
   confirmClose,
   title,
+  headerExtra,
   subtitle,
   width = 560,
   footer,
@@ -182,31 +185,33 @@ export function Modal({
         }}
       >
         {!hideHeader && (
-          <div
-            className="flex items-start gap-3 px-5 pt-4 pb-3"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
-          >
-            <div className="flex-1 min-w-0">
-              {title && (
-                <div className="text-[15px] font-bold text-slate-100 leading-tight">
-                  {title}
-                </div>
-              )}
-              {subtitle && (
-                <div className="text-[12px] text-slate-500 mt-1">{subtitle}</div>
-              )}
+          <div style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+            <div className="flex items-start gap-3 px-5 pt-4 pb-3">
+              <div className="flex-1 min-w-0">
+                {title && (
+                  <div className="text-[15px] font-bold text-slate-100 leading-tight">
+                    {title}
+                  </div>
+                )}
+                {subtitle && (
+                  <div className="text-[12px] text-slate-500 mt-1">{subtitle}</div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void tryClose()}
+                aria-label="Close"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void tryClose()}
-              aria-label="Close"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
-            </button>
+            {headerExtra && (
+              <div className="w-full px-5 pb-3">{headerExtra}</div>
+            )}
           </div>
         )}
 

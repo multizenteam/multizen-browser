@@ -1169,6 +1169,46 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
   }
 
   /**
+   * Tabs currently visible to the live preview. Bounded and non-throwing:
+   * an absent stream simply reports no tabs.
+   */
+  async previewTabs(
+    profileId: ProfileId,
+  ): Promise<Array<{ targetId: string; url: string; active: boolean }>> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return [];
+    return (await withTimeoutValue(r.stream.listPreviewTabs(), 5000)) ?? [];
+  }
+
+  /** Navigate the tab the preview is following; safe default on failure. */
+  async previewNavigate(profileId: ProfileId, url: string): Promise<{ url: string }> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return { url };
+    return (await withTimeoutValue(r.stream.navigateActiveTab(url), 5000)) ?? { url };
+  }
+
+  /** Switch the live screencast to a chosen tab. Never throws. */
+  async previewActivateTab(profileId: ProfileId, targetId: string): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return;
+    await withTimeout(r.stream.activatePreviewTab(targetId), 5000);
+  }
+
+  /** Open a new tab in the live preview; safe default on failure. */
+  async previewNewTab(profileId: ProfileId): Promise<{ targetId: string }> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return { targetId: "" };
+    return (await withTimeoutValue(r.stream.newPreviewTab(), 15000)) ?? { targetId: "" };
+  }
+
+  /** Close a preview tab (never the profile's last one). Never throws. */
+  async previewCloseTab(profileId: ProfileId, targetId: string): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r?.stream || !targetId) return;
+    await withTimeout(r.stream.closePreviewTab(targetId), 10000);
+  }
+
+  /**
    * Stop the live preview for a profile (no-op when it isn't streaming).
    * The survivor window STAYS: it is what keeps the browser alive, and
    * the profile must survive the user closing their own window.

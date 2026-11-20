@@ -462,6 +462,161 @@ export class PreviewStream extends EventEmitter {
   }
 
   /**
+   * List the browser-level page targets for the preview UI.
+   *
+   * Uses this stream's existing socket — no new CDP connection is opened.
+   * Never throws: an unreachable browser is reported as an empty tab list.
+   */
+  async listPreviewTabs(): Promise<Array<{ targetId: string; url: string; active: boolean }>> {
+    if (this.disposed || !this.socketOpen) return [];
+    try {
+      const infos = readTargetInfos(
+        await this.send("Target.getTargets", {}, { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS }),
+      );
+      const tabs: Array<{ targetId: string; url: string }> = [];
+      for (const info of infos) {
+        if (info.type !== "page" || !info.targetId || !info.url) continue;
+        if (info.url.startsWith("devtools://")) continue;
+        tabs.push({ targetId: info.targetId, url: info.url });
+      }
+      if (tabs.length === 0) return [];
+
+      let activeId = this.activeTargetId;
+      if (activeId === null && this.activeSessionId !== null) {
+        for (const [targetId, sessionId] of this.streamingByTarget) {
+          if (sessionId === this.activeSessionId) {
+            activeId = targetId;
+            break;
+          }
+        }
+      }
+      if (activeId === null || !tabs.some((tab) => tab.targetId === activeId)) {
+        activeId = await this.pickActiveTarget(tabs.map((tab) => tab.targetId));
+      }
+      return tabs.map((tab) => ({ ...tab, active: tab.targetId === activeId }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Navigate the tab the preview is following. Only http(s) and about:blank
+   * are accepted; a rejected URL never reaches CDP. Bound so a lost reply
+   * cannot strand an IPC call.
+   */
+  async navigateActiveTab(url: string): Promise<{ url: string }> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error("Invalid preview navigation URL");
+    }
+    const allowed =
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      (parsed.protocol === "about:" && parsed.href === "about:blank");
+    if (!allowed) throw new Error(`Preview navigation to ${parsed.protocol} is not allowed`);
+    if (this.disposed || !this.socketOpen) throw new Error("PreviewStream not connected");
+
+    return withTimeoutOrThrow(
+      (async () => {
+        let targetId = this.activeTargetId;
+        if (targetId === null) {
+          const tabs = await this.listPreviewTabs();
+          targetId = tabs.find((tab) => tab.active)?.targetId ?? null;
+        }
+        if (!targetId) throw new Error("No active preview tab");
+        const sessionId = await this.ensureSession(targetId);
+        if (!sessionId) throw new Error("Could not attach to the active preview tab");
+        await this.send("Page.navigate", { url }, { sessionId, timeoutMs: 5000 });
+        if (
+          this.activeTargetId !== targetId ||
+          this.activeSessionId !== sessionId ||
+          !this.screencasting.has(sessionId)
+        ) {
+          await this.switchActiveTab(targetId, sessionId);
+        } else {
+          this.activeTargetId = targetId;
+          this.activeSessionId = sessionId;
+        }
+        return { url };
+      })(),
+      DEFAULT_COMMAND_TIMEOUT_MS,
+      "preview navigation",
+    );
+  }
+
+  /**
+   * Point the preview at a different tab. Window parking is untouched —
+   * this only switches the tab inside the profile's existing window.
+   * Never throws; a dead target leaves the current preview in place.
+   */
+  async activatePreviewTab(targetId: string): Promise<void> {
+    if (this.disposed || !this.socketOpen || !targetId) return;
+    try {
+      const sessionId = await this.ensureSession(targetId);
+      if (!sessionId) return;
+      await this.send("Target.activateTarget", { targetId }, { timeoutMs: 3000 }).catch(() => {});
+      if (
+        this.activeTargetId !== targetId ||
+        this.activeSessionId !== sessionId ||
+        !this.screencasting.has(sessionId)
+      ) {
+        await this.switchActiveTab(targetId, sessionId);
+      } else {
+        this.activeTargetId = targetId;
+        this.activeSessionId = sessionId;
+      }
+    } catch {
+      // A tab click must never surface as an unhandled rejection.
+    }
+  }
+
+  /**
+   * Open a fresh tab in the preview's browser and make it the active preview
+   * tab. Uses this stream's existing browser-level socket — no new CDP
+   * connection. Throws only when CDP fails; the driver converts failures
+   * into a safe default.
+   */
+  async newPreviewTab(): Promise<{ targetId: string }> {
+    if (this.disposed || !this.socketOpen) throw new Error("PreviewStream not connected");
+    return withTimeoutOrThrow(
+      (async () => {
+        const created: unknown = await this.send("Target.createTarget", {
+          url: "about:blank",
+        });
+        const targetId = readOptionalString(created, "targetId");
+        if (!targetId) throw new Error("Target.createTarget returned no targetId");
+        await this.activatePreviewTab(targetId);
+        return { targetId };
+      })(),
+      15000,
+      "preview new tab",
+    );
+  }
+
+  /**
+   * Close a preview tab. The profile's last tab is never closed (that would
+   * kill the browser), and no failure surfaces as a rejection. When the
+   * closed tab was active, the preview follows another remaining tab.
+   */
+  async closePreviewTab(targetId: string): Promise<void> {
+    if (this.disposed || !this.socketOpen || !targetId) return;
+    try {
+      const tabs = await this.listPreviewTabs();
+      if (tabs.length < 2 || !tabs.some((tab) => tab.targetId === targetId)) return;
+      const wasActive = tabs.some((tab) => tab.active && tab.targetId === targetId);
+      await this.send("Target.closeTarget", { targetId });
+      if (wasActive) {
+        const other = tabs.find((tab) => tab.targetId !== targetId);
+        if (other) await this.activatePreviewTab(other.targetId);
+      }
+    } catch {
+      // A tab close must never surface as an unhandled rejection.
+    }
+  }
+
+  /**
    * Stop producing frames but keep the browser-level socket AND the parked
    * window alive.
    *
