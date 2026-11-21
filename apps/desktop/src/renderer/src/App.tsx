@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { TopBar } from "./components/screens/TopBar";
 import { LeftRail, type Section } from "./components/screens/LeftRail";
 import { Constellation } from "./components/profile/Constellation";
@@ -31,6 +32,10 @@ export function App(): JSX.Element {
   // Persisted UI state — survives app restarts under localStorage `multizen.ui.*`.
   const [section, setSection] = usePersistedState<Section>("section", "profiles");
   const [drawerOpen, setDrawerOpen] = usePersistedState<boolean>("drawerOpen", false);
+  // When true, the Expand modal opens in "focus" mode: larger window, no profile
+  // name / address bar / tabs — just the bigger live view. Persists across
+  // launches, so the user's choice is applied the moment they press Expand.
+  const [expandFocusMode, setExpandFocusMode] = usePersistedState<boolean>("expandFocusMode", false);
 
   // Migrate the legacy "activity" section (renamed to "mcp") from localStorage
   // so an existing install doesn't land on a blank screen.
@@ -467,18 +472,47 @@ export function App(): JSX.Element {
         )}
       </Modal>
 
-      {/* Expanded interactive browser preview (~80% of the window). */}
+      {/* Expanded interactive browser preview (~80% of the window). A "focus"
+          mode enlarges it and drops the name/address bar/tabs, leaving just the
+          bigger live view — toggled live via the header button and persisted so
+          the next Expand opens already in that mode. */}
       <Modal
         open={expandedProfileId !== null}
         onClose={() => setExpandedProfileId(null)}
-        title={profiles.find((p) => p.id === expandedProfileId)?.name ?? "Browser"}
-        headerExtra={
+        title={
+          expandedProfileId !== null && !expandFocusMode
+            ? profiles.find((p) => p.id === expandedProfileId)?.name ?? "Browser"
+            : undefined
+        }
+        headerButtons={
           expandedProfileId !== null ? (
+            <button
+              type="button"
+              onClick={() => setExpandFocusMode((v) => !v)}
+              aria-label={expandFocusMode ? "Restore normal size" : "Enlarge view"}
+              title={expandFocusMode ? "Restore normal size" : "Enlarge view"}
+              aria-pressed={expandFocusMode}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+            >
+              {expandFocusMode ? (
+                <Minimize2 size={14} aria-hidden />
+              ) : (
+                <Maximize2 size={14} aria-hidden />
+              )}
+            </button>
+          ) : undefined
+        }
+        headerExtra={
+          expandedProfileId !== null && !expandFocusMode ? (
             <BrowserToolbar profileId={expandedProfileId} />
           ) : undefined
         }
         width={2400}
-        panelClassName="!w-[80vw] !max-w-[80vw] !h-[80vh] !max-h-[80vh]"
+        panelClassName={
+          expandFocusMode
+            ? "!w-[92vw] !max-w-[92vw] !h-[94vh] !max-h-[94vh]"
+            : "!w-[80vw] !max-w-[80vw] !h-[80vh] !max-h-[80vh]"
+        }
         disableBlur
       >
         {expandedProfileId !== null && (

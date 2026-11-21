@@ -36,6 +36,8 @@ export interface ModalProps {
   title?: ReactNode;
   /** Optional subtitle line under the title. */
   subtitle?: ReactNode;
+  /** Optional right-side action buttons, shown to the left of the close (X) button. */
+  headerButtons?: ReactNode;
   /** Optional full-width row below the title/subtitle/close row. */
   headerExtra?: ReactNode;
   /** Modal max width in px. Default 560. */
@@ -72,6 +74,7 @@ export function Modal({
   panelClassName,
   children,
   disableBlur = false,
+  headerButtons,
 }: ModalProps): JSX.Element | null {
   const idRef = useRef<number>(0);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -197,6 +200,9 @@ export function Modal({
                   <div className="text-[12px] text-slate-500 mt-1">{subtitle}</div>
                 )}
               </div>
+              {headerButtons && (
+                <div className="flex items-center gap-1">{headerButtons}</div>
+              )}
               <button
                 type="button"
                 onClick={() => void tryClose()}

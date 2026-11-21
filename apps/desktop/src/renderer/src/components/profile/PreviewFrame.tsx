@@ -320,10 +320,7 @@ export function ProfilePreview({
   const [hasFrame, setHasFrame] = useState(false);
   const [aspect, setAspect] = useState(DEFAULT_ASPECT);
   const [focused, setFocused] = useState(false);
-  const [boxSize, setBoxSize] = useState<{ width: number; height: number } | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const boxSizeRef = useRef(boxSize);
-  boxSizeRef.current = boxSize;
 
   const [previewEnabled, setPreviewEnabled] = useState(true);
   const [settingsReady, setSettingsReady] = useState(false);
@@ -345,22 +342,10 @@ export function ProfilePreview({
     return () => { alive = false; off(); };
   }, []);
 
-  // Keep Expand inside the modal at ANY window size. The modal is 80vw × 80vh
-  // with a header; deriving both dimensions from the frame aspect prevents the
-  // scrollbar that appeared when MultiZen was fullscreen.
-  useEffect(() => {
-    if (!expanded) return;
-    const fit = (): void => {
-      const host = boxRef.current?.parentElement;
-      const maxW = Math.max(320, (host?.clientWidth ?? window.innerWidth * 0.8 - 48) - 24);
-      const maxH = Math.max(240, (host?.clientHeight ?? window.innerHeight * 0.8 - 64) - 24);
-      const width = Math.min(maxW, maxH * aspect);
-      setBoxSize({ width: Math.round(width), height: Math.round(width / aspect) });
-    };
-    fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, [expanded, aspect]);
+  // The expanded preview fills its host purely in CSS (`w-full h-full` +
+  // canvas `object-fit: contain`), so it tracks any modal resize — including
+  // focus mode — without JS measurement that can latch onto a mid-animation
+  // size. The canvas's 12px inset keeps a small breathing margin.
 
   // Stream lifecycle — mount starts the preview, unmount stops it. The
   // registry guarantees a single stream per profile even if several cards
@@ -456,7 +441,7 @@ export function ProfilePreview({
       const canvas = canvasRef.current;
       if (!canvas) return;
 
-      paint(canvas, source, expandedRef.current, boxSizeRef.current?.width ?? 0);
+      paint(canvas, source, expandedRef.current, canvas.clientWidth);
       lastPaintAtRef.current = performance.now();
       lastSeqRef.current = frame.seq;
 
@@ -733,10 +718,9 @@ export function ProfilePreview({
       aria-label={`Interactive live browser preview for profile ${profileId}`}
       className="relative block w-full shrink-0 p-0 border-0 bg-transparent cursor-pointer overflow-hidden rounded-[12px]"
       style={{
-        width: expanded && boxSize ? boxSize.width : undefined,
-        height: expanded && boxSize ? boxSize.height : undefined,
-        aspectRatio: expanded && boxSize ? undefined : `${aspect}`,
-        margin: expanded && boxSize ? "0 auto" : undefined,
+        width: "100%",
+        height: expanded ? "100%" : undefined,
+        aspectRatio: expanded ? undefined : `${aspect}`,
         background: "rgba(255,255,255,0.02)",
         boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
         outline: focused ? "1px solid rgba(52,211,153,0.55)" : "none",
