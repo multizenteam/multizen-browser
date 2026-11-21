@@ -11,11 +11,20 @@ import { promisify } from "node:util";
 const execFileP = promisify(execFile);
 import type { BrowserDriver } from "@multizen/mcp-server";
 import type { ProfileManager } from "@multizen/profile-manager";
-import type { ClientHints, FingerprintConfig, LaunchedProfile, ProfileId } from "@multizen/types";
+import type {
+  ClientHints,
+  FingerprintConfig,
+  LaunchedProfile,
+  PreviewFrame,
+  PreviewInputEvent,
+  ProfileId,
+} from "@multizen/types";
 import { waitForCdpSessionReady } from "./cdpReadiness";
 import { resolveEngine, type BrowserEngine } from "@multizen/types";
-import { CdpSession } from "@multizen/cdp-driver";
+import { CdpSession, PreviewStream } from "@multizen/cdp-driver";
 import { EngineRegistry } from "./engineRegistry.ts";
+import { setEngineTaskbarHidden } from "./x11Taskbar.ts";
+import { virtualDisplay } from "./virtualDisplay.ts";
 import { startBridgeForProfile, stopBridgeForProfile } from "./socks5Bridge";
 import { probeProxyGeo } from "./proxyGeo";
 import { companionDir } from "./extensions/companion";
@@ -37,6 +46,19 @@ function readSysctl(path: string): string | null {
  *  child to have actually exited, so a stray match alone can't disable the
  *  sandbox. */
 const SANDBOX_FAILURE_RE = /No usable sandbox|Failed to move to new (?:user )?namespace/i;
+
+/**
+ * Retry delays (ms) for the taskbar update.
+ *
+ * A Chrome window registers in `_NET_CLIENT_LIST` ~190ms after it is
+ * created (MEASURED), and the stream emits "window-parked" as soon as the
+ * window is parked — inside that window. The first attempts therefore find
+ * no window to update; these delays cover the gap without hammering X.
+ */
+/** Re-apply delays (ms): the replacement window registers ~190ms after
+ *  the old one is destroyed, and KWin can reset its state on map, so the
+ *  final one at 2.6s lands after the window has definitely mapped. */
+const TASKBAR_REAPPLY_DELAYS = [400, 1200, 2600] as const;
 
 /** Thrown by the spawn attempt when the sandbox failed to start, so the caller
  *  can relaunch once with --no-sandbox (never re-prompting). */
@@ -64,6 +86,12 @@ function fallbackNeedsNoSandbox(): boolean {
   );
 }
 
+/** Screencast presets: compact card stream vs. sharp Expand modal. */
+const QUALITY = {
+  card: { quality: 62, maxWidth: 640, maxHeight: 360, everyNthFrame: 2 },
+  expanded: { quality: 86, maxWidth: 1600, maxHeight: 900, everyNthFrame: 1 },
+} as const;
+
 interface RunningProcess {
   child: ChildProcess;
   cdpEndpoint: string;
@@ -76,6 +104,16 @@ interface RunningProcess {
   browserDataDir: string;
   /** Polls /json/list and kills the child when no page targets remain. */
   windowWatcher: NodeJS.Timeout;
+  /**
+   * The profile's CDP stream: it owns the off-screen SURVIVOR window that
+   * keeps the browser alive when the user closes their own window, and
+   * (once a preview is started) the screencast that feeds the renderer.
+   */
+  stream: PreviewStream | null;
+  /** Last requested preset, replayed whenever the screencast restarts. */
+  qualityMode: "card" | "expanded";
+  /** Profile-sized parked window on the private Xvfb display. */
+  virtualWindowSize?: { width: number; height: number };
 }
 
 export interface ChromiumBrowserDriverOptions {
@@ -124,6 +162,8 @@ export type RunningStateChange =
 
 interface DriverEvents {
   "running-changed": (change: RunningStateChange) => void;
+  /** A live-preview frame from a running profile's browser. */
+  "preview-frame": (frame: PreviewFrame) => void;
 }
 
 /**
@@ -138,6 +178,9 @@ interface DriverEvents {
  */
 export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver {
   private readonly running = new Map<ProfileId, RunningProcess>();
+  /** Streams whose "window-parked" event is already wired to the taskbar
+   *  helper — guards against a double subscription for the same stream. */
+  private readonly taskbarWired = new WeakSet<PreviewStream>();
   private nextPort = 9222;
   private readonly profileManager: ProfileManager;
   private readonly engineRegistry: EngineRegistry;
@@ -175,6 +218,23 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
   async launch(profileId: ProfileId): Promise<LaunchedProfile> {
     const existing = this.running.get(profileId);
     if (existing) {
+      // The profile is already running, but its window may be PARKED (the
+      // user closed it — the replacement window lives off-screen). Returning
+      // silently here made the Launch button look frozen: the browser was
+      // there, just not on the screen. Un-park it instead — the tabs stay
+      // loaded, nothing reloads.
+      const stream = existing.stream;
+      if (stream && stream.windowParked) {
+        try {
+          // Bounded: the renderer's Launch button awaits this call, so a
+          // lost CDP reply must never freeze the app.
+          await withTimeout(stream.openVisibleWindow(), 5000);
+        } catch (e) {
+          process.stderr.write(
+            `[multizen] could not re-open the parked window profile=${profileId}: ${String(e)}\n`,
+          );
+        }
+      }
       return {
         id: profileId,
         cdpEndpoint: existing.cdpEndpoint,
@@ -336,7 +396,10 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       // a clean exit and our CDP graceful shutdown, tabs come back reliably
       // across stop/launch even after a crash.
       "--restore-last-session",
-      "--disable-features=Translate,MediaRouter",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-features=Translate,MediaRouter,CalculateNativeWinOcclusion",
       // Don't back Chromium's "Safe Storage" key with the OS keychain/keyring.
       // Two reasons: (1) our engine bundle is ad-hoc signed, so on macOS the
       // keychain ACL never matches and every launch pops a "Chromium wants to
@@ -355,7 +418,20 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       // elsewhere: FileVault for offline disk theft, .mzar's AES-256-GCM +
       // passphrase for exports. Rely on disk encryption for at-rest safety.
       ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
-      ...(process.platform === "linux" ? ["--password-store=basic"] : []),
+      // Linux: force the X11 backend instead of the native Wayland one.
+      // On a Wayland session the compositor OWNS window placement and
+      // IGNORES CDP's `Browser.setWindowBounds`, so a window parked at
+      // (-32000,-32000) pops up at (0,0) — a stray window on the user's
+      // screen. As an X11 client Chrome positions ITSELF and honours the
+      // CDP bounds, which is what keeps the off-screen survivor invisible.
+      // macOS/Windows keep their default: there the compositor already
+      // honours CDP bounds.
+      ...(process.platform === "linux" ? ["--password-store=basic", "--ozone-platform=x11"] : []),
+      // On Xvfb the default Mesa software GL path burns ~6 cores in the GPU
+      // process. The disabled-GL fallback paints the same frames at 30 fps
+      // with ~0.5 core, so prefer it when the engine runs on the virtual
+      // display.
+      ...(process.platform === "linux" && virtualDisplay() ? ["--use-gl=disabled"] : []),
       // UI language for the Chromium chrome itself
       `--lang=${fp.locale}`,
       // Accept-Language: plain list, Chromium adds q-values.
@@ -499,6 +575,14 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
         const value = process.env[key];
         if (value !== undefined) cleanEnv[key] = value;
       }
+    }
+    // Virtual-display mode: the engine lives on its own X server. Drop the
+    // Wayland vars so Chromium cannot try to connect to the user's session.
+    const virtual = virtualDisplay();
+    if (virtual) {
+      cleanEnv.DISPLAY = virtual;
+      delete cleanEnv.WAYLAND_DISPLAY;
+      cleanEnv.XDG_SESSION_TYPE = "x11";
     }
     // Start page (positional URL) — only on first run, i.e. when there is no
     // restorable session. With `--restore-last-session` a returning profile
@@ -674,6 +758,21 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       .catch((e: unknown) => {
         console.error("[multizen] CDP bootstrap failed:", e);
       });
+    // On Xvfb the window frame is counted by Browser.setWindowBounds but not
+    // by the page viewport. Compensate for it so the page gets the FULL
+    // fingerprint height — otherwise the bottom ~120px never renders.
+    const chromeHeight = virtualDisplay()
+      ? Math.max(
+          0,
+          await session
+            .evaluate<number>("window.outerHeight - window.innerHeight")
+            .catch(() => 0),
+        )
+      : 0;
+    const virtualWindowSize = {
+      width: fp.screen.width,
+      height: fp.screen.height + chromeHeight,
+    };
 
     // Wire the companion's "Add to MultiZen" channel for this profile — scoped
     // to Web Store pages only (the host polls a DOM attribute there, never on
@@ -692,6 +791,23 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
         },
       });
     }
+
+    // Arm the SURVIVOR right away. Closing the last window makes
+    // CloakBrowser EXIT (measured: exit code 0), which would kill the profile
+    // the moment the user closes their own window.
+    //
+    // The survivor is NOT a window we open now — that used to leave a second
+    // window on the user's desktop. Instead the preview stream RACES the
+    // browser's shutdown: the moment the user's last tab is destroyed it
+    // creates the survivor, which only ever exists after the user closed
+    // their window. Arming it here (not when the preview starts) means the
+    // profile survives that even if no preview was ever opened.
+    const stream = new PreviewStream({
+      profileId,
+      port,
+      virtualDisplay: virtualDisplay() !== null,
+      virtualWindowSize,
+    });
 
     // Watch for "no more page targets" via CDP. On macOS Chrome stays alive
     // after the last window closes (standard Mac app lifecycle) — the spawned
@@ -720,15 +836,57 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       session,
       browserDataDir,
       windowWatcher,
+      stream,
+      qualityMode: "card",
+      virtualWindowSize,
     };
     const r = record;
     this.running.set(profileId, record);
+    this.wireTaskbar(r, stream);
+
+    stream.on("frame", (frame: PreviewFrame) => {
+      this.emit("preview-frame", frame);
+    });
+    stream.on("visible-window-closed", (info) => {
+      if (info.ok) {
+        // The survivor window kept the browser alive and took over the
+        // preview — the profile is STILL RUNNING, so the card must not show
+        // "Terminating…".
+        return;
+      }
+      // The survivor could not take over (navigation/painting failed): tear
+      // the profile down cleanly instead of leaving it half-dead.
+      this.emit("running-changed", { kind: "closing", profileId });
+      void gracefulShutdown(r);
+    });
+    void stream
+      .ensureKeepalive()
+      .then((ok) => {
+        if (!ok) {
+          process.stderr.write(
+            `[multizen] survivor unavailable profile=${profileId} — closing the browser window will end the profile\n`,
+          );
+        }
+      })
+      .catch((e) => {
+        process.stderr.write(
+          `[multizen] survivor arming failed profile=${profileId}: ${String(e)}\n`,
+        );
+      });
 
     child.on("exit", () => {
       const wasTracked = this.running.has(profileId);
       clearInterval(record.windowWatcher);
+      // The engine is gone — its windows are gone too, but the WM may still
+      // hold the SKIP_TASKBAR atom we set. Restore the taskbar state so no
+      // stale entry survives a crash (the helper is a no-op if the windows
+      // are already gone).
+      setEngineTaskbarHidden(pid, false);
       void session.close().catch(() => {});
       void stopBridgeForProfile(profileId).catch(() => {});
+      // The preview socket dies with the browser — tear it down so no timer /
+      // socket survives the profile.
+      void this.destroyPreview(record);
       this.running.delete(profileId);
       if (wasTracked) {
         // close() removes from the map first so wasTracked is false there;
@@ -739,7 +897,36 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     });
 
     this.emit("running-changed", { kind: "launched", profileId });
+    // A profile must show exactly ONE browser window. Chromium's session
+    // restore opens every restored TAB as its own window, so a profile with
+    // two restored tabs came up with two visible windows. Merge them into
+    // the profile's main window once the browser has settled.
+    void this.consolidateProfileWindows(record);
     return { id: profileId, cdpEndpoint, pid, startedAt };
+  }
+
+  /**
+   * Merge the browser's extra windows into one, so the profile shows a
+   * single browser window.
+   *
+   * Chromium restores each saved TAB as its own window, so a profile whose
+   * session had two tabs comes up with two visible windows — and closing
+   * one of them looked like closing the profile. The browser needs a moment
+   * to restore before we can see (and merge) them, hence the short delay.
+   */
+  private async consolidateProfileWindows(record: RunningProcess): Promise<void> {
+    // Give Chromium time to restore its session.
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    try {
+      const stream = record.stream;
+      if (!stream) return;
+      await stream.consolidateWindows();
+    } catch (e) {
+      // Best-effort: extra windows are cosmetic, not fatal.
+      process.stderr.write(
+        `[multizen] could not consolidate windows: ${String(e)}\n`,
+      );
+    }
   }
 
   async close(profileId: ProfileId): Promise<void> {
@@ -753,14 +940,46 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
     // a planned close (no event emitted from there).
     this.running.delete(profileId);
     clearInterval(r.windowWatcher);
+    // Consolidate the windows BEFORE the browser saves its session: Chromium
+    // writes one session file per window, so a profile that still had two
+    // windows would restore two windows on the next launch.
+    //
+    // Timeout-bounded: `consolidateWindows` is a batch of CDP sends and a
+    // LOST CDP REPLY used to hang the Stop button forever (the preview
+    // stream's send() had no timeout). The browser is killed right after
+    // anyway, so a stuck consolidation must never block the teardown.
+    await withTimeout(r.stream?.consolidateWindows() ?? Promise.resolve(), 5000);
     // Always emit "closed" — even if shutdown throws — so the GUI's terminating
     // state can never get stranded.
     try {
-      // Kill the browser FIRST, then stop the proxy bridge. Order matters: the
-      // bridge's server.close() blocks until the browser's socks connection
-      // ends, so stopping it before the browser is dead would hang close()
-      // forever (the real bug behind "Stop leaves Chromium running").
-      await gracefulShutdown(r);
+      // ORDER MATTERS — the browser must be asked to quit BEFORE the parked
+      // window is destroyed.
+      //
+      // `Browser.close` is what makes Chromium flush its session file
+      // (`Default/Sessions/Session_*` + `Tabs_*`) — the mechanism behind
+      // "the tabs come back after a restart". Tearing the preview stream
+      // down first closes the PARKED window, which is the browser's LAST
+      // window: Chromium then starts tearing itself down (measured: it
+      // exits ~60ms later), and the `Browser.close` that follows arrives
+      // too late — the process is killed by a signal and NEVER writes the
+      // session. The result is a relaunch that restores a STALE tab set and
+      // then opens the profile's start URL as an extra tab — the duplicate
+      // tab the user reported.
+      //
+      // So: ask the browser to quit first (it flushes the session on the
+      // way out), and tear the preview socket down afterwards.
+      //
+      // The quit is asked on the PREVIEW STREAM's browser-level socket, not
+      // the driver's page-level one: the page session dies with the user's
+      // window, so after a window close it cannot ask the browser to quit
+      // — and the session would never be flushed (a signalled browser never
+      // writes it). The stream's socket is browser-level and stays alive.
+      await gracefulShutdown(r, r.stream);
+      // The preview socket lives on the browser's CDP port — tear it down
+      // after the browser died, so no socket survives the profile. Bounded
+      // for the same reason: the stream's close() waits on CDP replies
+      // that a dead browser will never send.
+      await withTimeout(this.destroyPreview(r), 5000);
       // Belt-and-suspenders: after the PID-based shutdown, sweep for ANY
       // process still holding this profile's user-data-dir and SIGKILL it.
       // Catches re-parented/forked survivors (or leftover helpers) that the
@@ -770,6 +989,12 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
       // anyway so a stuck socket can never strand Stop.
       await withTimeout(stopBridgeForProfile(profileId), 2000);
     } finally {
+      // Restore the taskbar state: the profile is going away, so its window
+      // must not stay flagged as SKIP_TASKBAR. Done AFTER the browser died
+      // (never while the parked window is still on screen — that would pop a
+      // dying window back into the taskbar) and in the `finally` so a
+      // throwing shutdown still restores it.
+      setEngineTaskbarHidden(r.pid, false);
       console.log(`[multizen] close() done profile=${profileId} pid=${r.pid} alive=${isPidAlive(r.pid)}`);
       this.emit("running-changed", { kind: "closed", profileId, reason: "user-close" });
     }
@@ -865,6 +1090,305 @@ export class ChromiumBrowserDriver extends EventEmitter implements BrowserDriver
   async closeAll(): Promise<void> {
     const ids = [...this.running.keys()];
     await Promise.all(ids.map((id) => this.close(id)));
+  }
+
+  // ── Live preview ──────────────────────────────────────────────────────────
+  // The browser is an EXTERNAL process, so the only way to show it inside the
+  // app is a CDP screencast: JPEG frames stream from the browser to the
+  // renderer, which paints them on a canvas. The screencast needs its OWN
+  // browser-level websocket (auto-attach of new tabs only works there), so it
+  // lives in {@link PreviewStream} and never touches the page-level
+  // {@link CdpSession}.
+  //
+  // The same websocket also owns the off-screen SURVIVOR window: closing
+  // the last window makes CloakBrowser exit, which would kill the profile.
+  // The survivor is armed at LAUNCH (so the profile survives the user
+  // closing their window even before a preview was ever opened), but the
+  // window itself is only created by the race that wins the browser's
+  // shutdown — so a profile the user never touched shows exactly ONE
+  // window. It is NEVER streamed while the user's window is alive: the
+  // preview shows the user's real target, the very page the MCP tools drive.
+
+  /**
+   * Start the live preview for a running profile. Returns false (never
+   * throws) when the profile isn't running or the engine has no CDP
+   * (Camoufox/Firefox).
+   */
+  async startPreview(profileId: ProfileId): Promise<boolean> {
+    const r = this.running.get(profileId);
+    if (!r) return false;
+    const stream = await this.ensureStream(r, profileId);
+    if (!stream) return false;
+    if (stream.isLive) return true;
+    try {
+      // Bounded: the renderer awaits this IPC, and a hung engine must
+      // never freeze the app.
+      await withTimeout(stream.start(), 15000);
+    } catch (e) {
+      process.stderr.write(
+        `[multizen] preview start failed profile=${profileId}: ${String(e)}\n`,
+      );
+      return false;
+    }
+    // Park the user's visible window off-screen so the interactive card is the
+    // only surface. Non-fatal: a park failure must not fail the preview.
+    try {
+      await withTimeout(stream.parkForPreview(), 8000);
+    } catch (e) {
+      process.stderr.write(
+        `[multizen] preview park failed profile=${profileId}: ${String(e)}\n`,
+      );
+    }
+    // Match the renderer's current mode (card by default, Expand when open).
+    try {
+      await withTimeout(stream.setQuality(QUALITY[r.qualityMode]), 8000);
+    } catch (e) {
+      process.stderr.write(
+        `[multizen] preview quality apply failed profile=${profileId}: ${String(e)}\n`,
+      );
+    }
+    return stream.isLive;
+  }
+
+  /**
+   * Switch the live screencast between the compact card preset and the sharp
+   * Expand preset. Bounded and non-throwing — it runs behind an IPC call.
+   */
+  async setPreviewQuality(profileId: ProfileId, expanded: boolean): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r) return;
+    r.qualityMode = expanded ? "expanded" : "card";
+    if (!r.stream?.isLive) return;
+    try {
+      await withTimeout(r.stream.setQuality(QUALITY[r.qualityMode]), 8000);
+    } catch (e) {
+      process.stderr.write(
+        `[multizen] preview quality failed profile=${profileId}: ${String(e)}\n`,
+      );
+    }
+  }
+
+  /**
+   * Tabs currently visible to the live preview. Bounded and non-throwing:
+   * an absent stream simply reports no tabs.
+   */
+  async previewTabs(
+    profileId: ProfileId,
+  ): Promise<Array<{ targetId: string; url: string; active: boolean }>> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return [];
+    return (await withTimeoutValue(r.stream.listPreviewTabs(), 5000)) ?? [];
+  }
+
+  /** Navigate the tab the preview is following; safe default on failure. */
+  async previewNavigate(profileId: ProfileId, url: string): Promise<{ url: string }> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return { url };
+    return (await withTimeoutValue(r.stream.navigateActiveTab(url), 5000)) ?? { url };
+  }
+
+  /** Switch the live screencast to a chosen tab. Never throws. */
+  async previewActivateTab(profileId: ProfileId, targetId: string): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return;
+    await withTimeout(r.stream.activatePreviewTab(targetId), 5000);
+  }
+
+  /** Open a new tab in the live preview; safe default on failure. */
+  async previewNewTab(profileId: ProfileId): Promise<{ targetId: string }> {
+    const r = this.running.get(profileId);
+    if (!r?.stream) return { targetId: "" };
+    return (await withTimeoutValue(r.stream.newPreviewTab(), 15000)) ?? { targetId: "" };
+  }
+
+  /** Close a preview tab (never the profile's last one). Never throws. */
+  async previewCloseTab(profileId: ProfileId, targetId: string): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r?.stream || !targetId) return;
+    await withTimeout(r.stream.closePreviewTab(targetId), 10000);
+  }
+
+  /**
+   * Stop the live preview for a profile (no-op when it isn't streaming).
+   * The survivor window STAYS: it is what keeps the browser alive, and
+   * the profile must survive the user closing their own window.
+   */
+  async stopPreview(profileId: ProfileId): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r) return;
+    await r.stream?.stop().catch(() => {});
+  }
+
+  /**
+   * Forward one pointer/keyboard input event into the page that owns the
+   * screencast. Bounded and non-throwing — it runs behind an IPC call from
+   * the renderer, so a lost CDP reply must never become an unhandled rejection.
+   */
+  async dispatchPreviewInput(
+    profileId: ProfileId,
+    event: PreviewInputEvent,
+  ): Promise<void> {
+    const r = this.running.get(profileId);
+    const stream = r?.stream;
+    if (!stream) return;
+    // A reconnect can leave the input websocket unarmed; re-arm it so the
+    // first click after the reconnect isn't silently dropped.
+    try {
+      await withTimeout(stream.ensureKeepalive(), 3000);
+    } catch (e) {
+      process.stderr.write(
+        `[multizen] preview keepalive failed profile=${profileId}: ${String(e)}\n`,
+      );
+    }
+    try {
+      await withTimeout(stream.dispatchInput(event), 5000);
+    } catch (e) {
+      process.stderr.write(
+        `[multizen] preview input failed profile=${profileId}: ${String(e)}\n`,
+      );
+    }
+  }
+
+  /**
+   * Bring the profile's real browser window to the front — the read-only
+   * preview has no input forwarding, so a click on the canvas focuses the
+   * actual browser instead. Never throws.
+   *
+   * When the user closed their window, the only target left is the
+   * off-screen survivor — activating THAT would raise a window the user
+   * never asked for. So instead we open a fresh window on the page they
+   * were last on: "click the preview" always ends with a visible browser
+   * showing the profile.
+   */
+  async focusPreview(profileId: ProfileId): Promise<void> {
+    const r = this.running.get(profileId);
+    if (!r) return;
+    try {
+      // The profile's PAGE session dies when the user closes their window
+      // (it is attached to that page's target). The browser-level socket
+      // owned by the preview stream stays alive, so BOTH the lookup and the
+      // reopen must use THAT one — otherwise the click either does nothing
+      // or opens a second window on every click.
+      const stream = r.stream;
+      if (!stream) return;
+
+      // An existing visible window wins: activating it is what the user
+      // expects, and it keeps the "one browser window" promise.
+      // Every step is bounded: this runs behind the renderer's click on the
+      // preview, and a lost CDP reply must never freeze the app.
+      const existing = await withTimeoutValue(stream.findVisibleWindow(), 5000);
+      if (existing) {
+        await withTimeout(stream.activateWindow(existing), 5000);
+        return;
+      }
+
+      // The user closed their window — reopen it on the page they were on.
+      await withTimeout(stream.openVisibleWindow(stream.lastUserUrl), 8000);
+    } catch (e) {
+      // The browser may already be gone — focusing is best-effort.
+      process.stderr.write(
+        `[multizen] preview focus failed profile=${profileId}: ${String(e)}\n`,
+      );
+    }
+  }
+
+  /**
+   * Mirror the stream's parked state onto the engine's X11 windows.
+   *
+   * While the profile's window is PARKED (off-screen, driving the preview)
+   * it must not sit in the system taskbar. The stream has no PID and must
+   * not shell out — the driver owns the engine PID, so the driver owns the
+   * taskbar helper and subscribes to the stream's "window-parked" event.
+   *
+   * Wired once per stream (a WeakSet guards against a double subscription
+   * when the same stream is re-used).
+   */
+  private wireTaskbar(r: RunningProcess, stream: PreviewStream): void {
+    if (this.taskbarWired.has(stream)) return;
+    this.taskbarWired.add(stream);
+    // Engines on Xvfb never appear in the user's taskbar, so there is no
+    // taskbar entry to manage (and xprop would run against the wrong display).
+    if (virtualDisplay()) return;
+    stream.on("window-parked", (info) => {
+      // hidden=true → add _NET_WM_STATE_SKIP_TASKBAR (the window disappears
+      // from the taskbar); hidden=false → remove it again (the entry comes
+      // back). The helper is a no-op off Linux and never throws.
+      this.applyTaskbarState(r.pid, info.parked);
+    });
+  }
+
+  /**
+   * Apply the taskbar state to the engine's windows, RETRYING until the
+   * windows actually exist.
+   *
+   * A Chrome window only registers in `_NET_CLIENT_LIST` ~190ms after it is
+   * created (MEASURED). The stream emits "window-parked" the moment it
+   * parks the window — which is in that window — so a single call finds no
+   * window to update and the taskbar entry stays. The retry closes that
+   * gap; it stops as soon as the update lands.
+   *
+   */
+  private applyTaskbarState(pid: number, hidden: boolean): void {
+    // ALWAYS stagger several re-applies, even when the first call succeeds.
+    //
+    // A close destroys the old window and races a new one. At the instant
+    // "window-parked" fires the OLD window is often still in
+    // _NET_CLIENT_LIST, so the first call can succeed on a window that is
+    // about to die — then the NEW window registers ~190ms later and KWin
+    // resets its state on map, wiping our atom. A single delayed re-apply
+    // still landed before that reset and was wiped too (MEASURED).
+    //
+    // The helper is idempotent: it rewrites only when the state is wrong,
+    // so these extra calls are cheap and safe. The final one at 2.6s is
+    // after the new window has definitely mapped.
+    setEngineTaskbarHidden(pid, hidden);
+    for (const delay of TASKBAR_REAPPLY_DELAYS) {
+      setTimeout(() => {
+        setEngineTaskbarHidden(pid, hidden);
+      }, delay);
+    }
+  }
+
+  /**
+   * The profile's stream: it owns the survivor window and, while a preview
+   * runs, the screencast. Created once per profile at launch and reused —
+   * the survivor must outlive individual preview start/stop cycles.
+   */
+  private async ensureStream(
+    r: RunningProcess,
+    profileId: ProfileId,
+  ): Promise<PreviewStream | null> {
+    if (r.stream) return r.stream;
+    // No stream (e.g. the launch-time creation failed) — make one now so the
+    // preview still works; its survivor is raced into existence on demand.
+    const stream = new PreviewStream({
+      profileId,
+      port: r.port,
+      virtualDisplay: virtualDisplay() !== null,
+      virtualWindowSize: r.virtualWindowSize,
+    });
+    r.stream = stream;
+    stream.on("frame", (frame: PreviewFrame) => {
+      this.emit("preview-frame", frame);
+    });
+    stream.on("visible-window-closed", (info) => {
+      if (info.ok) return;
+      this.emit("running-changed", { kind: "closing", profileId });
+      void gracefulShutdown(r);
+    });
+    this.wireTaskbar(r, stream);
+    return stream;
+  }
+
+  /**
+   * Tear the profile's stream down (idempotent). This closes the survivor
+   * window too — the browser must be able to exit when the profile stops.
+   */
+  private async destroyPreview(r: RunningProcess): Promise<void> {
+    const stream = r.stream;
+    if (!stream) return;
+    r.stream = null;
+    await stream.close().catch(() => {});
   }
 
   private requireSession(profileId: ProfileId): CdpSession {
@@ -980,7 +1504,10 @@ export function browserDataDirForEngine(profileDataDir: string, engine: BrowserE
  * Idempotent — safe to call once from `close()` and again from the window
  * watcher; the second call no-ops because the child is already exiting.
  */
-async function gracefulShutdown(r: RunningProcess): Promise<void> {
+async function gracefulShutdown(
+  r: RunningProcess,
+  stream?: PreviewStream | null,
+): Promise<void> {
   const { pid } = r;
 
   // Source of truth is the OS, not `child.killed`/`exitCode`. Those flags lie
@@ -995,7 +1522,17 @@ async function gracefulShutdown(r: RunningProcess): Promise<void> {
   // 1. Graceful CDP close (⌘Q equivalent — flushes session-restore). The
   //    websocket disconnects mid-call; timeout-bounded so a stuck send can
   //    never block the signal escalation below.
-  await withTimeout(r.session.closeBrowser(), 3000);
+  //
+  //    Prefer the preview STREAM's browser-level socket: the driver's own
+  //    page-level session dies with the user's window, and a dead session
+  //    cannot ask the browser to quit — the browser would then be killed by
+  //    a signal and would NEVER write its session file (the tabs would not
+  //    come back, and the relaunch would open a duplicate start URL).
+  if (stream) {
+    await withTimeout(stream.closeBrowserGracefully(), 3000);
+  } else {
+    await withTimeout(r.session.closeBrowser(), 3000);
+  }
   // Chromium needs ~500ms–2s to flush session-restore on macOS; 4s is margin.
   if (await waitForPidDeath(pid, 4000)) {
     await withTimeout(r.session.close(), 1000);
@@ -1052,6 +1589,18 @@ function withTimeout(p: Promise<unknown>, ms: number): Promise<void> {
   return Promise.race([p.then(() => {}, () => {}), sleep(ms)]);
 }
 
+/**
+ * Like {@link withTimeout}, but KEEPS the resolved value (and resolves with
+ * `null` when the deadline passes). For a call whose result is used — e.g.
+ * "find the visible window" — the value must survive the bounding.
+ */
+function withTimeoutValue<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    p.then((v) => v, () => null),
+    sleep(ms).then(() => null),
+  ]);
+}
+
 function killPid(pid: number, signal: NodeJS.Signals): void {
   try {
     process.kill(pid, signal);
@@ -1075,6 +1624,16 @@ async function waitForPidDeath(pid: number, timeoutMs: number): Promise<boolean>
   return !isPidAlive(pid);
 }
 
+/**
+ * Poll for "the user closed every window" and report it.
+ *
+ * The survivor window is a page target too, so once it exists the page
+ * count never reaches zero and this watcher never fires — the profile
+ * survives the user closing their own window (that is the whole point of
+ * the survivor). It only fires in the FALLBACK case, where the survivor
+ * could not be created and the browser would otherwise linger with zero
+ * windows.
+ */
 function createWindowWatcher(
   port: number,
   startedAt: string,
@@ -1331,20 +1890,60 @@ async function unlinkSingletonFiles(
 }
 
 /**
- * Whether the profile has a session Chromium can restore on launch. Used to
- * decide if we should open the start page (only on a genuine first run).
- * Chromium writes tab/session state under `Default/Sessions/`; older builds
- * also keep `Default/Current Session`. Any of these present → restorable.
+ * Does the profile have a session Chromium can actually RESTORE?
+ *
+ * The check must look at the CONTENT, not just at the presence of a file:
+ * Chromium leaves STALE `Session_*` / `Tabs_*` files behind forever, and a
+ * profile whose last session held nothing restorable (e.g. only the
+ * internal new-tab page, which Chromium deliberately excludes from the
+ * session) still has files on disk.
+ *
+ * Getting this wrong is what produced the DUPLICATE TAB: the app believed
+ * a session existed, so it skipped the positional start URL — and Chromium
+ * restored an EMPTY session, leaving the user with just a blank tab. The
+ * other direction is worse: believing there was NO session makes the app
+ * pass the start URL as a positional argument, and Chromium then opens it
+ * as an EXTRA tab on top of the restored ones (MEASURED: a relaunch with
+ * a start URL produced ["example.com/", "example.org/", "example.com/"] —
+ * the start page twice).
+ *
+ * So: a session counts only when it actually contains a restorable tab.
  */
 async function hasRestorableSession(dataDir: string): Promise<boolean> {
   const sessionsDir = join(dataDir, "Default", "Sessions");
+  let entries: string[] = [];
   try {
-    const entries = await fsp.readdir(sessionsDir);
-    if (entries.length > 0) return true;
+    entries = await fsp.readdir(sessionsDir);
   } catch {
     // no Sessions dir yet
+    entries = [];
   }
-  return existsSync(join(dataDir, "Default", "Current Session"));
+  // The newest session file holds the CURRENT session; older ones are the
+  // previous session. Chromium names them `Session_<id>` / `Tabs_<id>`.
+  const newest = entries.sort().at(-1);
+  if (newest !== undefined) {
+    try {
+      const raw = await fsp.readFile(join(sessionsDir, newest), "utf8");
+      // Chromium's session format is binary, but the tab URLs are stored as
+      // plain ASCII — so a URL scan is a reliable, cheap way to tell an
+      // EMPTY session from a real one.
+      const hasUrl = /https?:\/\/[a-z0-9.-]+/i.test(raw);
+      if (hasUrl) return true;
+    } catch {
+      // unreadable → fall through to the other checks
+    }
+  }
+  // "Current Session" is the legacy location; it also holds the URLs.
+  const current = join(dataDir, "Default", "Current Session");
+  if (existsSync(current)) {
+    try {
+      const raw = await fsp.readFile(current, "utf8");
+      if (/https?:\/\/[a-z0-9.-]+/i.test(raw)) return true;
+    } catch {
+      // unreadable → no session
+    }
+  }
+  return false;
 }
 
 async function ensureSessionRestore(dataDir: string): Promise<void> {

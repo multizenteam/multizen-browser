@@ -41,12 +41,18 @@ interface Props {
   onStop: (id: string) => void;
   onExport: (id: string) => void;
   onDelete: (id: string) => void;
+  expandedProfileId: string | null;
+  onExpand: (id: string) => void;
+  previewEnabled: boolean;
 }
 
 export function Constellation({
   profiles,
   recentEvents,
   closingIds,
+  expandedProfileId,
+  previewEnabled,
+  onExpand,
   onSelect,
   onCreate,
   onLaunch,
@@ -223,6 +229,9 @@ export function Constellation({
           <ProfileTable
             profiles={filtered}
             closingIds={closingIds}
+            expandedProfileId={expandedProfileId}
+            previewEnabled={previewEnabled}
+            onExpand={onExpand}
             onSelect={onSelect}
             onLaunch={onLaunch}
             onStop={onStop}
@@ -233,7 +242,9 @@ export function Constellation({
           <div
             className="grid gap-3.5"
             style={{
-              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+              // 3 columns of large cards at the default 1280px window
+              // (the README's 3x2 layout). Narrower minimum => smaller cards.
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
             }}
           >
             {filtered.map((p) => (
@@ -241,6 +252,9 @@ export function Constellation({
                 key={p.id}
                 profile={p}
                 terminating={closingIds?.has(p.id) ?? false}
+                expanded={expandedProfileId === p.id}
+                previewEnabled={previewEnabled}
+                onExpand={() => onExpand(p.id)}
                 onOpen={() => onSelect(p.id)}
                 onLaunch={() => onLaunch(p.id)}
                 onStop={() => onStop(p.id)}

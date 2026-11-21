@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { TopBar } from "./components/screens/TopBar";
 import { LeftRail, type Section } from "./components/screens/LeftRail";
 import { Constellation } from "./components/profile/Constellation";
 import { ProfilesEmptyState } from "./components/profile/EmptyState";
 import { NewProfileSheet } from "./components/profile/NewProfileSheet";
 import { ProfileEditSheet } from "./components/profile/ProfileEditSheet";
+import { ProfilePreview } from "./components/profile/PreviewFrame";
+import { BrowserToolbar } from "./components/profile/BrowserToolbar";
 import type { Profile } from "@multizen/types";
 import { ActivityDrawer } from "./components/activity/ActivityDrawer";
 import { McpPanel } from "./components/mcp/McpPanel";
@@ -29,6 +32,10 @@ export function App(): JSX.Element {
   // Persisted UI state — survives app restarts under localStorage `multizen.ui.*`.
   const [section, setSection] = usePersistedState<Section>("section", "profiles");
   const [drawerOpen, setDrawerOpen] = usePersistedState<boolean>("drawerOpen", false);
+  // When true, the Expand modal opens in "focus" mode: larger window, no profile
+  // name / address bar / tabs — just the bigger live view. Persists across
+  // launches, so the user's choice is applied the moment they press Expand.
+  const [expandFocusMode, setExpandFocusMode] = usePersistedState<boolean>("expandFocusMode", false);
 
   // Migrate the legacy "activity" section (renamed to "mcp") from localStorage
   // so an existing install doesn't land on a blank screen.
@@ -58,6 +65,17 @@ export function App(): JSX.Element {
     void window.multizen.chromium.status().then(apply);
     return window.multizen.chromium.onStatus(apply);
   }, []);
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  useEffect(() => {
+    if (!window.multizen?.settings) return;
+    const apply = (s: { virtualBrowserPreview: boolean }): void =>
+      setPreviewEnabled(s.virtualBrowserPreview !== false);
+    void window.multizen.settings.get().then(apply).catch(() => {});
+    return window.multizen.settings.onChanged(apply);
+  }, []);
+  useEffect(() => {
+    if (!previewEnabled) setExpandedProfileId(null);
+  }, [previewEnabled]);
   // Global toast when the companion "Add to MultiZen" button installs an
   // extension into a running profile (the edit sheet may not be open).
   useEffect(() => {
@@ -89,6 +107,17 @@ export function App(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modal, setModal] = useState<ModalState>({ kind: "none" });
   const [toast, setToast] = useState<string | null>(null);
+  // Profile whose interactive browser is shown in the ~80vw/80vh expand
+  // modal. Auto-closes if that profile stops running (Stop / close / crash).
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
+  useEffect(() => {
+    if (
+      expandedProfileId !== null &&
+      !profiles.some((p) => p.id === expandedProfileId && p.isRunning === true)
+    ) {
+      setExpandedProfileId(null);
+    }
+  }, [expandedProfileId, profiles]);
 
   const refresh = useCallback(async () => {
     if (!window.multizen) return;
@@ -399,6 +428,9 @@ export function App(): JSX.Element {
                   onStop={closeProfile}
                   onExport={(id) => setModal({ kind: "export-passphrase", profileId: id })}
                   onDelete={(id) => setModal({ kind: "delete-confirm", profileId: id })}
+                  expandedProfileId={expandedProfileId}
+                  previewEnabled={previewEnabled}
+                  onExpand={(id) => { if (previewEnabled) setExpandedProfileId(id); }}
                 />
               )}
             </>
@@ -437,6 +469,56 @@ export function App(): JSX.Element {
             isRunning={profiles.some((p) => p.id === editingProfile.id && p.isRunning)}
             onSaved={() => void refresh()}
           />
+        )}
+      </Modal>
+
+      {/* Expanded interactive browser preview (~80% of the window). A "focus"
+          mode enlarges it and drops the name/address bar/tabs, leaving just the
+          bigger live view — toggled live via the header button and persisted so
+          the next Expand opens already in that mode. */}
+      <Modal
+        open={expandedProfileId !== null}
+        onClose={() => setExpandedProfileId(null)}
+        title={
+          expandedProfileId !== null && !expandFocusMode
+            ? profiles.find((p) => p.id === expandedProfileId)?.name ?? "Browser"
+            : undefined
+        }
+        headerButtons={
+          expandedProfileId !== null ? (
+            <button
+              type="button"
+              onClick={() => setExpandFocusMode((v) => !v)}
+              aria-label={expandFocusMode ? "Restore normal size" : "Enlarge view"}
+              title={expandFocusMode ? "Restore normal size" : "Enlarge view"}
+              aria-pressed={expandFocusMode}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+            >
+              {expandFocusMode ? (
+                <Minimize2 size={14} aria-hidden />
+              ) : (
+                <Maximize2 size={14} aria-hidden />
+              )}
+            </button>
+          ) : undefined
+        }
+        headerExtra={
+          expandedProfileId !== null && !expandFocusMode ? (
+            <BrowserToolbar profileId={expandedProfileId} />
+          ) : undefined
+        }
+        width={2400}
+        panelClassName={
+          expandFocusMode
+            ? "!w-[92vw] !max-w-[92vw] !h-[94vh] !max-h-[94vh]"
+            : "!w-[80vw] !max-w-[80vw] !h-[80vh] !max-h-[80vh]"
+        }
+        disableBlur
+      >
+        {expandedProfileId !== null && (
+          <div className="flex h-full w-full items-center justify-center">
+            <ProfilePreview profileId={expandedProfileId} variant="full" expanded />
+          </div>
         )}
       </Modal>
 

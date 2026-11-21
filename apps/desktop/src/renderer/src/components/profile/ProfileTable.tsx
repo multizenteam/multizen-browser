@@ -11,6 +11,9 @@ interface Props {
   onStop: (id: string) => Promise<void> | void;
   onExport: (id: string) => void;
   onDelete: (id: string) => void;
+  expandedProfileId: string | null;
+  onExpand: (id: string) => void;
+  previewEnabled: boolean;
 }
 
 /**
@@ -32,6 +35,9 @@ const COLUMNS: ReadonlyArray<{ label: string; align?: "left" | "right" }> = [
 export function ProfileTable({
   profiles,
   closingIds,
+  expandedProfileId,
+  previewEnabled,
+  onExpand,
   onSelect,
   onLaunch,
   onStop,
@@ -73,6 +79,9 @@ export function ProfileTable({
           key={p.id}
           profile={p}
           terminating={closingIds?.has(p.id) ?? false}
+          expanded={expandedProfileId === p.id}
+          previewEnabled={previewEnabled}
+          onExpand={() => onExpand(p.id)}
           onOpen={() => onSelect(p.id)}
           onLaunch={() => onLaunch(p.id)}
           onStop={() => onStop(p.id)}

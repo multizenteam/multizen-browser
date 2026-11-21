@@ -4,6 +4,7 @@ export {
   generateFingerprint,
   reconcileFingerprint,
   FingerprintReconcileError,
+  snapTo16x9,
   hostPlatformFamily,
   deviceCatalog,
   localeCatalog,

@@ -50,6 +50,12 @@ export interface AppSettings {
    * Linux kernels that restrict unprivileged user namespaces; ignored elsewhere.
    */
   linuxSandboxState: LinuxSandboxState;
+  /**
+   * Run browser engines on a private Xvfb display and stream them into the
+   * profile cards. OFF restores the classic behaviour: launching a profile
+   * opens its browser window on the normal desktop.
+   */
+  virtualBrowserPreview: boolean;
 }
 
 const DEFAULTS: AppSettings = {
@@ -65,6 +71,7 @@ const DEFAULTS: AppSettings = {
   // Re-evaluated live on each Linux launch until the user decides or the system
   // is found unable to run the secure setup.
   linuxSandboxState: "unset",
+  virtualBrowserPreview: true,
 };
 
 export class SettingsStore {
@@ -108,6 +115,9 @@ export class SettingsStore {
       merged.linuxSandboxState !== "unsupported"
     ) {
       merged.linuxSandboxState = DEFAULTS.linuxSandboxState;
+    }
+    if (typeof merged.virtualBrowserPreview !== "boolean") {
+      merged.virtualBrowserPreview = DEFAULTS.virtualBrowserPreview;
     }
     this.cache = merged;
     return merged;

@@ -14,6 +14,8 @@ import type {
   ExtensionConfig,
   BrowserEngine,
   SandboxStatus,
+  PreviewFrame,
+  PreviewInputEvent,
 } from "@multizen/types";
 
 /** Payload for the `extensions:installed` push (companion "Add to MultiZen"). */
@@ -85,10 +87,31 @@ export interface MultizenApi {
     onProxyCountryUpdated: (
       cb: (update: { id: string; country: string }) => void,
     ) => () => void;
+    /**
+     * Live preview of a running profile's browser, streamed as JPEG frames.
+     * Chromium-only — `previewStart` returns false for engines without CDP.
+     */
+    previewStart: (id: ProfileId) => Promise<boolean>;
+    previewStop: (id: ProfileId) => Promise<void>;
+    /** Bring the profile's real browser window to the front. */
+    previewFocus: (id: ProfileId) => Promise<void>;
+    previewInput: (id: ProfileId, event: PreviewInputEvent) => Promise<void>;
+    previewQuality: (id: ProfileId, expanded: boolean) => Promise<void>;
+    previewTabs: (
+      id: ProfileId,
+    ) => Promise<Array<{ targetId: string; url: string; active: boolean }>>;
+    previewNavigate: (id: ProfileId, url: string) => Promise<{ url: string }>;
+    previewActivateTab: (id: ProfileId, targetId: string) => Promise<void>;
+    /** Open a new tab in the live preview and follow it. */
+    previewNewTab: (id: ProfileId) => Promise<{ targetId: string }>;
+    /** Close a preview tab (never the profile's last tab). */
+    previewCloseTab: (id: ProfileId, targetId: string) => Promise<void>;
+    onPreviewFrame: (cb: (frame: PreviewFrame) => void) => () => void;
   };
   settings: {
     get: () => Promise<AppSettings>;
     update: (patch: Partial<AppSettings>) => Promise<AppSettings>;
+    onChanged: (cb: (settings: AppSettings) => void) => () => void;
   };
   activity: {
     recent: () => Promise<ActivityEvent[]>;
