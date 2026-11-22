@@ -1,6 +1,6 @@
 {
   "name": "multizen",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "An independent browser workspace for profiles, agents, and encrypted sync.",
   "homepage": "https://github.com/irensaltali/sekvona",

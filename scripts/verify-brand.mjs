@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { parse } from 'yaml';
-const read = path => readFileSync(path, 'utf8');
+const read = path => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
 const brand = JSON.parse(read('branding/brand.json'));
 assert.equal(JSON.parse(read('package.json')).version, JSON.parse(read('apps/desktop/package.json')).version);
 const config = parse(read('apps/desktop/electron-builder.yml'));
