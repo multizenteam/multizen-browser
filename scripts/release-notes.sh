@@ -10,7 +10,7 @@
 set -euo pipefail
 
 TAG="${1:?usage: release-notes.sh <tag>}"
-REPO="${GITHUB_REPOSITORY:-irensaltali/multizen-browser}"
+REPO="${GITHUB_REPOSITORY:-irensaltali/sekvona}"
 
 # Previous tag reachable from this one; empty for the very first release.
 PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"

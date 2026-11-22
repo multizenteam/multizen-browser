@@ -152,7 +152,7 @@ nsis:
 publish:
   provider: github
   owner: irensaltali
-  repo: multizen-browser
+  repo: sekvona
   # Cut a published release (not draft) directly from CI. Default is
   # draft which means /releases/latest redirector misses it until a
   # human un-drafts manually — we don't want that friction.
