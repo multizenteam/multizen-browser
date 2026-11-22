@@ -21,7 +21,7 @@ assert.match(main, /app.whenReady\(\).then\(async \(\) => \{\s*app.setName\(BRAN
 assert.match(main, /gatewayService\?\.maybeSync\("focus"\)/);
 assert.match(read('apps/desktop/src/renderer/src/App.tsx'), /sync.onProgress/);
 assert.match(read('apps/desktop/src/main/mcp-gateway/agentAdapters.ts'), /managed by MultiZen, do not edit inside this block/);
-assert.match(read('apps/desktop/src/main/UpdaterService.ts'), /irensaltali\/multizen-browser\/releases/);
+assert.match(read('apps/desktop/src/main/UpdaterService.ts'), /irensaltali\/sekvona\/releases/);
 function scan(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = `${dir}/${entry.name}`;

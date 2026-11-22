@@ -25,7 +25,7 @@ The result: your AI agent in Cursor or Claude Desktop can complete real authenti
 
 ### macOS
 
-Download the architecture-matched DMG from [this fork's releases](https://github.com/irensaltali/multizen-browser/releases/latest), then drag Sekvona into Applications. This fork includes Cloud Sync and the MCP gateway. Use this repository’s builds; upstream installers do not include the fork additions.
+Download the architecture-matched DMG from [this fork's releases](https://github.com/irensaltali/sekvona/releases/latest), then drag Sekvona into Applications. This fork includes Cloud Sync and the MCP gateway. Use this repository’s builds; upstream installers do not include the fork additions.
 
 The Mac build uses ad-hoc signing. If macOS blocks the downloaded app, run:
 
@@ -35,7 +35,7 @@ xattr -cr /Applications/Sekvona.app
 
 ### Linux
 
-Download the AppImage from [this fork’s releases](https://github.com/irensaltali/multizen-browser/releases/latest). Use its downloaded filename in the commands below.
+Download the AppImage from [this fork’s releases](https://github.com/irensaltali/sekvona/releases/latest). Use its downloaded filename in the commands below.
 
 ```sh
 chmod +x Sekvona-linux-x86_64.AppImage
@@ -50,7 +50,7 @@ Prefer to do it by hand? Settings shows the exact command; it writes `/etc/appar
 
 ### Windows
 
-Download the Windows x64 installer from [this fork’s releases](https://github.com/irensaltali/multizen-browser/releases/latest). SmartScreen may flag the installer as unrecognized on first download. Click **More info**, then **Run anyway**.
+Download the Windows x64 installer from [this fork’s releases](https://github.com/irensaltali/sekvona/releases/latest). SmartScreen may flag the installer as unrecognized on first download. Click **More info**, then **Run anyway**.
 
 ## How it works
 
@@ -233,7 +233,7 @@ configured but not yet listening.
 ## Develop
 
 ```sh
-git clone https://github.com/irensaltali/multizen-browser
+git clone https://github.com/irensaltali/sekvona
 cd multizen-browser
 yarn install
 yarn dev            # launch the desktop app in dev mode
@@ -246,7 +246,7 @@ Requires Node 22+ and Yarn 4 (via Corepack).
 
 ## Fork releases and updates
 
-Updates come exclusively from `irensaltali/multizen-browser`. On macOS the app checks for updates and links to the matching DMG; silent installation is not enabled for ad-hoc signatures. Windows and Linux use electron-updater's install flow. Kopia is bundled in the Mac releases; Windows/Linux Cloud Sync still requires a compatible Kopia installation on PATH.
+Updates come exclusively from `irensaltali/sekvona`. On macOS the app checks for updates and links to the matching DMG; silent installation is not enabled for ad-hoc signatures. Windows and Linux use electron-updater's install flow. Kopia is bundled in the Mac releases; Windows/Linux Cloud Sync still requires a compatible Kopia installation on PATH.
 
 To publish the next version from the tested `main` branch:
 

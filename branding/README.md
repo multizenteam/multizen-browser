@@ -18,7 +18,7 @@ The display name is Sekvona. The production bundle ID stays `com.multizen.deskto
 
 Internal `@multizen/*` package names, IPC channels, cloud object paths, archive extensions and managed agent configuration markers remain stable. These are persistence contracts, not user-facing branding. Cloud Sync, MCP gateway, OAuth and credential backups remain part of the fork and regression suite.
 
-The GitHub repository and update channel remain `irensaltali/multizen-browser`. Release collection emits canonical Sekvona artifacts plus byte-identical `MultiZen-mac-{arm64,x64}.dmg` aliases so 0.4.3 Mac clients retain a working upgrade link. Apple Developer ID signing and notarization are a separate release task; rebranding does not solve Gatekeeper warnings.
+The GitHub repository and update channel use `irensaltali/sekvona`. Release collection emits canonical Sekvona artifacts plus byte-identical `MultiZen-mac-{arm64,x64}.dmg` aliases so 0.4.3 Mac clients retain a working upgrade link. Apple Developer ID signing and notarization are a separate release task; rebranding does not solve Gatekeeper warnings.
 
 ## Taking upstream improvements
 

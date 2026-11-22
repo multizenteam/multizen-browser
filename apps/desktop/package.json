@@ -78,8 +78,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/irensaltali/multizen-browser.git"
+    "url": "https://github.com/irensaltali/sekvona.git"
   },
   "description": "An independent browser workspace for profiles, agents, and encrypted sync.",
-  "homepage": "https://github.com/irensaltali/multizen-browser"
+  "homepage": "https://github.com/irensaltali/sekvona"
 }

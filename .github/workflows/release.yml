@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   verify:
-    if: github.repository == 'irensaltali/multizen-browser' && (startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.release_tag, 'v'))
+    if: github.repository == 'irensaltali/sekvona' && (startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.release_tag, 'v'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
