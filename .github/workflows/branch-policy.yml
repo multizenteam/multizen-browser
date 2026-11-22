@@ -7,7 +7,7 @@ permissions: {}
 jobs:
   route:
     name: Branch route
-    runs-on: ubuntu-latest
+    runs-on: avrea-ubuntu-latest-2-vcpu
     steps:
       - name: Validate pull request branches
         env:

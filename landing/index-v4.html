@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Seknova</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─── Design tokens ─────────────────────────────────────── */
+:root {
+  --bg:          #060b12;
+  --bg-raised:   #0d1826;
+  --bg-surface:  #111f30;
+  --bg-muted:    #152337;
+  --border:      rgba(137,207,255,0.10);
+  --border-sub:  rgba(137,207,255,0.06);
+  --fg:          #e3f4ff;
+  --fg-muted:    rgba(227,244,255,0.55);
+  --fg-faint:    rgba(227,244,255,0.25);
+  --accent:      #89cfff;
+  --accent-bg:   rgba(137,207,255,0.12);
+  --navy:        #0b192b;
+  --steel:       #203e60;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+  color-scheme: dark;
+}
+
+/* ─── Reset & base ──────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+img { max-width: 100%; display: block; }
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; }
+
+/* ─── Utilities ─────────────────────────────────────────── */
+.serif-italic {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+.inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding-left: max(24px, env(safe-area-inset-left, 0px));
+  padding-right: max(24px, env(safe-area-inset-right, 0px));
+}
+
+/* ─── Navigation ────────────────────────────────────────── */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(6,11,18,0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-sub);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding-block: 14px;
+}
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  list-style: none;
+}
+.nav-links a {
+  font-size: 14px;
+  color: var(--fg-muted);
+  transition: color 0.15s;
+}
+.nav-links a:hover { color: var(--fg); }
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.btn-ghost-sm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-ghost-sm:hover { color: var(--fg); border-color: rgba(137,207,255,0.25); }
+.btn-primary-sm {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+  background: var(--accent);
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  transition: opacity 0.15s;
+}
+.btn-primary-sm:hover { opacity: 0.88; }
+
+/* ─── Hero ──────────────────────────────────────────────── */
+.hero-wrap {
+  position: relative;
+  min-height: 92vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+#depth-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.hero-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding-block: 96px 72px;
+}
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid rgba(137,207,255,0.2);
+  padding: 5px 14px;
+  border-radius: 100px;
+  margin-bottom: 36px;
+}
+.hero-badge span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.hero-h1 {
+  font-size: clamp(44px, 7vw, 76px);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  margin-bottom: 24px;
+  text-wrap: balance;
+}
+.hero-h1 em {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--fg);
+}
+.hero-h1 strong {
+  font-weight: 600;
+  color: var(--fg);
+}
+.hero-sub {
+  font-size: 18px;
+  color: var(--fg-muted);
+  max-width: 480px;
+  margin: 0 auto 40px;
+  line-height: 1.6;
+}
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 40px;
+}
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--navy);
+  background: var(--accent);
+  padding: 13px 28px;
+  border-radius: var(--radius-md);
+  border: none;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  background: transparent;
+  padding: 12px 24px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  transition: color 0.15s, border-color 0.15s, transform 0.1s;
+}
+.btn-ghost:hover { color: var(--fg); border-color: rgba(137,207,255,0.3); transform: translateY(-1px); }
+.hero-compat {
+  font-size: 13px;
+  color: var(--fg-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.hero-compat-dot { opacity: 0.3; }
+
+/* ─── App mockup ─────────────────────────────────────────── */
+.mockup-section {
+  padding-block: 0 96px;
+}
+.mac-window {
+  max-width: 900px;
+  margin: 0 auto;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 40px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(137,207,255,0.05);
+  background: #0a1520;
+}
+.mac-titlebar {
+  background: #111f30;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-sub);
+}
+.traffic-lights {
+  display: flex;
+  gap: 7px;
+}
+.tl { width: 12px; height: 12px; border-radius: 50%; }
+.tl-red    { background: #ff5f57; }
+.tl-yellow { background: #ffbd2e; }
+.tl-green  { background: #28c840; }
+.mac-title {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-faint);
+  font-weight: 500;
+}
+.mac-body {
+  display: flex;
+  height: 420px;
+}
+.mac-sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  background: #0d1826;
+  border-right: 1px solid var(--border-sub);
+  padding: 16px 0;
+}
+.sidebar-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  padding: 0 16px;
+  margin-bottom: 6px;
+  margin-top: 16px;
+}
+.sidebar-label:first-child { margin-top: 0; }
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  border-radius: 0;
+}
+.sidebar-item:hover { background: var(--bg-muted); color: var(--fg); }
+.sidebar-item.active { background: var(--accent-bg); color: var(--accent); }
+.sidebar-item svg { flex-shrink: 0; opacity: 0.7; }
+.sidebar-item.active svg { opacity: 1; }
+.mac-main {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  min-width: 0;
+}
+.main-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.main-title-row {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.btn-new {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--navy);
+  background: var(--accent);
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+}
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.profile-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-sub);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.profile-card:hover { border-color: var(--border); background: var(--bg-muted); }
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: var(--navy);
+}
+.av-blue   { background: var(--accent); }
+.av-purple { background: #a78bfa; }
+.av-green  { background: #6ee7b7; }
+.av-amber  { background: #fbbf24; }
+.profile-info { flex: 1; min-width: 0; }
+.profile-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+.tag-cloak  { background: rgba(137,207,255,0.15); color: #89cfff; }
+.tag-camou  { background: rgba(251,191,36,0.15);  color: #fbbf24; }
+.tag-proxy  { background: rgba(255,255,255,0.07);  color: var(--fg-muted); }
+.profile-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--fg-faint);
+  margin-top: 6px;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot-running { background: #34d399; box-shadow: 0 0 6px #34d39960; }
+.dot-idle    { background: rgba(255,255,255,0.2); }
+
+/* ─── Section shared ─────────────────────────────────────── */
+section { padding-block: 96px; }
+.section-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.section-h2 {
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  margin-bottom: 16px;
+  text-wrap: balance;
+}
+.section-h2 em {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+.section-sub {
+  font-size: 17px;
+  color: var(--fg-muted);
+  max-width: 520px;
+  line-height: 1.65;
+}
+
+/* ─── Features ───────────────────────────────────────────── */
+.features-section { background: var(--bg); }
+.features-header { text-align: center; margin-bottom: 64px; }
+.features-header .section-sub { margin: 0 auto; }
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 48px 40px;
+}
+.feature-item {}
+.feature-icon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 20px;
+  color: var(--accent);
+}
+.feature-h3 {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--fg);
+}
+.feature-p {
+  font-size: 14px;
+  color: var(--fg-muted);
+  line-height: 1.7;
+}
+
+/* ─── How it works ───────────────────────────────────────── */
+.how-section { background: var(--bg-raised); border-top: 1px solid var(--border-sub); border-bottom: 1px solid var(--border-sub); }
+.how-steps {
+  display: flex;
+  gap: 0;
+  margin-top: 56px;
+  position: relative;
+}
+.how-step {
+  flex: 1;
+  position: relative;
+  padding: 0 32px 0 0;
+}
+.how-step:last-child { padding-right: 0; }
+.step-num {
+  font-size: 100px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fg);
+  opacity: 0.05;
+  position: absolute;
+  top: -16px;
+  left: 0;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.step-content { position: relative; padding-top: 8px; }
+.step-h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--fg);
+}
+.step-p { font-size: 14px; color: var(--fg-muted); line-height: 1.65; }
+.step-arrow {
+  position: absolute;
+  right: -4px;
+  top: 32px;
+  color: var(--fg-faint);
+}
+
+/* ─── Comparison ─────────────────────────────────────────── */
+.compare-section { background: var(--bg); }
+.compare-table-wrap {
+  overflow-x: auto;
+  margin-top: 48px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  min-width: 540px;
+}
+.compare-table th {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  padding: 14px 20px;
+  text-align: left;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+.compare-table th:first-child { color: var(--fg-faint); }
+.compare-table th.col-seknova { color: var(--accent); }
+.compare-table td {
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--border-sub);
+  color: var(--fg-muted);
+  vertical-align: middle;
+}
+.compare-table tr:last-child td { border-bottom: none; }
+.compare-table tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+.compare-table td.feature-col { color: var(--fg); font-weight: 500; }
+.check { color: #34d399; font-size: 15px; }
+.cross { color: rgba(255,255,255,0.2); font-size: 15px; }
+.partial { color: #fbbf24; font-size: 13px; }
+
+/* ─── Download CTA ───────────────────────────────────────── */
+.download-section {
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border-sub);
+  text-align: center;
+}
+.download-h2 {
+  font-size: clamp(26px, 4vw, 40px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+  text-wrap: balance;
+}
+.download-h2 em {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--accent);
+}
+.download-sub { font-size: 16px; color: var(--fg-muted); margin-bottom: 48px; }
+.platform-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+.platform-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 14px;
+  font-weight: 500;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  min-width: 140px;
+  cursor: pointer;
+}
+.platform-btn:hover { border-color: rgba(137,207,255,0.35); color: var(--fg); background: var(--accent-bg); }
+.platform-btn svg { color: var(--fg-muted); transition: color 0.15s; }
+.platform-btn:hover svg { color: var(--accent); }
+.platform-name { font-weight: 600; color: var(--fg); font-size: 15px; }
+.github-link {
+  font-size: 13px;
+  color: var(--fg-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s;
+}
+.github-link:hover { color: var(--fg-muted); }
+
+/* ─── Footer ─────────────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border-sub);
+  padding-block: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--fg-faint);
+}
+footer a { color: var(--fg-faint); transition: color 0.15s; }
+footer a:hover { color: var(--fg-muted); }
+footer .sep { opacity: 0.3; margin: 0 8px; }
+
+/* ─── Responsive ─────────────────────────────────────────── */
+/* Buy Me a Coffee */
+.bmc-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13px; font-weight: 600; color: var(--fg-muted);
+  background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+  padding: 7px 14px; border-radius: var(--radius-sm);
+  transition: color .15s, background .15s, border-color .15s; white-space: nowrap;
+}
+.bmc-btn:hover { color: var(--fg); background: rgba(255,255,255,0.07); border-color: rgba(137,207,255,0.25); }
+
+/* Scroll-reveal */
+.anim-fade-up {
+  opacity: 0; transform: translateY(28px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+}
+.anim-fade-up.visible { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up { opacity: 1; transform: none; transition: none; }
+}
+
+/* Running dot pulse */
+@keyframes pulse-dot {
+  0%,100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.5); }
+  50%      { box-shadow: 0 0 0 5px rgba(52,211,153,0); }
+}
+.dot-running { background: #34d399; animation: pulse-dot 2s ease-in-out infinite; }
+
+/* MCP flow diagram */
+.mcp-diagram {
+  margin-top: 20px; display: flex; align-items: center;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.03em; overflow: hidden;
+}
+.mcp-node {
+  flex-shrink: 0; padding: 6px 12px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--fg-muted); font-size: 11px; font-weight: 600;
+}
+.mcp-node.server { color: var(--accent); border-color: rgba(137,207,255,0.25); }
+.mcp-arrow { flex: 1; position: relative; height: 2px; background: var(--border-sub); min-width: 20px; overflow: hidden; }
+@keyframes travel {
+  0%   { left: -20%; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { left: 110%; opacity: 0; }
+}
+.mcp-arrow::after {
+  content: ''; position: absolute; top: -2px; width: 20%; height: 6px;
+  border-radius: 3px; background: var(--accent);
+  animation: travel 1.8s ease-in-out infinite;
+}
+.mcp-arrow.delay::after { animation-delay: 0.9s; }
+
+/* Feature stagger delays */
+.feature-item:nth-child(1){transition-delay:0s}
+.feature-item:nth-child(2){transition-delay:.08s}
+.feature-item:nth-child(3){transition-delay:.16s}
+.feature-item:nth-child(4){transition-delay:.24s}
+.feature-item:nth-child(5){transition-delay:.32s}
+.feature-item:nth-child(6){transition-delay:.40s}
+.how-step:nth-child(1){transition-delay:0s}
+.how-step:nth-child(2){transition-delay:.1s}
+.how-step:nth-child(3){transition-delay:.2s}
+
+/* Profile card launch flash */
+@keyframes card-launch {
+  0%   { background: var(--bg-surface); border-color: var(--border-sub); }
+  40%  { background: rgba(137,207,255,0.08); border-color: rgba(137,207,255,0.3); }
+  100% { background: var(--bg-surface); border-color: var(--border-sub); }
+}
+.profile-card.launching { animation: card-launch 1.2s ease forwards; }
+
+/* Sync indicator animation */
+@keyframes spin { to { transform: rotate(360deg); } }
+.syncing { display: inline-block; animation: spin 1.2s linear infinite; }
+
+/* Feature badge chips */
+.feat-badge {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 4px; margin-bottom: 10px;
+  background: var(--accent-bg); color: var(--accent); border: 1px solid rgba(137,207,255,0.2);
+}
+
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .features-grid { grid-template-columns: 1fr; gap: 36px; }
+  .how-steps { flex-direction: column; gap: 48px; }
+  .how-step { padding-right: 0; }
+  .step-arrow { display: none; }
+  .profile-grid { grid-template-columns: 1fr; }
+  .mac-body { height: auto; flex-direction: column; }
+  .mac-sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-sub); display: flex; flex-wrap: wrap; padding: 12px; gap: 4px; }
+  .sidebar-label { display: none; }
+  .sidebar-item { padding: 7px 12px; border-radius: var(--radius-sm); }
+  .mac-main { padding: 16px; }
+  .platform-row { flex-direction: column; align-items: center; }
+  .platform-btn { width: 100%; max-width: 280px; flex-direction: row; justify-content: flex-start; gap: 14px; padding: 16px 24px; }
+  .mcp-diagram { flex-wrap: wrap; gap: 8px; }
+  .mcp-arrow { display: none; }
+}
+@media (max-width: 480px) {
+  section { padding-block: 64px; }
+  .hero-content { padding-block: 72px 48px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ Navigation ══════════════════════════════════════════ -->
+<nav class="nav">
+  <div class="inner nav-inner">
+    <a href="/" class="nav-logo" aria-label="Seknova home">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 128 128" aria-hidden="true">
+        <defs>
+          <linearGradient id="g1" x2=".75" y2="1" gradientUnits="objectBoundingBox">
+            <stop stop-color="#203e60"/><stop offset="1" stop-color="#0b192b"/>
+          </linearGradient>
+        </defs>
+        <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#g1)"/>
+        <g transform="rotate(-8 64 64)">
+          <path fill="#e3f4ff" d="M98 32v9a5 5 0 0 1-5 5H55l-9 10 24 7-12 12-23-7c-9-3-12-11-6-19l14-16a13 13 0 0 1 10-5h17l5 4z"/>
+          <path fill="#89cfff" transform="rotate(180 64 64)" d="M98 32v9a5 5 0 0 1-5 5H55l-9 10 24 7-12 12-23-7c-9-3-12-11-6-19l14-16a13 13 0 0 1 10-5h17l5 4z"/>
+        </g>
+      </svg>
+      Seknova
+    </a>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how-it-works">How it works</a></li>
+      <li><a href="#compare">Compare</a></li>
+      <li><a href="https://github.com/irensaltali/sekvona" target="_blank" rel="noopener">Docs</a></li>
+    </ul>
+    <div class="nav-actions">
+      <a href="https://buymeacoffee.com/irensaltali" target="_blank" rel="noopener" class="bmc-btn" aria-label="Buy me a coffee">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.216 6.415l-.132-.666c-.119-.598-.388-1.163-.789-1.624-.389-.449-.889-.801-1.45-.99-1.028-.336-2.066-.09-3.001.206-.404.126-.811.267-1.22.407-.409.14-.82.28-1.235.405-.657.198-1.325.374-1.998.526l-.165.038c-.437.098-.882.182-1.33.254-.448.072-.9.133-1.355.183-.455.05-.912.09-1.37.117-.459.027-.919.044-1.38.052l-.16.004c-.49.011-.98.015-1.47.015-.482 0-.963-.003-1.44-.01-.477-.007-.952-.02-1.424-.04-.473-.02-.942-.046-1.41-.079-.467-.033-.93-.072-1.39-.117a16.1 16.1 0 0 1-1.345-.183c-.448-.072-.893-.156-1.33-.254l-.165-.038c-.673-.152-1.341-.328-1.998-.526-.415-.125-.826-.265-1.235-.405-.409-.14-.816-.281-1.22-.407-.935-.296-1.973-.542-3.001-.206-.562.189-1.062.541-1.451.99-.401.461-.67 1.026-.789 1.624l-.132.666c-.038.195-.056.393-.056.591v5.25c0 .91.172 1.814.508 2.656.336.842.828 1.613 1.447 2.267.619.654 1.355 1.19 2.167 1.57.812.38 1.692.57 2.578.57h11.5c.887 0 1.766-.19 2.579-.57.812-.38 1.548-.916 2.167-1.57.619-.654 1.11-1.425 1.447-2.267.336-.842.508-1.746.508-2.656V7.006c0-.198-.018-.396-.056-.591zm-1.944 5.84c0 .707-.133 1.408-.396 2.063-.263.655-.645 1.253-1.127 1.762-.482.509-1.058.924-1.692 1.219-.635.295-1.32.448-2.012.448H8.955c-.692 0-1.377-.153-2.012-.448-.634-.295-1.21-.71-1.692-1.219-.482-.509-.864-1.107-1.127-1.762-.263-.655-.396-1.356-.396-2.063V7.006c0-.116.01-.23.031-.342l.132-.666a1.9 1.9 0 0 1 .442-.91c.218-.25.496-.448.804-.549.636-.208 1.323-.072 2.19.198.4.126.808.266 1.218.407.41.14.823.282 1.238.408.68.204 1.37.388 2.065.546l.165.038c.44.099.888.184 1.34.257.452.073.908.135 1.368.185.46.05.921.09 1.383.117.462.027.925.044 1.388.052l.16.004c.491.011.983.016 1.475.016.484 0 .966-.004 1.447-.012.481-.008.96-.021 1.436-.04.476-.02.95-.046 1.42-.08.47-.034.937-.073 1.4-.118.463-.045.923-.097 1.378-.158.455-.061.905-.131 1.35-.21l.165-.038c.695-.158 1.385-.342 2.065-.546.415-.126.828-.268 1.238-.408.41-.141.818-.281 1.218-.407.867-.27 1.554-.406 2.19-.198.308.101.586.3.804.549.218.249.374.556.442.91l.132.666c.021.112.031.226.031.342v5.25z"/></svg>
+        Support
+      </a>
+      <a href="https://github.com/irensaltali/sekvona" target="_blank" rel="noopener" class="btn-ghost-sm" aria-label="GitHub">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+        GitHub
+      </a>
+      <a href="#download" class="btn-primary-sm">Download</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ══ Hero ════════════════════════════════════════════════ -->
+<section class="hero-wrap" aria-label="Hero">
+  <canvas id="depth-canvas" aria-hidden="true"></canvas>
+  <div class="inner hero-content">
+    <div class="hero-badge"><span></span>Open Source · MIT License</div>
+    <h1 class="hero-h1">
+      <em>Multi-session browsers</em><br>
+      <strong>managed by AI agents.</strong>
+    </h1>
+    <p class="hero-sub">Run dozens of isolated browser profiles simultaneously. Control every one through a native MCP server. Sync across machines with no backend.</p>
+    <div class="hero-actions">
+      <a href="#download" class="btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download for Mac
+      </a>
+      <a href="https://github.com/irensaltali/sekvona" target="_blank" rel="noopener" class="btn-ghost">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <p class="hero-compat">
+      Works with Claude
+      <span class="hero-compat-dot">·</span>
+      Cursor
+      <span class="hero-compat-dot">·</span>
+      Codex
+      <span class="hero-compat-dot">·</span>
+      Kiro
+    </p>
+  </div>
+</section>
+
+<!-- ══ App mockup ══════════════════════════════════════════ -->
+<div class="mockup-section">
+  <div class="inner">
+    <div class="mac-window" role="img" aria-label="Seknova app showing 4 browser profiles">
+      <div class="mac-titlebar">
+        <div class="traffic-lights" aria-hidden="true">
+          <div class="tl tl-red"></div>
+          <div class="tl tl-yellow"></div>
+          <div class="tl tl-green"></div>
+        </div>
+        <div class="mac-title">Seknova — 4 profiles</div>
+      </div>
+      <div class="mac-body">
+        <!-- Sidebar -->
+        <nav class="mac-sidebar" aria-label="App sidebar">
+          <div class="sidebar-label">Workspace</div>
+          <div class="sidebar-item active">
+            <svg class="feature-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Profiles
+          </div>
+          <div class="sidebar-item">
+            <svg class="feature-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/></svg>
+            Projects
+          </div>
+          <div class="sidebar-label">System</div>
+          <div class="sidebar-item">
+            <svg class="feature-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            MCP Server
+          </div>
+          <div class="sidebar-item">
+            <svg class="feature-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Settings
+          </div>
+        </nav>
+        <!-- Main area -->
+        <main class="mac-main">
+          <div class="main-topbar">
+            <span class="main-title-row">All Profiles</span>
+            <button class="btn-new">+ New Profile</button>
+          </div>
+          <div class="profile-grid">
+            <div class="profile-card">
+              <div class="avatar av-blue">S</div>
+              <div class="profile-info">
+                <div class="profile-name">Sales Outreach</div>
+                <div class="profile-tags">
+                  <span class="tag tag-cloak">CloakBrowser</span>
+                  <span class="tag tag-proxy">US · New York</span>
+                </div>
+                <div class="profile-status"><span class="status-dot dot-running"></span> Running</div>
+              </div>
+            </div>
+            <div class="profile-card">
+              <div class="avatar av-purple">R</div>
+              <div class="profile-info">
+                <div class="profile-name">Research EU</div>
+                <div class="profile-tags">
+                  <span class="tag tag-camou">Camoufox</span>
+                  <span class="tag tag-proxy">DE · Berlin</span>
+                </div>
+                <div class="profile-status"><span class="status-dot dot-running"></span> Running</div>
+              </div>
+            </div>
+            <div class="profile-card">
+              <div class="avatar av-green">Q</div>
+              <div class="profile-info">
+                <div class="profile-name">QA Testing</div>
+                <div class="profile-tags">
+                  <span class="tag tag-cloak">CloakBrowser</span>
+                  <span class="tag tag-proxy">GB · London</span>
+                </div>
+                <div class="profile-status"><span class="status-dot dot-idle"></span> Idle</div>
+              </div>
+            </div>
+            <div class="profile-card">
+              <div class="avatar av-amber">A</div>
+              <div class="profile-info">
+                <div class="profile-name">Analytics APAC</div>
+                <div class="profile-tags">
+                  <span class="tag tag-camou">Camoufox</span>
+                  <span class="tag tag-proxy">SG · Singapore</span>
+                </div>
+                <div class="profile-status"><span class="status-dot dot-idle"></span> Idle</div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Features ════════════════════════════════════════════ -->
+<section id="features" class="features-section">
+  <div class="inner">
+    <div class="features-header anim-fade-up">
+      <p class="section-eyebrow">Capabilities</p>
+      <h2 class="section-h2">Everything your agents need.<br><em>Nothing they don't.</em></h2>
+      <p class="section-sub">Seknova is the MCP manager for browser sessions — real browsers, real sessions, real control.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-item anim-fade-up">
+        <div class="feat-badge">MCP</div>
+        <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+          <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+        </svg>
+        <h3 class="feature-h3">Native MCP Server</h3>
+        <p class="feature-p">A Streamable HTTP endpoint at <code style="font-family:monospace;color:var(--accent);font-size:0.9em">127.0.0.1:7777/mcp</code> exposes every browser-drive tool — navigate, click, type, screenshot, cookies, tabs — to any MCP client.</p>
+        <div class="mcp-diagram" aria-hidden="true">
+          <div class="mcp-node">Claude / Cursor</div>
+          <div class="mcp-arrow"></div>
+          <div class="mcp-node server">:7777/mcp</div>
+          <div class="mcp-arrow delay"></div>
+          <div class="mcp-node">Browser</div>
+        </div>
+      </div>
+      <div class="feature-item anim-fade-up">
+        <div class="feat-badge">Multi-session</div>
+        <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        <h3 class="feature-h3">Parallel Browser Sessions</h3>
+        <p class="feature-p">Run dozens of isolated Chromium and Firefox profiles at the same time. Each gets its own cookies, storage, proxy, fingerprint, and timezone — zero bleed between them.</p>
+      </div>
+      <div class="feature-item anim-fade-up">
+        <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2C8.5 2 6 5 6 8c0 4 6 14 6 14s6-10 6-14c0-3-2.5-6-6-6z"/>
+          <circle cx="12" cy="8" r="2"/>
+        </svg>
+        <h3 class="feature-h3">Anti-detect Engine</h3>
+        <p class="feature-p">Canvas, WebGL, audio, fonts, and WebRTC fingerprints spoofed at the C++ level in a patched Chromium. No JS injection — the patch lives in V8 and Blink themselves.</p>
+      </div>
+      <div class="feature-item anim-fade-up">
+        <div class="feat-badge">Sync</div>
+        <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
+          <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+        </svg>
+        <h3 class="feature-h3">Encrypted Cloud Sync</h3>
+        <p class="feature-p">Profiles and MCP project configs sync across your Macs via S3, R2, or any S3-compatible store. No backend server. Coordination is pure atomic conditional writes — Kopia encrypts the data.</p>
+      </div>
+      <div class="feature-item anim-fade-up">
+        <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+        <h3 class="feature-h3">Persistent Sessions</h3>
+        <p class="feature-p">Cookies, IndexedDB, localStorage all persist on disk per profile. Your AI agent logs in once and stays logged in — across restarts, across AI sessions.</p>
+      </div>
+      <div class="feature-item anim-fade-up">
+        <div class="feat-badge">Open Source</div>
+        <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <h3 class="feature-h3">Self-hosted &amp; MIT</h3>
+        <p class="feature-p">No account, no license server, no telemetry. Profiles live in plain SQLite on your disk. <a href="https://github.com/irensaltali/sekvona" target="_blank" rel="noopener" style="color:var(--accent)">Fork it on GitHub</a> — it's fully MIT licensed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ How it works ════════════════════════════════════════ -->
+<section id="how-it-works" class="how-section">
+  <div class="inner">
+    <p class="section-eyebrow">Setup</p>
+    <h2 class="section-h2">From install to <em>agent-ready</em><br>in three steps.</h2>
+    <div class="how-steps">
+      <div class="how-step anim-fade-up">
+        <div class="step-num" aria-hidden="true">01</div>
+        <div class="step-content">
+          <h3 class="step-h3">Create a profile</h3>
+          <p class="step-p">Name your profile, choose an engine (CloakBrowser or Camoufox), set a proxy and fingerprint persona. The profile directory is provisioned immediately.</p>
+        </div>
+        <svg class="step-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+      <div class="how-step anim-fade-up">
+        <div class="step-num" aria-hidden="true">02</div>
+        <div class="step-content">
+          <h3 class="step-h3">Connect your agent</h3>
+          <p class="step-p">Copy the bearer token from MCP → Connect. Add Seknova to your Cursor, Claude Desktop, Codex, or Kiro config — or let Projects write the config file automatically.</p>
+        </div>
+        <svg class="step-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </div>
+      <div class="how-step anim-fade-up">
+        <div class="step-num" aria-hidden="true">03</div>
+        <div class="step-content">
+          <h3 class="step-h3">Let your agent work</h3>
+          <p class="step-p">Your agent calls <code style="font-family:monospace;color:var(--accent);font-size:0.9em">launch_profile</code>, then navigates, clicks, types, and reads pages. Login state persists across every session.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Comparison ══════════════════════════════════════════ -->
+<section id="compare" class="compare-section">
+  <div class="inner">
+    <p class="section-eyebrow">Compare</p>
+    <h2 class="section-h2">Why Seknova?</h2>
+    <p class="section-sub">The only self-hosted solution that pairs native MCP with C++-level anti-detect and persistent login.</p>
+    <div class="compare-table-wrap">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th class="col-seknova">Seknova</th>
+            <th>Browserbase / Hyperbrowser</th>
+            <th>GoLogin / AdsPower</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="feature-col">Native MCP server</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td class="feature-col">Drives browser through MCP</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td class="feature-col">Anti-detect at C++ level</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="partial">Partial</span></td>
+            <td><span class="check">✓</span></td>
+          </tr>
+          <tr>
+            <td class="feature-col">Persistent login across sessions</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗ per-session</span></td>
+            <td><span class="check">✓</span></td>
+          </tr>
+          <tr>
+            <td class="feature-col">Self-hosted</td>
+            <td><span class="check">✓</span></td>
+            <td><span class="cross">✗</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+          <tr>
+            <td class="feature-col">Pay per browser-hour</td>
+            <td><span class="cross">✗</span></td>
+            <td><span class="check">✓</span></td>
+            <td><span class="partial">Varies</span></td>
+          </tr>
+          <tr>
+            <td class="feature-col">Open source core</td>
+            <td><span class="check">✓ MIT</span></td>
+            <td><span class="partial">SDK only</span></td>
+            <td><span class="cross">✗</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Download CTA ════════════════════════════════════════ -->
+<section id="download" class="download-section">
+  <div class="inner">
+    <h2 class="download-h2">Ready to give your agents<br><em>real browsers?</em></h2>
+    <p class="download-sub">Download Seknova for your platform. Free, open source, MIT licensed.</p>
+    <div class="platform-row">
+      <a href="https://github.com/irensaltali/sekvona/releases/latest" target="_blank" rel="noopener" class="platform-btn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.418 0-8-3.582-8-8s3.582-8 8-8 8 3.582 8 8-3.582 8-8 8zm-1-13v4H7l5 5 5-5h-4V7h-2z"/></svg>
+        <div>
+          <div class="platform-name">macOS</div>
+          <div style="font-size:11px;color:var(--fg-faint);">Apple Silicon &amp; Intel DMG</div>
+        </div>
+      </a>
+      <a href="https://github.com/irensaltali/sekvona/releases/latest" target="_blank" rel="noopener" class="platform-btn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M0 0h11.377v11.372H0zm12.623 0H24v11.372H12.623zM0 12.623h11.377V24H0zm12.623 0H24V24H12.623z"/></svg>
+        <div>
+          <div class="platform-name">Windows</div>
+          <div style="font-size:11px;color:var(--fg-faint);">x64 Installer</div>
+        </div>
+      </a>
+      <a href="https://github.com/irensaltali/sekvona/releases/latest" target="_blank" rel="noopener" class="platform-btn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 2c1.66 0 3.19.5 4.46 1.35L5.35 16.46A7.96 7.96 0 0 1 4 12c0-4.42 3.58-8 8-8zm0 16c-1.66 0-3.19-.5-4.46-1.35l11.11-11.11A7.96 7.96 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>
+        <div>
+          <div class="platform-name">Linux</div>
+          <div style="font-size:11px;color:var(--fg-faint);">x86-64 AppImage</div>
+        </div>
+      </a>
+    </div>
+    <a href="https://github.com/irensaltali/sekvona" target="_blank" rel="noopener" class="github-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+      Star on GitHub · irensaltali/sekvona
+    </a>
+  </div>
+</section>
+
+<!-- ══ Footer ══════════════════════════════════════════════ -->
+<footer>
+  <div class="inner">
+    <span>© 2024 Seknova</span>
+    <span class="sep">·</span>
+    <a href="https://github.com/irensaltali/sekvona/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/irensaltali/sekvona" target="_blank" rel="noopener">GitHub</a>
+    <span class="sep">·</span>
+    <span>Built with Seknova</span>
+  </div>
+</footer>
+
+<script>
+// Depth canvas
+(function () {
+  const canvas = document.getElementById('depth-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let w, h;
+  const rings = Array.from({ length: 11 }, (_, i) => ({
+    rx: 0.52 + i * 0.09, ry: 0.28 + i * 0.045,
+    opacity: 0.03 + i * 0.009,
+    speed: 0.00008 + i * 0.00003,
+    phase: (i / 11) * Math.PI * 2,
+  }));
+  function resize() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    w = canvas.width = rect.width;
+    h = canvas.height = rect.height;
+  }
+  function draw(ts) {
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2, cy = h / 2;
+    rings.forEach((r, i) => {
+      const a = r.phase + ts * r.speed;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r.rx * w * 0.5, r.ry * h * 0.5, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(32,62,96,${r.opacity})`;
+      ctx.lineWidth = 1 + (i % 3) * 0.5;
+      ctx.stroke(); ctx.restore();
+    });
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, h) * 0.55);
+    grad.addColorStop(0, 'rgba(137,207,255,0.025)');
+    grad.addColorStop(1, 'rgba(6,11,18,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+      requestAnimationFrame(draw);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) draw(0);
+  else requestAnimationFrame(draw);
+})();
+
+// Scroll-reveal
+(function () {
+  const els = document.querySelectorAll('.anim-fade-up');
+  if (!els.length) return;
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  els.forEach(el => io.observe(el));
+})();
+
+// Profile card cycling launch animation
+(function () {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const cards = document.querySelectorAll('.profile-card');
+  if (!cards.length) return;
+  let idx = 0;
+  function flash() {
+    const card = cards[idx % cards.length];
+    card.classList.remove('launching');
+    void card.offsetWidth; // reflow
+    card.classList.add('launching');
+    card.addEventListener('animationend', () => card.classList.remove('launching'), { once: true });
+    idx++;
+    setTimeout(flash, 2200 + Math.random() * 1000);
+  }
+  setTimeout(flash, 1800);
+})();
+
+// Mockup sidebar nav interactivity
+(function () {
+  document.querySelectorAll('.mac-sidebar .sidebar-item').forEach(item => {
+    item.addEventListener('click', function () {
+      document.querySelectorAll('.mac-sidebar .sidebar-item').forEach(i => i.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+})();
+</script>
+</body>
+</html>

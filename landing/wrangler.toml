@@ -1,0 +1,6 @@
+name = "seknova-landing"
+compatibility_date = "2024-11-01"
+account_id = "ccbc9926d08a298aee2a4f0cffcfc4a3"
+
+[assets]
+directory = "./dist"
